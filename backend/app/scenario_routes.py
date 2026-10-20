@@ -6,6 +6,7 @@ simulation-versus-lab comparison.
 """
 
 import copy
+import uuid
 from typing import Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException
@@ -19,11 +20,42 @@ from app.scenarios_data import SCENARIOS
 router = APIRouter(prefix="/api/scenarios", tags=["scenarios"])
 
 
+#: Edited scenarios, kept per workspace so a route change can be traced
+#: again without letting one user's edit change everyone's scenario.
+#: Bounded so it cannot grow without limit.
+_WORKSPACES: Dict[str, Scenario] = {}
+_MAX_WORKSPACES = 50
+
+
+def _store_workspace(scenario: Scenario) -> str:
+    """Save an edited scenario and return its workspace id."""
+    if len(_WORKSPACES) >= _MAX_WORKSPACES:
+        # Drop the oldest entry rather than refusing the edit.
+        oldest = next(iter(_WORKSPACES))
+        del _WORKSPACES[oldest]
+    workspace_id = uuid.uuid4().hex[:12]
+    _WORKSPACES[workspace_id] = scenario
+    return workspace_id
+
+
+def _resolve_scenario(sid: str, workspace: Optional[str]) -> Scenario:
+    """The scenario to operate on: a workspace copy if given, else the shared one."""
+    if workspace:
+        edited = _WORKSPACES.get(workspace)
+        if edited is None:
+            raise HTTPException(status_code=404, detail="Unknown or expired workspace")
+        return edited
+    return _scenario(sid)
+
+
 class TraceRequest(BaseModel):
     """Request to trace a packet through a scenario."""
 
     src: str = Field(..., description="Source node id")
     dst: str = Field(..., description="Destination IP address")
+    workspace: Optional[str] = Field(
+        None, description="Workspace id returned by a route edit, if any"
+    )
 
 
 class ScenarioSummary(BaseModel):
@@ -84,10 +116,13 @@ def trace_route(sid: str, req: TraceRequest):
 
     The trace is produced by the same scenario definition that the lab builder
     uses, so simulation and reality stay comparable.
+
+    Passing a workspace id traces the edited copy, so a route change is
+    reflected in the next simulation.
     """
     import ipaddress
 
-    scenario = _scenario(sid)
+    scenario = _resolve_scenario(sid, req.workspace)
     try:
         ipaddress.ip_address(req.dst)
     except ValueError:
@@ -105,8 +140,9 @@ def set_routes(sid: str, nid: str, update: RouteUpdate):
     Replace the static routes of a node.
 
     Works on a copy so that a malformed request cannot corrupt the shared
-    scenario registry. The updated scenario is returned for preview only; call
-    the trace endpoint again to see the new result.
+    scenario registry. The updated scenario is returned along with a
+    workspace id; pass that id to the trace endpoint to see the effect of
+    the edit.
     """
     scenario = _scenario(sid)
     working = scenario.model_copy(deep=True)
@@ -127,7 +163,11 @@ def set_routes(sid: str, nid: str, update: RouteUpdate):
     except Exception as exc:
         raise HTTPException(status_code=422, detail=f"Invalid scenario after edit: {exc}")
 
-    return working.model_dump()
+    workspace_id = _store_workspace(working)
+    return {
+        "scenario": working.model_dump(),
+        "workspace": workspace_id,
+    }
 
 
 @router.post("/{sid}/lab/apply", response_model=LabResult)
@@ -157,7 +197,7 @@ def compare(sid: str, req: TraceRequest):
     When the lab is unavailable the agreement field is null; no result is
     invented to make the comparison look conclusive.
     """
-    scenario = _scenario(sid)
+    scenario = _resolve_scenario(sid, req.workspace)
     simulated = trace(scenario, req.src, req.dst)
     real = lab.probe(req.src, req.dst)
 
@@ -174,7 +214,7 @@ def compare(sid: str, req: TraceRequest):
 
 
 @router.get("/{sid}/topology", response_model=TopologyGraph)
-async def get_topology(sid: str):
+async def get_topology(sid: str, workspace: Optional[str] = None):
     """
     Build a topology graph for a scenario from two kinds of evidence.
 
@@ -185,5 +225,5 @@ async def get_topology(sid: str):
     Every node and edge carries its own provenance so the client can
     colour them differently and the user can tell measured from modelled.
     """
-    scenario = _scenario(sid)
+    scenario = _resolve_scenario(sid, workspace)
     return await build_topology(scenario)

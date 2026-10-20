@@ -20,6 +20,7 @@ import { fetchScenarioTopology } from '../api/routing';
 import ProvenanceBadge from './ProvenanceBadge';
 import ComparePanel from './ComparePanel';
 import TopologyGraphPanel from './TopologyGraph';
+import RouteEditor from './RouteEditor';
 import './ScenarioJourney.css';
 
 interface ScenarioJourneyProps {
@@ -27,7 +28,9 @@ interface ScenarioJourneyProps {
   trace: ScenarioTrace | null;
   loading: boolean;
   error: string | null;
-  onTrace: (src: string, dst: string) => void;
+  /** Workspace id from the last route edit, so the edit is traced. */
+  workspace?: string | null;
+  onTrace: (src: string, dst: string, workspace?: string | null) => void;
 }
 
 const STATUS_LABELS: Record<TraceStatus, string> = {
@@ -68,6 +71,7 @@ export default function ScenarioJourney({
   trace,
   loading,
   error,
+  workspace,
   onTrace,
 }: ScenarioJourneyProps) {
   const [currentHop, setCurrentHop] = useState(0);
@@ -78,16 +82,24 @@ export default function ScenarioJourney({
   const [topologyLoading, setTopologyLoading] = useState(false);
   const [topologyError, setTopologyError] = useState<string | null>(null);
 
+  // Which node's routes are being edited, and the local copy of the
+  // scenario that reflects the last saved edit.
+  const [editingNode, setEditingNode] = useState<string | null>(null);
+  const [editedScenario, setEditedScenario] = useState<Scenario | null>(null);
+
+  // The scenario currently shown is the edited copy when there is one.
+  const activeScenario = editedScenario ?? scenario;
+
   // Load the topology whenever the scenario changes.
   useEffect(() => {
-    if (!scenario) {
+    if (!activeScenario) {
       setTopology(null);
       return;
     }
     let cancelled = false;
     setTopologyLoading(true);
     setTopologyError(null);
-    fetchScenarioTopology(scenario.id)
+    fetchScenarioTopology(activeScenario.id, workspace)
       .then((graph) => {
         if (!cancelled) setTopology(graph);
       })
@@ -104,7 +116,7 @@ export default function ScenarioJourney({
     return () => {
       cancelled = true;
     };
-  }, [scenario]);
+  }, [activeScenario, workspace]);
 
   const hops = trace?.hops ?? [];
   const activeIndex = Math.min(currentHop, Math.max(0, hops.length - 1));
@@ -114,13 +126,13 @@ export default function ScenarioJourney({
     e.preventDefault();
     if (!source.trim() || !destination.trim()) return;
     setCurrentHop(0);
-    onTrace(source.trim(), destination.trim());
+    onTrace(source.trim(), destination.trim(), workspace);
   };
 
   const handleReplay = () => {
     if (!source.trim() || !destination.trim()) return;
     setCurrentHop(0);
-    onTrace(source.trim(), destination.trim());
+    onTrace(source.trim(), destination.trim(), workspace);
   };
 
   const isFailure = trace ? trace.status !== 'delivered' : false;
@@ -148,7 +160,7 @@ export default function ScenarioJourney({
               required
             >
               <option value="">Choose a device…</option>
-              {scenario?.nodes.map((node) => (
+              {activeScenario?.nodes.map((node) => (
                 <option key={node.id} value={node.id}>
                   {node.id} ({node.kind})
                 </option>
@@ -343,6 +355,40 @@ export default function ScenarioJourney({
             loading={topologyLoading}
             error={topologyError}
           />
+
+          {activeScenario && (
+            <div className="route-editor-section">
+              <div className="route-editor-picker">
+                <label htmlFor="route-editor-node">Edit routes on:</label>
+                <select
+                  id="route-editor-node"
+                  value={editingNode ?? ''}
+                  onChange={(e) => setEditingNode(e.target.value || null)}
+                >
+                  <option value="">Choose a device…</option>
+                  {activeScenario.nodes.map((node) => (
+                    <option key={node.id} value={node.id}>
+                      {node.id} ({node.kind})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {editingNode && (
+                <RouteEditor
+                  scenario={activeScenario}
+                  nodeId={editingNode}
+                  onSaved={(updated, updatedWorkspace) => {
+                    setEditedScenario(updated);
+                    // Re-run the same trace so the effect of the edit is visible.
+                    if (source.trim() && destination.trim()) {
+                      onTrace(source.trim(), destination.trim(), updatedWorkspace);
+                    }
+                  }}
+                />
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>

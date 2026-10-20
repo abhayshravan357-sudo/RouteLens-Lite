@@ -177,9 +177,11 @@ class TestScenarioAPI:
             )
         assert response.status_code == 200
         data = response.json()
-        router = next(n for n in data["nodes"] if n["id"] == "router")
+        router = next(n for n in data["scenario"]["nodes"] if n["id"] == "router")
         assert len(router["routes"]) == 1
         assert router["routes"][0]["metric"] == 5
+        # A workspace id is returned so the edit can be traced.
+        assert data["workspace"]
 
     @pytest.mark.asyncio
     async def test_set_routes_invalid_prefix(self):
@@ -221,3 +223,68 @@ class TestScenarioAPI:
             after = (await client.get("/api/scenarios/client-router-server")).json()
             router_after = next(n for n in after["nodes"] if n["id"] == "router")
             assert router_after["routes"][0]["metric"] == original_metric
+
+    @pytest.mark.asyncio
+    async def test_route_edit_changes_the_next_trace(self):
+        """A saved route change must be visible in the next simulation."""
+        async with _client() as client:
+            # Before the edit, the router forwards using its directly
+            # connected 10.0.0.0/24, which is more specific than any
+            # default route.
+            before = await client.post(
+                "/api/scenarios/client-router-server/trace",
+                json={"src": "client", "dst": "10.0.0.2"},
+            )
+            assert before.json()["status"] == "delivered"
+            router_hop = before.json()["hops"][1]
+            assert router_hop["matched"]["prefix"] == "10.0.0.0/24"
+            assert router_hop["matched"]["source"] == "connected"
+
+            # Now edit the router so the server is reached through a
+            # more specific static route than the connected network.
+            saved = await client.put(
+                "/api/scenarios/client-router-server/nodes/router/routes",
+                json={
+                    "routes": [
+                        {
+                            "prefix": "10.0.0.2/32",
+                            "dev": "eth1",
+                            "via": "10.0.0.2",
+                            "metric": 5,
+                        }
+                    ]
+                },
+            )
+            assert saved.status_code == 200
+            workspace = saved.json()["workspace"]
+
+            # Tracing with the workspace uses the edited routes.
+            after = await client.post(
+                "/api/scenarios/client-router-server/trace",
+                json={"src": "client", "dst": "10.0.0.2", "workspace": workspace},
+            )
+            assert after.status_code == 200
+            edited_hop = after.json()["hops"][1]
+            assert edited_hop["matched"]["source"] == "static"
+            assert edited_hop["matched"]["prefix"] == "10.0.0.2/32"
+            assert edited_hop["matched"]["metric"] == 5
+            assert edited_hop["matched"]["via"] == "10.0.0.2"
+
+            # The shared scenario still has the original connected route.
+            shared = await client.post(
+                "/api/scenarios/client-router-server/trace",
+                json={"src": "client", "dst": "10.0.0.2"},
+            )
+            shared_hop = shared.json()["hops"][1]
+            assert shared_hop["matched"]["source"] == "connected"
+
+    @pytest.mark.asyncio
+    async def test_unknown_workspace_is_rejected(self):
+        """A workspace id that does not exist is reported clearly."""
+        async with _client() as client:
+            response = await client.post(
+                "/api/scenarios/client-router-server/trace",
+                json={"src": "client", "dst": "10.0.0.2", "workspace": "nope"},
+            )
+        assert response.status_code == 404
+        assert "workspace" in response.json()["detail"].lower()

@@ -242,12 +242,17 @@ export async function traceScenario(
   );
 }
 
+export interface ScenarioRouteUpdate {
+  scenario: Scenario;
+  workspace: string;
+}
+
 export async function updateScenarioRoutes(
   scenarioId: string,
   nodeId: string,
   routes: Partial<ScenarioRoute>[]
-): Promise<Scenario> {
-  return fetchWithTimeout<Scenario>(
+): Promise<ScenarioRouteUpdate> {
+  return fetchWithTimeout<ScenarioRouteUpdate>(
     `/api/scenarios/${encodeURIComponent(scenarioId)}/nodes/${encodeURIComponent(nodeId)}/routes`,
     10000,
     {
@@ -295,9 +300,13 @@ export async function compareScenarioWithLab(
   );
 }
 
-export async function fetchScenarioTopology(scenarioId: string): Promise<TopologyGraph> {
+export async function fetchScenarioTopology(
+  scenarioId: string,
+  workspace?: string | null
+): Promise<TopologyGraph> {
+  const query = workspace ? `?workspace=${encodeURIComponent(workspace)}` : '';
   return fetchWithTimeout<TopologyGraph>(
-    `/api/scenarios/${encodeURIComponent(scenarioId)}/topology`,
+    `/api/scenarios/${encodeURIComponent(scenarioId)}/topology${query}`,
     15000
   );
 }

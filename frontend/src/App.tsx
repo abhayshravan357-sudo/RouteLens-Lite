@@ -48,6 +48,7 @@ function App() {
   const [scenarioTrace, setScenarioTrace] = useState<ScenarioTrace | null>(null);
   const [scenarioLoading, setScenarioLoading] = useState(false);
   const [scenarioError, setScenarioError] = useState<string | null>(null);
+  const [scenarioWorkspace, setScenarioWorkspace] = useState<string | null>(null);
 
   // Check backend health on mount
   useEffect(() => {
@@ -128,15 +129,24 @@ function App() {
   }, [backendConnected]);
 
   // Trace a packet through the selected scenario
-  const handleScenarioTrace = async (src: string, dst: string) => {
+  const handleScenarioTrace = async (
+    src: string,
+    dst: string,
+    workspace?: string | null
+  ) => {
     if (!selectedScenario) return;
 
     setScenarioLoading(true);
     setScenarioError(null);
     setScenarioTrace(null);
     try {
-      const result = await traceScenario(selectedScenario.id, { src, dst });
+      const result = await traceScenario(selectedScenario.id, {
+        src,
+        dst,
+        workspace: workspace ?? undefined,
+      });
       setScenarioTrace(result);
+      if (workspace) setScenarioWorkspace(workspace);
     } catch (error) {
       if (error instanceof TimeoutError) {
         setScenarioError('The trace request timed out.');
@@ -380,6 +390,7 @@ function App() {
                   trace={scenarioTrace}
                   loading={scenarioLoading}
                   error={scenarioError}
+                  workspace={scenarioWorkspace}
                   onTrace={handleScenarioTrace}
                 />
               </div>

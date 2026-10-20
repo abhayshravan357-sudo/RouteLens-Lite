@@ -369,6 +369,8 @@ export interface ScenarioTrace {
 export interface ScenarioTraceRequest {
   src: string;
   dst: string;
+  /** Workspace id returned by a route edit, so the edit is traced. */
+  workspace?: string | null;
 }
 
 export interface LabRunResult {
