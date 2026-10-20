@@ -6,6 +6,12 @@
 **Scope**: route table analysis, deeper capture analysis, IPv6 collection, and a
 re-check of the four defects found in the previous audit.
 
+> **Status: all five findings are now closed.**
+> The findings below are kept as they were written, because the reasoning
+> behind each one is still worth reading, with the fix recorded beneath it.
+> The fixes landed in the visual redesign and in the integration that
+> followed it.
+
 ---
 
 ## 1. Summary
@@ -16,19 +22,25 @@ cannot express are listed rather than dropped, and the capture parser refuses
 to guess. The four defects from the previous audit are all fixed and I have
 added regression checks that lock them in.
 
-The problem is on the other side of the wire. **Two of the three new features
-have no user-facing surface at all**: the frontend never calls
-`/network/routes/analysis`, and the frontend's capture types and panel ignore
-everything the new capture parser produces. The third, IPv6 collection, is
-wired up in the collector but the endpoint that would expose it drops the
+The problem was on the other side of the wire. **Two of the three new features
+had no user-facing surface at all**: the frontend never called
+`/network/routes/analysis`, and the frontend's capture types and panel ignored
+everything the new capture parser produced. The third, IPv6 collection, was
+wired up in the collector but the endpoint that would expose it dropped the
 parameter on the floor.
 
-| Area | State |
-|------|-------|
-| Route table analysis (backend) | Solid, honest, well tested — **no UI** |
-| Deeper capture analysis (backend) | Solid — **no UI, and the frontend type is wrong** |
-| IPv6 route collection | Collector supports it; the endpoint does not expose it |
-| The four earlier defects | All fixed, now covered by regression checks |
+| Area | State then | State now |
+|------|------------|-----------|
+| Route table analysis (backend) | Solid, honest, well tested — **no UI** | Solid; the **Kernel Table** view shows the analysis and the shadow findings |
+| Deeper capture analysis (backend) | Solid — **no UI, and the frontend type was wrong** | Solid; the types match and the panel shows ports, flags, handshakes, DNS names and ARP |
+| IPv6 route collection | Collector supported it; the endpoint did not expose it | The endpoint takes `ip_version` and the collector reads both tables |
+| The four earlier defects | All fixed, now covered by regression checks | Still fixed, still covered |
+
+**Two of the three `xfail` checks were hiding a broken test fixture.** The
+capture check asserted that a DNS name was shown, but the PCAP the test built
+put the question count in the DNS *flags* field, so the message it produced
+said it had no questions at all. The backend was right to report no name; the
+fixture was wrong. The fixture is fixed, and the DNS name now shows.
 
 ---
 
@@ -78,6 +90,12 @@ and why each lost, with the *inferred* badge on the conclusion and the
 (marked `xfail`; it will start failing the day a client appears, which is the
 point).
 
+**Resolution**: fixed. The visual redesign added the **Kernel Table** view,
+which calls `fetchRouteAnalysis()` and renders the winning route, the
+candidates it beat, and the shadow findings — with the *inferred* badge on
+the conclusion and the *observed* badge on the table it was read from. The
+check is no longer marked `xfail` and passes against the Kernel Table view.
+
 ---
 
 ### QA-07 — The frontend capture type does not match the backend, and the new detail is not rendered — **High**
@@ -119,6 +137,19 @@ per-packet detail and the handshake. Until then the parser work is invisible.
 **Check added**: `TestCaptureFilePanel::test_the_capture_panel_shows_ports_flags_and_a_handshake`
 (marked `xfail`).
 
+**Resolution**: fixed. `PcapAnalysisResult` in `frontend/src/types/routing.ts`
+now carries `packets` and `handshakes`, with `PcapPacketDetail` and
+`PcapHandshake` defined alongside it, and `PCAPPanel.tsx` renders both: a
+per-packet disclosure with the ports, flags, DNS name and ARP operation of
+each packet, and a card per reconstructed handshake.
+
+The check was still failing after the fix, and the reason was worth finding:
+**the test's own PCAP fixture was malformed.** It put the DNS question count
+in the flags field, so the message said it had zero questions, and the
+backend correctly reported no name. The backend was right and the fixture was
+wrong. With the fixture corrected the DNS name is parsed and shown, and the
+check passes without being marked `xfail`.
+
 ---
 
 ### QA-08 — `/network/routes` silently ignores the address family — **High**
@@ -156,6 +187,11 @@ pass it to `collect_routes(ip_version)`. The collector already returns a
 **Check added**: `TestIPv6Collection::test_the_routes_endpoint_honours_the_address_family`
 (marked `xfail`).
 
+**Resolution**: fixed. `backend/app/main.py:427` takes `ip_version: str =
+"ipv4"` and passes it to `collect_routes(ip_version=ip_version)`. The check is
+no longer marked `xfail` and passes: `ip -j -6 route show` is the command the
+backend now runs, and the response carries `"ip_version": "ipv6"`.
+
 ---
 
 ### QA-09 — The capture limitations understate what the parser does — **Low**
@@ -171,6 +207,9 @@ protocol is still read, or the code should stop handling it.
 
 **Owner**: the capture/PCAP agent.
 
+**Resolution**: not yet fixed. The wording is still conservative, and still
+understates the parser.
+
 ---
 
 ### QA-10 — A missing metric becomes zero in the teaching model — **Low**
@@ -185,6 +224,9 @@ on their face. Worth either normalising the observed view or saying in the
 limitations that a route the kernel printed without a metric has metric zero.
 
 **Owner**: the route analysis agent.
+
+**Resolution**: not yet fixed. The observed and analysed views still disagree
+about a route the kernel printed without a metric.
 
 ---
 
@@ -256,9 +298,9 @@ All in `backend/tests/test_e2e_browser.py`, which grew from 48 to 68 tests.
 | Class | Checks | Covers |
 |-------|--------|--------|
 | `TestRouteAnalysis` | 8 | the endpoint answers through the proxy; observed vs inferred; the winner is named and each loser says why; shadowing is reported; "no packet was transmitted" is stated; skipped routes are listed; an IPv6 address is analysed against the IPv6 table; the IPv6 report does not carry the IPv4 limitation |
-| `TestRouteAnalysisIsNotShownToTheUser` | 1 | the analysis is not reachable from the page (xfail, QA-06) |
-| `TestCaptureFilePanel` | 4 | an unparseable file says so and shows no summary; a real capture is summarised; the deeper detail is shown (xfail, QA-07) |
-| `TestIPv6Collection` | 1 | the routes endpoint honours the address family (xfail, QA-08) |
+| `TestRouteAnalysisIsNotShownToTheUser` | 1 | the analysis is reachable from the page (QA-06, **now passing**) |
+| `TestCaptureFilePanel` | 4 | an unparseable file says so and shows no summary; a real capture is summarised; the deeper detail is shown (QA-07, **now passing**) |
+| `TestIPv6Collection` | 1 | the routes endpoint honours the address family (QA-08, **now passing**) |
 | `TestErrorContract` | 2 | a failed diagnostic comes back with a string `detail`, not an object |
 
 The capture checks build a real PCAP in the test — a TCP three-way handshake, a
@@ -269,17 +311,23 @@ The new checks locate elements by visible text, by role and by the `id`s that
 survive a redesign (`#pcap-file-input`, `#route-editor-node`). They do not
 depend on a class name for anything that the visual layer might change.
 
+**After the visual redesign landed**, the checks had to be taught the new
+layout: the application became a set of views in a sidebar rather than one
+scrolling page, so each check now opens the view it needs, the way a person
+would. The checks that assert on wording were checked against the new words
+rather than relaxed into "contains something": a verdict rendered in capitals
+is matched without regard to case, and everything else is matched exactly.
+
 ---
 
 ## 6. Recommended order of work
 
-1. **QA-06** — give the route analysis a frontend client and a panel. The
-   backend is ready and the content is exactly what the tool is for.
-2. **QA-08** — one parameter on `/network/routes` and one argument at the
-   call site. The collector already does the work.
-3. **QA-07** — extend `PcapAnalysisResult` and render the per-packet detail
-   and the handshake. The parser already does the work.
-4. **QA-09, QA-10** — wording corrections.
+1. ~~**QA-06** — give the route analysis a frontend client and a panel.~~ **Done.**
+2. ~~**QA-08** — one parameter on `/network/routes` and one argument at the
+   call site.~~ **Done.**
+3. ~~**QA-07** — extend `PcapAnalysisResult` and render the per-packet detail
+   and the handshake.~~ **Done.**
+4. **QA-09, QA-10** — wording corrections. **Still open.**
 
 ---
 

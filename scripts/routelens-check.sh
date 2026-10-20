@@ -237,8 +237,10 @@ main() {
     log_info "RouteLens Quality Check Starting..."
     log_info "Repository: ${REPO_ROOT}"
     
-    # Verify we're in the correct repository
-    if [[ ! -d "${REPO_ROOT}/.git" ]]; then
+    # Verify we're in the correct repository. `.git` is a directory in a
+    # clone but a file in a linked worktree, so it is tested for existence
+    # rather than for being a directory.
+    if [[ ! -e "${REPO_ROOT}/.git" ]]; then
         log_error "Not a Git repository: ${REPO_ROOT}"
         exit 1
     fi

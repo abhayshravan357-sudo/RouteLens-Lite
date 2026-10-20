@@ -40,9 +40,13 @@ It is worth being clear about this, because the name invites the wrong idea.
   neighbour cache, DNS resolution, connectivity checks and traceroute.
 - **A capture file importer** that reads a PCAP or PCAPNG and extracts ports,
   TCP flags, three-way handshakes, DNS names, ICMP types and ARP addresses.
+- **The machine's own kernel routing table**, read from the kernel rather
+  than from a sample, with the analysis of what it would do with an address
+  and which route shadows which.
 - **An evidence-based topology map** of the scenario and the machine.
 - **A learning lab** whose exercises are marked by the routing engine, not by
-  a hand-written answer key.
+  a hand-written answer key. Some of them run against the routing table of
+  the machine you are sitting at.
 - **Authorised host discovery** with a confirmation step and an audit trail of
   what was asked for and what was refused.
 - **An exportable report** listing every claim with its source, its time, and
@@ -133,8 +137,11 @@ python -m pytest -q
 ```
 
 ```
-539 passed, 2 skipped, 1 warning in 26.29s
+661 passed, 3 skipped, 1 warning in 391.55s
 ```
+
+(The three skipped checks are the browser ones, which skip cleanly when
+Playwright is not installed.)
 
 **Frontend** — type check and production build:
 
@@ -164,12 +171,12 @@ python -m pytest tests/test_e2e_browser.py -q -p no:cacheprovider
 ```
 
 ```
-61 passed, 3 xfailed, 0 failed
+62 passed, 0 failed
 ```
 
-The three `xfail` checks are for features that exist in the API but have no
-screen yet; they are there so the gap is visible and so they start failing
-the day a screen appears.
+Every check runs against the real application in a real browser. There are no
+expected failures: the gaps the independent review found are either fixed or
+covered by a check that says so.
 
 These checks **skip cleanly** if Playwright or the backend is not there, so an
 ordinary `pytest` run is never blocked by them.
@@ -181,28 +188,36 @@ bash scripts/routelens-check.sh
 ```
 
 That runs the git whitespace check, the backend suite, the type check and the
-build, and writes a report under `.routelens/reports/`. It expects a normal
-clone, so run it from the top of the repository rather than from inside a git
-worktree.
+build, and writes a report under `.routelens/reports/`. It works in a clone or
+in a git worktree.
 
 ## How to use it
 
 A sensible first ten minutes:
 
-1. Open the app. The overview answers what the app can see and what it cannot.
-2. In **Route Lookup**, enter `192.168.1.50`. Read the explanation: it says
-   which prefix won and which one lost, and why.
-3. Now edit the table. Add a `203.0.113.0/24` route, then look up
-   `203.0.113.9` again and watch the answer change. Remove it and watch it go
-   back. This is the same routing engine the exercises use.
-4. Open the **Scenario Lab**, pick *Client → Router → Server*, and send a
-   packet. Every hop shows the route it picked and the routes it beat.
-5. Open the **Learning Lab** and do an exercise. When you get it wrong, the
-   feedback says which hop went the wrong way, not just that you were wrong.
-6. Open the **Network Diagnostics** tab and look at the interfaces, routes
-   and neighbours of the machine you are sitting at.
-7. Finally, build the **report** and read its limitations section. It tells
-   you what was measured, what was inferred, and what could not be established.
+The application is a set of views down the left-hand side. Only one is open at
+a time, so start at the top and work down.
+
+1. **Overview** answers what the app can see and what it cannot.
+2. **Routing Analyzer** — enter `192.168.1.50`. Read the explanation: it says
+   which prefix won and which one lost, and why. Then edit the table below
+   it: add a `203.0.113.0/24` route, look up `203.0.113.9` again and watch
+   the answer change. The panel compares the answer before and after your
+   edit. This is the same routing engine the exercises use.
+3. **Kernel Table** — this one is not a model. It is the routing table the
+   machine you are sitting at actually holds, read from the kernel, with the
+   analysis of what it would do and which route shadows which.
+4. **Packet Journey** — pick *Client → Router → Server* and send a packet.
+   Every hop shows the route it picked and the routes it beat.
+5. **Learning Lab** — do an exercise. When you get it wrong, the feedback says
+   which hop went the wrong way, not just that you were wrong. Three of the
+   exercises ask about your own machine's table.
+6. **Network Diagnostics** — the interfaces, routes and neighbours of the
+   machine you are sitting at, along with DNS, connectivity, traceroute and
+   the capture file importer.
+7. Finally, build the **report** on the Overview and read its limitations
+   section. It tells you what was measured, what was inferred, and what could
+   not be established.
 
 ## Limitations
 
@@ -214,13 +229,10 @@ The project tries not to claim more than it does, and these are the real ones:
 - **Only the main routing table is read.** The kernel keeps local and
   broadcast routes in separate tables, so an address this host owns may have
   no entry of its own in what you see.
-- **The capture importer summarises rather than itemises.** It parses ports,
-  flags, handshakes, DNS names and ARP out of a PCAP, but the panel currently
-  shows the summary, the hosts and the conversations — the per-packet detail
-  is in the API response, not yet on the screen.
-- **The real-table analysis is not on the screen yet.** The endpoint that
-  explains the host's own routing table works and is covered by tests, but
-  the page does not yet show it.
+- **The capture panel itemises behind a disclosure.** It parses ports, flags,
+  handshakes, DNS names and ARP out of a PCAP, and the panel shows all of it —
+  but each packet's facts are collapsed until you open it, so the summary
+  looks thinner than the data behind it.
 - **Fragments, VLAN tags and DNS over TCP are not decoded.** The importer says
   so in its own limitations rather than guessing.
 - **The scenario lab is a model.** Its routes are the ones you gave it, not

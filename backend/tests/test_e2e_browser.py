@@ -1140,9 +1140,18 @@ def _udp(src_port, dst_port, payload):
 
 
 def _dns_query(name):
+    """
+    A DNS query message.
+
+    The header is: id, flags, question count, answer count, authority
+    count, additional count. The question count is at bytes 4 to 6; bytes
+    2 to 4 are the flags, where a standard query sets the recursion
+    desired bit.
+    """
     labels = b"".join(bytes([len(part)]) + part.encode() for part in name.split(".")) + b"\x00"
     header = bytearray(12)
-    header[2:4] = (1).to_bytes(2, "big")   # one question
+    header[2:4] = (1).to_bytes(2, "big")   # flags: recursion desired
+    header[4:6] = (1).to_bytes(2, "big")   # one question
     return bytes(header) + labels + (1).to_bytes(2, "big") + (1).to_bytes(2, "big")
 
 
@@ -1360,18 +1369,13 @@ class TestRouteAnalysisIsNotShownToTheUser:
     client for it.
     """
 
-    @pytest.mark.xfail(
-        reason=(
-            "QA-06: no frontend code calls /network/routes/analysis, so the "
-            "analysis is never shown. The route analysis panel does not exist."
-        ),
-    )
     def test_the_route_analysis_is_visible_somewhere_on_the_page(self, page, backend_available):
         """The analysis should be reachable from the page, not only from the API."""
         open_page(page)
+        goto_view(page, "kernel")
 
         body = page.inner_text("body").lower()
-        assert "shadow" in body or "route analysis" in body, (
+        assert "shadow" in body or "what the table would do" in body, (
             "the route analysis is not shown anywhere on the page"
         )
 
@@ -1433,13 +1437,6 @@ class TestCaptureFilePanel:
         assert "Parse error" not in body, f"a real capture failed to parse: {body[-500:]}"
         assert "10.0.0.1" in body, "the capture's own addresses were not listed"
 
-    @pytest.mark.xfail(
-        reason=(
-            "QA-07: the deeper capture analysis is not shown. The frontend "
-            "PcapAnalysisResult type has no packets or handshakes field and "
-            "the panel renders neither."
-        ),
-    )
     def test_the_capture_panel_shows_ports_flags_and_a_handshake(self, page, backend_available, tmp_path):
         """The panel should show the per-packet detail the backend now returns."""
         open_page(page)
@@ -1447,6 +1444,12 @@ class TestCaptureFilePanel:
 
         path = write_temp_file(tmp_path, "sample.pcap", build_pcap_bytes())
         self._upload(page, path)
+
+        # The facts of each packet are behind a collapsed disclosure, so
+        # they are opened before the page is read.
+        for packet in page.locator(".pcap-packet").all():
+            packet.locator("summary").click()
+        page.wait_for_timeout(300)
 
         body = page.inner_text("body")
         assert "40000" in body, "the TCP ports were not shown"
@@ -1458,12 +1461,6 @@ class TestCaptureFilePanel:
 class TestIPv6Collection:
     """The collector must be able to read the IPv6 table, not only IPv4."""
 
-    @pytest.mark.xfail(
-        reason=(
-            "QA-08: /network/routes does not take an ip_version parameter, so it "
-            "always returns the IPv4 table even when the IPv6 table is asked for."
-        ),
-    )
     def test_the_routes_endpoint_honours_the_address_family(self, page, backend_available):
         """Asking for the IPv6 table should return IPv6 routes."""
         open_page(page)
