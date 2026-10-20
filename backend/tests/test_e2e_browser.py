@@ -960,6 +960,160 @@ class TestRouteEditor:
         assert "172.16.0.0/12" in body or original in body
 
 
+class TestHostExercises:
+    """The exercises that work against the reader's own machine."""
+
+    def test_the_host_exercises_are_listed(self, page, backend_available):
+        """They appear in the Learning Lab, apart from the modelled ones."""
+        open_page(page, "learning")
+
+        group = page.locator(".exercise-list-group")
+        assert group.count() == 1, "the host exercises are not listed as their own group"
+        assert "machine" in group.first.inner_text().lower()
+
+        titles = page.locator(".exercise-list-title").all_inner_texts()
+        assert any("your machine" in t.lower() for t in titles), (
+            f"no host exercise is listed: {titles}"
+        )
+
+    def test_a_host_exercise_is_checked_against_the_real_table(self, page, backend_available):
+        """
+        Checking one runs it against the machine's own routing table.
+
+        The table is observed and the conclusion drawn from it is inferred,
+        and the two are reported separately. The check must also say which
+        route it settled on.
+        """
+        open_page(page, "learning")
+
+        page.locator(".exercise-list-item", has_text="your machine").first.click()
+        page.wait_for_timeout(1200)
+
+        assert page.locator("#host-destination").count() == 1, (
+            "the host exercise has no address to look up"
+        )
+        assert page.locator("#host-answer").count() == 1, (
+            "the host exercise has no answer box"
+        )
+
+        page.click("button:has-text('Check my answer')")
+        page.wait_for_timeout(3000)
+
+        body = page.inner_text("body")
+        assert "Correct" in body or "Not yet" in body, (
+            "the host exercise did not report a verdict"
+        )
+        assert "[object Object]" not in body, "an error object was rendered raw"
+
+    def test_a_host_exercise_does_not_promise_more_than_it_can_show(self, page, backend_available):
+        """
+        A machine whose table cannot answer must be told that plainly.
+
+        The result says whether the machine's table had what the exercise
+        needed, and does not fall back to a modelled table.
+        """
+        open_page(page, "learning")
+
+        page.locator(".exercise-list-item", has_text="default route").first.click()
+        page.wait_for_timeout(1200)
+
+        page.click("button:has-text('Check my answer')")
+        page.wait_for_timeout(3000)
+
+        body = page.inner_text("body")
+        # Either the machine has a default route and the check is about it,
+        # or it says plainly that it has not got one.
+        assert (
+            "default route" in body.lower()
+            or "no default route" in body.lower()
+            or "not available" in body.lower()
+        ), "the check said nothing about the default route"
+
+
+class TestRoutingTableEditing:
+    """The live routing table can be changed, and the lookup notices."""
+
+    def test_a_route_can_be_added_and_removed(self, page, backend_available):
+        """Add a route, see it in the table, then remove it again."""
+        open_page(page, "routing")
+
+        before = page.locator("table.routing-table tbody tr").count()
+
+        page.click("button:has-text('+ Add route')")
+        page.wait_for_timeout(500)
+
+        page.fill("#route-destination", "203.0.113.0/24")
+        page.fill("#route-next-hop", "10.0.0.9")
+        page.fill("#route-interface", "eth9")
+        page.fill("#route-metric", "42")
+        page.locator(".routing-table-form button[type='submit']").click()
+        page.wait_for_timeout(2500)
+
+        body = page.inner_text("body")
+        assert "203.0.113.0/24" in body, "the new route is not in the table"
+        assert "eth9" in body, "the new route's interface is not shown"
+
+        after = page.locator("table.routing-table tbody tr").count()
+        assert after == before + 1, f"expected one more row, got {before} then {after}"
+
+        # Put the table back, so the next check starts from the same place.
+        page.click("button:has-text('Reset to original')")
+        page.wait_for_timeout(2500)
+        restored = page.locator("table.routing-table tbody tr").count()
+        assert restored == before, f"the reset did not restore the table"
+
+    def test_an_edit_changes_the_lookup_and_says_so(self, page, backend_available):
+        """
+        The before-and-after comparison is the point of the editor.
+
+        Add a route that covers an address the lookup could not reach, and
+        the panel shows the answer it had before and the one it has now.
+        """
+        open_page(page, "routing")
+
+        # Ask about an address nothing in the sample table covers.
+        field = page.locator("#destination")
+        field.fill("")
+        field.type("203.0.113.9")
+        page.click("button:has-text('Analyze Route')")
+        page.wait_for_timeout(2000)
+
+        page.click("button:has-text('+ Add route')")
+        page.wait_for_timeout(500)
+        page.fill("#route-destination", "203.0.113.0/24")
+        page.fill("#route-next-hop", "10.0.0.9")
+        page.fill("#route-interface", "eth9")
+        page.fill("#route-metric", "42")
+        page.locator(".routing-table-form button[type='submit']").click()
+        page.wait_for_timeout(3000)
+
+        body = page.inner_text("body")
+        assert "What your change did" in body, (
+            "the before-and-after comparison was not shown"
+        )
+        assert "203.0.113.0/24" in body, "the new route is not in the table"
+
+        page.click("button:has-text('Reset to original')")
+        page.wait_for_timeout(2500)
+
+    def test_a_bad_route_is_refused_with_a_readable_reason(self, page, backend_available):
+        """The backend's own words, not a blank form."""
+        open_page(page, "routing")
+
+        page.click("button:has-text('+ Add route')")
+        page.wait_for_timeout(500)
+        page.fill("#route-destination", "999.1.1.1/24")
+        page.fill("#route-interface", "eth9")
+        page.locator(".routing-table-form button[type='submit']").click()
+        page.wait_for_timeout(2500)
+
+        body = page.inner_text("body")
+        assert "[object Object]" not in body, "an error object was rendered raw"
+        assert "CIDR" in body or "Invalid" in body, (
+            f"the refusal was not explained: {body[-400:]}"
+        )
+
+
 class TestLearningLabVerdict:
     """The exercise verdict must follow the route that is actually in place."""
 

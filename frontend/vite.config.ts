@@ -21,6 +21,7 @@ export default defineConfig(({ mode }) => {
         '/api/pcap': backend,
         '/api/scenarios': backend,
         '/api/exercises': backend,
+        '/api/host-exercises': backend,
         '/api/discovery': backend,
         '/api/report': backend,
         '/network': backend,

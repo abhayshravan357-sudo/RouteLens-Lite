@@ -541,6 +541,75 @@ export interface ExerciseState {
 }
 
 /**
+ * An exercise that works against the routing table of the machine the
+ * student is sitting at.
+ *
+ * Backend contract: GET /api/host-exercises
+ */
+export interface HostExerciseSummary {
+  id: string;
+  title: string;
+  concept: string;
+  kind: 'trace' | 'lookup' | 'edit';
+  table_source: 'scenario' | 'host';
+  source: string;
+}
+
+/**
+ * The full explanation of a host exercise.
+ *
+ * Backend contract: GET /api/host-exercises/{exercise_id}
+ */
+export interface HostExerciseDetail extends HostExerciseSummary {
+  what_it_is: string;
+  why_it_matters: string;
+  what_happens: string;
+  analogy: string;
+  instruction: string;
+  prediction_prompt: string;
+  result_hint: string;
+  takeaway: string;
+  /** What the student could look at instead when their machine lacks it. */
+  unavailable_hint: string | null;
+  editable_node: string | null;
+  editable_routes: { prefix: string; dev: string; via: string | null; metric: number }[] | null;
+}
+
+/**
+ * The result of checking a host exercise.
+ *
+ * The table is read from the kernel and is OBSERVED; the conclusion drawn
+ * from it is INFERRED. The two are reported separately and never merged.
+ *
+ * Backend contract: POST /api/host-exercises/{exercise_id}/check
+ */
+export interface HostExerciseState {
+  exercise_id: string;
+  title: string;
+  concept: string;
+  complete: boolean;
+  checks: ExerciseCheck[];
+  explanation: string;
+  /** False when the machine's table does not have what the exercise needs. */
+  available: boolean;
+  unavailable_reason: string | null;
+  message: string;
+  table_provenance: string;
+  analysis_provenance: string;
+  destination: string | null;
+  selected_route: string | null;
+  selected_prefix_length: number | null;
+  selected_next_hop: string | null;
+  selected_interface: string | null;
+  candidates: Record<string, unknown>[];
+  beaten: Record<string, unknown>[];
+  shadow: Record<string, unknown> | null;
+  default_routes: string[];
+  table_routes: Record<string, unknown>[];
+  limitations: string[];
+}
+
+/**
  * Authorised discovery types - matching backend/app/discovery.py.
  */
 

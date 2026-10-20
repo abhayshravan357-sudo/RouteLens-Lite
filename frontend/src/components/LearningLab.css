@@ -45,6 +45,18 @@
   gap: 4px;
 }
 
+/* The heading that separates the modelled exercises from the ones that
+   work against the reader's own machine. */
+.exercise-list-group {
+  margin: var(--space-5) 0 var(--space-2);
+  padding: 0 var(--space-3);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
 .exercise-list-item {
   width: 100%;
   display: flex;
@@ -184,6 +196,64 @@
   margin-top: 10px !important;
   font-size: 0.8125rem !important;
   color: var(--success-text) !important;
+}
+
+/* The two answers a host exercise asks for: the address to look up and
+   what the reader thinks their machine would use. */
+.host-exercise-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--space-4);
+  margin-top: var(--space-3);
+}
+
+.host-exercise-form .input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.host-exercise-form label {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.host-exercise-form input {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+/* When the machine's table does not have what the exercise needs, the
+   reason is said plainly, and what to look at instead is offered. */
+.exercise-unavailable {
+  margin-top: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--warning-border);
+  border-left: 3px solid var(--color-warning);
+  border-radius: var(--radius-sm);
+  background: var(--warning-soft);
+  color: var(--warning-text);
+}
+
+.exercise-unavailable p {
+  margin: 0;
+}
+
+.exercise-unavailable-hint {
+  margin-top: var(--space-2) !important;
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}
+
+.exercise-message {
+  margin-top: var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
 }
 
 .exercise-result {

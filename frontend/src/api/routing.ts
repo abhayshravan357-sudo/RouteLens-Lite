@@ -32,6 +32,9 @@ import type {
   ExerciseSummary,
   ExerciseDetail,
   ExerciseState,
+  HostExerciseSummary,
+  HostExerciseDetail,
+  HostExerciseState,
   DiscoveryScopePreview,
   DiscoveryResult,
   DiscoveryAuditEntry,
@@ -559,7 +562,48 @@ export async function checkExercise(
   );
 }
 
-// Authorised discovery API
+// The exercises that work against the routing table of the machine the
+// student is sitting at. They are a separate set from the modelled ones,
+// because they read a real table rather than a scenario.
+export async function fetchHostExercises(): Promise<HostExerciseSummary[]> {
+  return fetchWithTimeout<HostExerciseSummary[]>('/api/host-exercises', 10000);
+}
+
+export async function fetchHostExercise(
+  exerciseId: string
+): Promise<HostExerciseDetail> {
+  return fetchWithTimeout<HostExerciseDetail>(
+    `/api/host-exercises/${encodeURIComponent(exerciseId)}`,
+    10000
+  );
+}
+
+/**
+ * Check a host exercise.
+ *
+ * `destination` is the address the student picked, and `answer` is what
+ * they think the answer is. Both are optional: the backend picks an
+ * address from the machine's own table when none is given.
+ */
+export async function checkHostExercise(
+  exerciseId: string,
+  destination?: string | null,
+  answer?: string | null
+): Promise<HostExerciseState> {
+  return fetchWithTimeout<HostExerciseState>(
+    `/api/host-exercises/${encodeURIComponent(exerciseId)}/check`,
+    15000,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        destination: destination?.trim() || undefined,
+        answer: answer?.trim() || undefined,
+      }),
+    }
+  );
+}
+
 export async function previewDiscoveryScope(
   target: string,
   maxHosts: number,
