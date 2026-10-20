@@ -427,3 +427,63 @@ export interface TopologyGraph {
   explanation: string;
   observed_at: string;
 }
+
+/**
+ * Learning Lab exercise types - matching backend/app/exercises.py.
+ */
+
+export interface ExerciseSummary {
+  id: string;
+  title: string;
+  concept: string;
+  kind: 'trace' | 'lookup' | 'edit';
+  scenario_id: string;
+  source: string;
+  destination: string;
+}
+
+export interface ExerciseDetail {
+  id: string;
+  title: string;
+  concept: string;
+  kind: 'trace' | 'lookup' | 'edit';
+  what_it_is: string;
+  why_it_matters: string;
+  what_happens: string;
+  analogy: string;
+  instruction: string;
+  scenario_id: string;
+  source: string;
+  destination: string;
+  prediction_prompt: string;
+  result_hint: string;
+  takeaway: string;
+  editable_node: string | null;
+  editable_routes: { prefix: string; dev: string; via: string | null; metric: number }[] | null;
+}
+
+export interface ExerciseCheck {
+  description: string;
+  satisfied: boolean;
+  detail: string;
+}
+
+export interface ExerciseState {
+  exercise_id: string;
+  title: string;
+  concept: string;
+  complete: boolean;
+  checks: ExerciseCheck[];
+  explanation: string;
+  trace_status: string | null;
+  selected_route: string | null;
+  selected_prefix_length: number | null;
+  matched_route: string | null;
+  hops: {
+    hop_number: number;
+    node: string;
+    action: string;
+    explanation: string;
+    matched_prefix: string | null;
+  }[];
+}

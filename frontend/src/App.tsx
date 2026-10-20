@@ -29,6 +29,7 @@ import Visualization from './components/Visualization';
 import PacketJourney from './components/PacketJourney';
 import NetworkDiagnostics from './components/NetworkDiagnostics';
 import ScenarioJourney from './components/ScenarioJourney';
+import LearningLab from './components/LearningLab';
 import './index.css';
 
 function App() {
@@ -393,6 +394,17 @@ function App() {
                   workspace={scenarioWorkspace}
                   onTrace={handleScenarioTrace}
                 />
+              </div>
+            </div>
+          </section>
+        )}
+
+        {/* Learning Lab - guided exercises checked by the real engine */}
+        {backendConnected && (
+          <section className="section">
+            <div className="card">
+              <div className="card-body">
+                <LearningLab workspace={scenarioWorkspace} />
               </div>
             </div>
           </section>

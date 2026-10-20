@@ -29,6 +29,9 @@ import type {
   LabRunResult,
   ScenarioCompare,
   TopologyGraph,
+  ExerciseSummary,
+  ExerciseDetail,
+  ExerciseState,
 } from '../types/routing';
 
 const API_BASE = '';
@@ -308,5 +311,33 @@ export async function fetchScenarioTopology(
   return fetchWithTimeout<TopologyGraph>(
     `/api/scenarios/${encodeURIComponent(scenarioId)}/topology${query}`,
     15000
+  );
+}
+
+// Learning Lab API
+export async function fetchExercises(): Promise<ExerciseSummary[]> {
+  return fetchWithTimeout<ExerciseSummary[]>('/api/exercises', 10000);
+}
+
+export async function fetchExercise(exerciseId: string): Promise<ExerciseDetail> {
+  return fetchWithTimeout<ExerciseDetail>(
+    `/api/exercises/${encodeURIComponent(exerciseId)}`,
+    10000
+  );
+}
+
+export async function checkExercise(
+  exerciseId: string,
+  scenarioId: string,
+  workspace?: string | null
+): Promise<ExerciseState> {
+  return fetchWithTimeout<ExerciseState>(
+    `/api/exercises/${encodeURIComponent(exerciseId)}/check`,
+    15000,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ scenario_id: scenarioId, workspace: workspace ?? undefined }),
+    }
   );
 }

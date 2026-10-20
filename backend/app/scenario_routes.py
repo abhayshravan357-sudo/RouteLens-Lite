@@ -14,10 +14,15 @@ from pydantic import BaseModel, Field
 
 from app.scenario import Route, Scenario, TraceResult, trace
 from app.topology import TopologyGraph, build_topology
+from app.exercise_checks import ExerciseState
 from app import lab_builder as lab
 from app.scenarios_data import SCENARIOS
 
 router = APIRouter(prefix="/api/scenarios", tags=["scenarios"])
+
+
+#: Exercises live under their own prefix so they are easy to find.
+exercise_router = APIRouter(prefix="/api/exercises", tags=["exercises"])
 
 
 #: Edited scenarios, kept per workspace so a route change can be traced
@@ -69,6 +74,15 @@ class RouteUpdate(BaseModel):
     """Replacement route list for a node."""
 
     routes: List[dict] = Field(..., description="Route objects: prefix, dev, via, metric")
+
+
+class ExerciseCheckRequest(BaseModel):
+    """Request to check whether an exercise is complete."""
+
+    scenario_id: str = Field(..., description="Scenario the exercise belongs to")
+    workspace: Optional[str] = Field(
+        None, description="Workspace id returned by a route edit, if any"
+    )
 
 
 class LabResult(BaseModel):
@@ -227,3 +241,51 @@ async def get_topology(sid: str, workspace: Optional[str] = None):
     """
     scenario = _resolve_scenario(sid, workspace)
     return await build_topology(scenario)
+
+
+# ---------------------------------------------------------------------------
+# Learning Lab exercises
+# ---------------------------------------------------------------------------
+
+
+@exercise_router.get("")
+def list_exercises():
+    """List the guided exercises."""
+    from app.exercises import exercise_list
+    return exercise_list()
+
+
+@exercise_router.get("/{exercise_id}")
+def get_exercise(exercise_id: str):
+    """The full explanation and instructions for one exercise."""
+    from app.exercises import get_exercise as _get
+
+    exercise = _get(exercise_id)
+    if exercise is None:
+        raise HTTPException(status_code=404, detail=f"Unknown exercise: {exercise_id}")
+
+    return exercise.model_dump()
+
+
+@exercise_router.post("/{exercise_id}/check", response_model=ExerciseState)
+async def check_exercise(exercise_id: str, body: ExerciseCheckRequest):
+    """
+    Check whether an exercise has been completed.
+
+    The check runs the real routing engine against the scenario, so an
+    exercise is only complete when the engine's own output satisfies it.
+
+    A workspace may be supplied so the student's route edits are the
+    ones that get checked.
+    """
+    from app.exercise_checks import check_exercise as _check
+    from app.exercises import get_exercise as _get
+
+    if _get(exercise_id) is None:
+        raise HTTPException(status_code=404, detail=f"Unknown exercise: {exercise_id}")
+
+    scenario = _resolve_scenario(body.scenario_id, body.workspace)
+    state = _check(exercise_id, scenario)
+    if state is None:
+        raise HTTPException(status_code=404, detail=f"Unknown exercise: {exercise_id}")
+    return state
