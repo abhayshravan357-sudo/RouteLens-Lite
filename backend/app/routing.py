@@ -7,7 +7,7 @@ Supports both IPv4 and IPv6.
 
 from dataclasses import dataclass
 from enum import Enum
-from ipaddress import IPv4Address, IPv4Network, IPv6Address, IPv6Network, IPv4Address, IPv6Address, IPv4Network, IPv6Network
+from ipaddress import IPv4Address, IPv4Network, IPv6Address, IPv6Network
 from typing import Optional, Union
 
 from pydantic import BaseModel, Field, field_validator

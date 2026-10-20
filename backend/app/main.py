@@ -285,9 +285,6 @@ async def trace_packet_journey(request: PacketJourneyRequest):
     )
 
 
-@app.get("/routes", tags=["Routing"])
-
-
 @app.get("/network/interfaces", tags=["Network"])
 async def get_interfaces():
     """

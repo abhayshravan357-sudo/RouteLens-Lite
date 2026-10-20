@@ -8,7 +8,7 @@ Implements the core IPv4/IPv6 routing table lookup algorithm:
 """
 
 from dataclasses import dataclass
-from ipaddress import IPv4Address, IPv4Network, IPv6Address, IPv6Network, IPv4Address, IPv6Address, IPv4Network, IPv6Network
+from ipaddress import IPv4Address, IPv4Network, IPv6Address, IPv6Network
 from typing import Optional, List, Union
 
 from app.routing import RouteLookupResult, RoutingEntry, IPVersion
