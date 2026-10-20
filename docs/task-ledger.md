@@ -530,3 +530,26 @@
 **Ready for TASK-403 (Traceroute Endpoint):**
 1. TASK-403: Traceroute Endpoint
 2. TASK-404: Frontend Connectivity Panel
+---
+
+## Decisions Taken
+
+### DEC-001: The `agent/routing-backend` trace implementation is superseded
+- **Context**: `agent/routing-backend` holds commit `f370273`, an earlier
+  implementation of packet tracing as `GET /trace` with `TraceHop` and
+  `PacketTraceResult`.
+- **Finding**: It has the same capabilities as the current
+  `POST /packet-journey`: longest-prefix selection, loop detection, and a
+  `max_hops` limit. The current implementation supersedes it and adds
+  multi-router scenarios, IPv6, route editing, an evidence-based topology,
+  and engine-verified exercises.
+- **Decision**: Keep the branch as it is; do not merge it. It is superseded,
+  not lost. Merging it would duplicate the feature and add a second,
+  inconsistent trace endpoint.
+- **Action**: The branch may be archived once the operator approves.
+
+### DEC-002: `main` stays protected
+- **Context**: All work since the baseline is on
+  `integration/baseline-2026-10-20`.
+- **Decision**: `main` remains at `03f347b` until the operator approves
+  the integration branch.
