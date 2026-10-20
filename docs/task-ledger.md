@@ -532,6 +532,50 @@
 2. TASK-404: Frontend Connectivity Panel
 ---
 
+## Phase 10: Five-Agent Parallel Round — ✅ **COMPLETE**
+
+Distributed across the five existing agents, each in its own worktree and
+branch, merged one at a time with the checks run after each merge.
+
+| Task ID | Agent | Branch | Outcome |
+|---------|-------|--------|---------|
+| TASK-1001 | RouteCore | `feature/routing-table-api` | ✅ Editable, authoritative routing table |
+| TASK-1002 | PacketLab | `feature/lab-verification` | ✅ Lab command sequence verified, hardened |
+| TASK-1003 | Autonomous Eng | `feature/pcap-backend` | ✅ PCAP importer backend |
+| TASK-1004 | JourneyUI | `feature/pcap-ui` | ✅ PCAP panel, interactive topology graph |
+| TASK-1005 | TestPilot | `feature/browser-e2e-expansion` | ✅ Wider browser coverage |
+
+### TASK-1001: Editable Routing Table ✅
+- `GET /routes` returns the live table; `GET /lookup` uses it
+- `POST /routes`, `PUT /routes/{index}`, `DELETE /routes/{index}`, `POST /routes/reset`
+- `GET /routes/summary` — counts, longest prefix, lowest metric
+- Validated: an added route changes the lookup result; reset restores it
+- Guarded by a lock; bulk replace is atomic
+
+### TASK-1002: Packet Lab Verification ✅
+- Command sequence verified command by command for all five scenarios
+- A failing command now reports its index and stderr
+- Teardown is idempotent; a missing namespace is not an error
+- The probe distinguishes timeout, missing binary, permission failure and unreachable host
+- A route whose next hop is off the outgoing network is rejected when the commands are built
+- Audit written up in `docs/lab-command-audit.md`
+
+### TASK-1003: PCAP Importer Backend ✅
+- Classic PCAP parsed with the standard library only, in memory
+- **Byte-order bug found and fixed during integration**: the parser read the
+  magic as a little-endian integer and treated the value as the byte order,
+  which swaps every real file. Now detected from the raw bytes.
+- PCAPNG detected and reported as unsupported rather than mis-parsed
+
+### TASK-1004: PCAP Panel and Interactive Topology ✅
+- File read and encoded in the browser, sent only to this app's backend
+- 32 MB limit enforced before encoding
+- The limitations are shown with the result
+- The topology is an SVG graph with observed, inferred, simulated and
+  unknown visually distinct, clickable and keyboard reachable
+
+---
+
 ## Decisions Taken
 
 ### DEC-001: The `agent/routing-backend` trace implementation is superseded
@@ -547,6 +591,26 @@
   not lost. Merging it would duplicate the feature and add a second,
   inconsistent trace endpoint.
 - **Action**: The branch may be archived once the operator approves.
+
+### DEC-003: A wrong agent finding is checked, not obeyed
+- **Context**: The PacketLab agent reported that the lab's route commands
+  would fail because `10.0.0.1/24` and `10.0.0.2/24` are "different
+  networks". They are both in `10.0.0.0/24`.
+- **Finding**: The agent's *code* was right; its *report* was wrong. The
+  scenario data was fine and changing it would have broken the lab.
+- **Decision**: Checked the claim before acting, sent it back with the
+  correction, and the audit now says all commands are OK.
+
+### DEC-004: The PCAP byte order was fixed during integration, not by the agent
+- **Context**: The agent's own tests built a file with big-endian magic
+  bytes and a little-endian body — a file no tool produces — so their
+  tests agreed with their code while every real capture failed.
+- **Finding**: A real capture written by tcpdump on this machine did not
+  parse. The magic was read as a little-endian integer and the resulting
+  value was treated as the byte order, which inverts it for every file.
+- **Decision**: Fixed in integration, with the agent's test helper
+  corrected to build genuine files in each byte order, and three new
+  tests covering real little-endian, real big-endian and nanosecond files.
 
 ### DEC-002: `main` stays protected
 - **Context**: All work since the baseline is on
