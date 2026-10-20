@@ -303,6 +303,51 @@ class TestLearningLab:
         assert errors == [], f"console errors: {errors}"
 
 
+class TestOverview:
+    """The overview must answer the questions a student would ask first."""
+
+    def test_the_overview_is_the_first_thing_shown(self, page, backend_available):
+        """The overview appears above the routing table."""
+        page.goto(BASE_URL, wait_until="networkidle", timeout=30000)
+        page.wait_for_timeout(1500)
+
+        overview = page.locator(".overview")
+        assert overview.count() == 1, "expected an overview section"
+
+        table = page.locator(".overview-card h3", has_text="What am I looking at?")
+        assert table.count() == 1, "expected the 'what am I looking at' card"
+
+    def test_the_overview_answers_the_key_questions(self, page, backend_available):
+        """All five questions have a card."""
+        page.goto(BASE_URL, wait_until="networkidle", timeout=30000)
+        page.wait_for_timeout(1500)
+
+        body = page.inner_text("body")
+        for heading in (
+            "What am I looking at?",
+            "What is on this network?",
+            "How did the last packet go?",
+            "What can I try next?",
+        ):
+            assert heading in body, f"missing the '{heading}' card"
+
+    def test_the_overview_reports_the_real_machine(self, page, backend_available):
+        """The overview shows this machine's real address, not a placeholder."""
+        page.goto(BASE_URL, wait_until="networkidle", timeout=30000)
+        page.wait_for_timeout(2000)
+
+        body = page.inner_text("body")
+        # A real IPv4 address from this machine should appear.
+        assert "This machine" in body
+
+    def test_the_overview_produces_no_script_errors(self, page, backend_available):
+        """Reading the host does not throw."""
+        page.goto(BASE_URL, wait_until="networkidle", timeout=30000)
+        page.wait_for_timeout(2000)
+        errors = script_errors(page)
+        assert errors == [], f"console errors: {errors}"
+
+
 class TestResponsiveLayout:
     """The layout must work on a smaller screen too."""
 

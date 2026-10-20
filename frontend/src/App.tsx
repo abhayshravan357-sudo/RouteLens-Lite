@@ -30,6 +30,7 @@ import PacketJourney from './components/PacketJourney';
 import NetworkDiagnostics from './components/NetworkDiagnostics';
 import ScenarioJourney from './components/ScenarioJourney';
 import LearningLab from './components/LearningLab';
+import Overview from './components/Overview';
 import './index.css';
 
 function App() {
@@ -260,6 +261,20 @@ function App() {
       </header>
 
       <main className="main-content">
+        {/* Overview - answers what you are looking at before anything else */}
+        <section className="section">
+          <div className="card">
+            <div className="card-body">
+              <Overview
+                scenario={selectedScenario}
+                trace={scenarioTrace}
+                legacyJourney={simulationResponse}
+                lookupResult={lookupResult}
+              />
+            </div>
+          </div>
+        </section>
+
         <section className="section">
           <div className="card">
             <div className="card-header">
