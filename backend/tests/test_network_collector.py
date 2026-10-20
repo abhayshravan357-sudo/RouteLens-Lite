@@ -1004,3 +1004,279 @@ class TestTraceroute:
         )
         assert failed.success is False
         assert failed.error == "Command timed out"
+
+# --------------------------------------------------------------------------
+# IPv6 route and neighbour collection
+#
+# The fixtures below are verbatim output from the Linux kernel, captured with
+# `ip -j -6 route show` and `ip -j -6 neigh show`. They are not hand-written.
+#
+# The multi-route table came from a real network namespace:
+#
+#     unshare -rn bash -c '
+#         ip link set lo up
+#         ip link add veth0 type veth peer name veth1
+#         ip -6 addr add 2001:db8::1/64 dev veth0
+#         ip link set veth0 up
+#         ip -6 route add 2001:db8:1::/48 dev veth0 proto static metric 100
+#         ip -6 route add 2001:db8:2::/48 dev veth0 proto static metric 100
+#         ip -6 route add default via fe80::1 dev veth0 proto static metric 1024
+#         ip -6 -j route show'
+#
+# The neighbour entry came from the same kind of namespace. INCOMPLETE is a
+# real state the kernel records when a neighbour solicitation has not been
+# answered; the entry exists either way.
+#
+# The single-route table is this machine's own IPv6 routing table.
+# --------------------------------------------------------------------------
+
+
+REAL_IPV6_ROUTES_NAMESPACE = [
+    {
+        "dst": "2001:db8::/64",
+        "dev": "veth0",
+        "protocol": "kernel",
+        "metric": 256,
+        "flags": ["linkdown"],
+        "pref": "medium",
+    },
+    {
+        "dst": "2001:db8:1::/48",
+        "dev": "veth0",
+        "protocol": "static",
+        "metric": 100,
+        "flags": ["linkdown"],
+        "pref": "medium",
+    },
+    {
+        "dst": "2001:db8:2::/48",
+        "dev": "veth0",
+        "protocol": "static",
+        "metric": 100,
+        "flags": ["linkdown"],
+        "pref": "medium",
+    },
+    {
+        "dst": "default",
+        "gateway": "fe80::1",
+        "dev": "veth0",
+        "protocol": "static",
+        "metric": 1024,
+        "flags": ["linkdown"],
+        "pref": "medium",
+    },
+]
+
+REAL_IPV6_ROUTES_HOST = [
+    {
+        "dst": "fe80::/64",
+        "dev": "wlp2s0",
+        "protocol": "kernel",
+        "metric": 1024,
+        "flags": [],
+        "pref": "medium",
+    },
+]
+
+REAL_IPV6_NEIGHBORS = [
+    {
+        "dst": "2001:db8::2",
+        "dev": "veth1",
+        "state": ["INCOMPLETE"],
+    },
+]
+
+
+class TestIPv6Collection:
+    """The IPv6 routing table and neighbour cache are separate tables.
+
+    The kernel keeps them apart from the IPv4 ones, so they have to be read
+    with their own commands. These tests use verbatim kernel output.
+    """
+
+    @pytest.fixture
+    def collector(self):
+        return NetworkCollector(command_timeout=1.0)
+
+    # -- route parsing ---------------------------------------------------
+
+    def test_ipv6_default_route_becomes_ipv6_default(self, collector):
+        """The kernel spells the default route "default" in both families.
+
+        Parsing it as the IPv4 default would put an IPv4 route in the IPv6
+        table, which is how the IPv6 table used to be wrong.
+        """
+        route = collector._parse_route(REAL_IPV6_ROUTES_NAMESPACE[3], "ipv6")
+
+        assert route.destination == "::/0"
+        assert route.gateway == "fe80::1"
+        assert route.interface == "veth0"
+        assert route.metric == 1024
+        assert route.proto == "static"
+
+    def test_ipv4_default_route_still_becomes_ipv4_default(self, collector):
+        """The IPv4 default must not change."""
+        route = collector._parse_route(
+            {"dst": "default", "gateway": "192.168.0.1", "dev": "wlp2s0", "metric": 600},
+            "ipv4",
+        )
+
+        assert route.destination == "0.0.0.0/0"
+        assert route.gateway == "192.168.0.1"
+
+    def test_parse_route_defaults_to_ipv4(self, collector):
+        """Existing callers pass no family and must keep getting IPv4."""
+        route = collector._parse_route({"dst": "default", "dev": "eth0"})
+
+        assert route.destination == "0.0.0.0/0"
+
+    def test_ipv6_explicit_prefixes_are_left_alone(self, collector):
+        route = collector._parse_route(REAL_IPV6_ROUTES_NAMESPACE[1], "ipv6")
+
+        assert route.destination == "2001:db8:1::/48"
+        assert route.metric == 100
+
+    def test_ipv6_host_route_table_parses(self, collector):
+        route = collector._parse_route(REAL_IPV6_ROUTES_HOST[0], "ipv6")
+
+        assert route.destination == "fe80::/64"
+        assert route.interface == "wlp2s0"
+        assert route.metric == 1024
+
+    # -- route collection ------------------------------------------------
+
+    @pytest.mark.asyncio
+    async def test_collect_routes_ipv6_uses_the_ipv6_command(self, collector):
+        """The IPv6 table is read with `ip -j -6 route show`."""
+        with patch.object(collector, '_run_command', new_callable=AsyncMock) as mock_run:
+            mock_run.return_value = (0, json.dumps(REAL_IPV6_ROUTES_NAMESPACE), "")
+
+            result = await collector.collect_routes("ipv6")
+
+            assert mock_run.call_args[0][0] == ["ip", "-j", "-6", "route", "show"]
+            assert result.success is True
+            assert result.ip_version == "ipv6"
+            assert result.command == "ip -j -6 route show"
+            assert len(result.data) == 4
+
+    @pytest.mark.asyncio
+    async def test_collect_routes_ipv4_uses_the_ipv4_command(self, collector):
+        with patch.object(collector, '_run_command', new_callable=AsyncMock) as mock_run:
+            mock_run.return_value = (0, json.dumps([]), "")
+
+            result = await collector.collect_routes("ipv4")
+
+            assert mock_run.call_args[0][0] == ["ip", "-j", "route", "show"]
+            assert result.ip_version == "ipv4"
+            assert result.command == "ip -j route show"
+
+    @pytest.mark.asyncio
+    async def test_collect_routes_defaults_to_ipv4(self, collector):
+        """Existing callers pass no family and must keep reading IPv4."""
+        with patch.object(collector, '_run_command', new_callable=AsyncMock) as mock_run:
+            mock_run.return_value = (0, json.dumps([]), "")
+
+            result = await collector.collect_routes()
+
+            assert mock_run.call_args[0][0] == ["ip", "-j", "route", "show"]
+            assert result.ip_version == "ipv4"
+
+    @pytest.mark.asyncio
+    async def test_collect_routes_ipv6_default_is_ipv6(self, collector):
+        with patch.object(collector, '_run_command', new_callable=AsyncMock) as mock_run:
+            mock_run.return_value = (0, json.dumps(REAL_IPV6_ROUTES_NAMESPACE), "")
+
+            result = await collector.collect_routes("ipv6")
+
+            destinations = [r.destination for r in result.data]
+            assert "::/0" in destinations
+            assert "0.0.0.0/0" not in destinations
+
+    @pytest.mark.asyncio
+    async def test_collect_routes_rejects_an_unknown_family(self, collector):
+        with patch.object(collector, '_run_command', new_callable=AsyncMock) as mock_run:
+            result = await collector.collect_routes("ipv7")
+
+            assert result.success is False
+            assert "Unsupported address family" in result.error
+            mock_run.assert_not_called()
+
+    # -- neighbour collection --------------------------------------------
+
+    @pytest.mark.asyncio
+    async def test_collect_neighbors_ipv6_uses_the_ipv6_command(self, collector):
+        with patch.object(collector, '_run_command', new_callable=AsyncMock) as mock_run:
+            mock_run.return_value = (0, json.dumps(REAL_IPV6_NEIGHBORS), "")
+
+            result = await collector.collect_neighbors("ipv6")
+
+            assert mock_run.call_args[0][0] == ["ip", "-j", "-6", "neigh", "show"]
+            assert result.success is True
+            assert result.ip_version == "ipv6"
+            assert result.data[0].ip_address == "2001:db8::2"
+            assert result.data[0].state == "INCOMPLETE"
+
+    @pytest.mark.asyncio
+    async def test_collect_neighbors_defaults_to_ipv4(self, collector):
+        with patch.object(collector, '_run_command', new_callable=AsyncMock) as mock_run:
+            mock_run.return_value = (0, json.dumps([]), "")
+
+            result = await collector.collect_neighbors()
+
+            assert mock_run.call_args[0][0] == ["ip", "-j", "neigh", "show"]
+            assert result.ip_version == "ipv4"
+
+    @pytest.mark.asyncio
+    async def test_collect_neighbors_rejects_an_unknown_family(self, collector):
+        with patch.object(collector, '_run_command', new_callable=AsyncMock) as mock_run:
+            result = await collector.collect_neighbors("ipv5")
+
+            assert result.success is False
+            assert "Unsupported address family" in result.error
+            mock_run.assert_not_called()
+
+    # -- interfaces and collect_all --------------------------------------
+
+    @pytest.mark.asyncio
+    async def test_interfaces_result_says_it_covers_both_families(self, collector):
+        with patch.object(collector, '_run_command', new_callable=AsyncMock) as mock_run:
+            mock_run.return_value = (0, json.dumps([]), "")
+
+            result = await collector.collect_interfaces()
+
+            assert result.ip_version == "both"
+
+    @pytest.mark.asyncio
+    async def test_collect_all_includes_both_route_tables(self, collector):
+        async def mock_run_command(cmd, timeout=None):
+            if "route" in cmd and "-6" in cmd:
+                return (0, json.dumps(REAL_IPV6_ROUTES_NAMESPACE), "")
+            elif "route" in cmd:
+                return (0, json.dumps([]), "")
+            elif "neigh" in cmd:
+                return (0, json.dumps([]), "")
+            return (0, json.dumps([]), "")
+
+        with patch.object(collector, '_run_command', new_callable=AsyncMock) as mock_run:
+            mock_run.side_effect = mock_run_command
+
+            results = await collector.collect_all()
+
+            assert "routes" in results
+            assert "routes_ipv6" in results
+            assert "neighbors" in results
+            assert "neighbors_ipv6" in results
+            assert results["routes"].ip_version == "ipv4"
+            assert results["routes_ipv6"].ip_version == "ipv6"
+            assert results["neighbors"].ip_version == "ipv4"
+            assert results["neighbors_ipv6"].ip_version == "ipv6"
+
+    def test_collection_result_defaults_to_ipv4(self):
+        """Existing constructions of CollectionResult keep working."""
+        result = CollectionResult(
+            timestamp="2024-01-01T00:00:00Z",
+            success=True,
+            data=[],
+        )
+
+        assert result.ip_version == "ipv4"

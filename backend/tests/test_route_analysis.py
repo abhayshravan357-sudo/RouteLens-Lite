@@ -624,6 +624,45 @@ class TestInterestingDestinations:
 
         assert len(destinations) == len(set(destinations))
 
+    def test_only_destinations_of_the_table_family_are_chosen(self, ipv6_entries):
+        """An IPv4 address against an IPv6 table would report no route.
+
+        That is noise rather than information, so the host's addresses are
+        filtered to the family in the table being analysed.
+        """
+        interfaces = [
+            InterfaceInfo(
+                name="wlp2s0",
+                index=3,
+                state="UP",
+                ipv4_addresses=["192.168.0.107"],
+                ipv6_addresses=["fe80::1"],
+            )
+        ]
+        destinations = choose_interesting_destinations(ipv6_entries, interfaces)
+
+        assert "fe80::1" in destinations
+        assert "192.168.0.107" not in destinations
+        assert "1.1.1.1" not in destinations
+        assert "2606:4700:4700::1111" in destinations
+
+    def test_only_destinations_of_the_table_family_are_chosen_for_ipv4(self, ipv4_entries):
+        interfaces = [
+            InterfaceInfo(
+                name="wlp2s0",
+                index=3,
+                state="UP",
+                ipv4_addresses=["192.168.0.107"],
+                ipv6_addresses=["fe80::1"],
+            )
+        ]
+        destinations = choose_interesting_destinations(ipv4_entries, interfaces)
+
+        assert "192.168.0.107" in destinations
+        assert "fe80::1" not in destinations
+        assert "2606:4700:4700::1111" not in destinations
+        assert PUBLIC_IPV4 in destinations
+
 
 class TestRealHostTable:
     """The table of the machine these tests were written on."""
@@ -730,6 +769,54 @@ class TestAnalysisEndpoint:
         body = response.text.lower()
 
         assert "transmitted" not in body or "no packet was transmitted" in body
+
+    def test_endpoint_can_read_the_ipv6_table(self, client):
+        response = client.get("/network/routes/analysis", params={"ip_version": "ipv6"})
+
+        assert response.status_code == 200
+        data = response.json()
+
+        assert data["ip_version"] == "ipv6"
+        assert data["command"] == "ip -j -6 route show"
+
+    def test_endpoint_reads_the_ipv4_table_by_default(self, client):
+        response = client.get("/network/routes/analysis")
+
+        assert response.status_code == 200
+        data = response.json()
+
+        assert data["ip_version"] == "ipv4"
+        assert data["command"] == "ip -j route show"
+
+    def test_an_ipv6_destination_selects_the_ipv6_table(self, client):
+        """An IPv6 destination says nothing about the IPv4 table."""
+        response = client.get(
+            "/network/routes/analysis", params={"destination": "fe80::1"}
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+
+        assert data["ip_version"] == "ipv6"
+        assert data["command"] == "ip -j -6 route show"
+
+    def test_an_ipv4_destination_selects_the_ipv4_table(self, client):
+        response = client.get(
+            "/network/routes/analysis", params={"destination": "1.1.1.1"}
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+
+        assert data["ip_version"] == "ipv4"
+
+    def test_endpoint_rejects_an_unknown_family(self, client):
+        response = client.get(
+            "/network/routes/analysis", params={"ip_version": "ipv7"}
+        )
+
+        assert response.status_code == 400
+        assert "address family" in response.json()["detail"].lower()
 
 
 if __name__ == "__main__":

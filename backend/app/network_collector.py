@@ -61,6 +61,7 @@ class CollectionResult:
     error: Optional[str] = None
     command: str = ""
     duration_ms: float = 0.0
+    ip_version: str = "ipv4"
 
 
 class NetworkCollectorError(Exception):
@@ -104,716 +105,6 @@ class DnsResolutionResult:
     def success(self) -> bool:
         """Whether the DNS resolution was successful."""
         return self.error is None and len(self.addresses) > 0
-
-
-class NetworkCollector:
-    """
-    Safe collector for real local network information.
-    
-    Uses `ip -j` JSON output for reliable parsing. All operations are read-only
-    and require no privilege escalation.
-    """
-
-    def __init__(
-        self,
-        command_timeout: float = 5.0,
-        max_output_bytes: int = 1024 * 1024,  # 1MB
-    ):
-        self.command_timeout = command_timeout
-        self.max_output_bytes = max_output_bytes
-        self._tool_cache: dict[str, bool] = {}
-
-    def _check_tool(self, tool: str) -> bool:
-        """Check if a tool is available (cached)."""
-        if tool not in self._tool_cache:
-            try:
-                subprocess.run(
-                    ["which", tool],
-                    capture_output=True,
-                    check=True,
-                    timeout=2,
-                )
-                self._tool_cache[tool] = True
-            except subprocess.CalledProcessError:
-                self._tool_cache[tool] = False
-        return self._tool_cache[tool]
-
-    def check_tools(self) -> tuple[list[str], list[str]]:
-        """Check which required tools are available."""
-        required = ["ip"]
-        available = []
-        missing = []
-        for tool in required:
-            if self._check_tool(tool):
-                available.append(tool)
-            else:
-                missing.append(tool)
-        return available, missing
-
-    async def _run_command(
-        self,
-        cmd: list[str],
-        timeout: Optional[float] = None,
-    ) -> tuple[int, str, str]:
-        """Run a command with timeout and bounded output."""
-        timeout = timeout or self.command_timeout
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            try:
-                stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-            except asyncio.TimeoutError:
-                proc.kill()
-                await proc.wait()
-                return -1, "", f"Command timed out after {timeout}s"
-            
-            # Check output size
-            stdout_bytes = len(stdout) if stdout else 0
-            stderr_bytes = len(stderr) if stderr else 0
-            if stdout_bytes > self.max_output_bytes or stderr_bytes > self.max_output_bytes:
-                return -1, "", "Command output exceeded maximum size"
-            
-            stdout_str = stdout.decode("utf-8", errors="replace") if stdout else ""
-            stderr_str = stderr.decode("utf-8", errors="replace") if stderr else ""
-            
-            return proc.returncode or 0, stdout_str, stderr_str
-        except FileNotFoundError as e:
-            return -1, "", f"Command not found: {e}"
-        except PermissionError as e:
-            return -1, "", f"Permission denied: {e}"
-        except Exception as e:
-            return -1, "", f"Command execution failed: {e}"
-
-    async def collect_interfaces(self) -> CollectionResult:
-        """Collect network interfaces using `ip -j addr show`."""
-        start_time = datetime.now()
-        command = "ip -j addr show"
-        
-        if not self._check_tool("ip"):
-            return CollectionResult(
-                timestamp=start_time.isoformat() + "Z",
-                success=False,
-                error="`ip` command not available",
-                command=command,
-            )
-
-        rc, stdout, stderr = await self._run_command(["ip", "-j", "addr", "show"])
-        
-        duration_ms = (datetime.now() - start_time).total_seconds() * 1000
-
-        if rc != 0:
-            return CollectionResult(
-                timestamp=start_time.isoformat() + "Z",
-                success=False,
-                error=f"Command failed (rc={rc}): {stderr}",
-                command=command,
-                duration_ms=duration_ms,
-            )
-
-        try:
-            interfaces_data = json.loads(stdout)
-        except json.JSONDecodeError as e:
-            return CollectionResult(
-                timestamp=start_time.isoformat() + "Z",
-                success=False,
-                error=f"Failed to parse JSON output: {e}",
-                command=command,
-                duration_ms=duration_ms,
-            )
-
-        interfaces = []
-        for iface_data in interfaces_data:
-            iface = self._parse_interface(iface_data)
-            interfaces.append(iface)
-
-        return CollectionResult(
-            timestamp=start_time.isoformat() + "Z",
-            success=True,
-            data=interfaces,
-            command=command,
-            duration_ms=duration_ms,
-        )
-
-    def _parse_interface(self, data: dict) -> InterfaceInfo:
-        """Parse interface data from `ip -j addr show` JSON output."""
-        name = data.get("ifname", "")
-        index = data.get("ifindex", 0)
-        state = data.get("operstate", "UNKNOWN").upper()
-        mtu = data.get("mtu")
-        flags = data.get("flags", [])
-
-        mac_address = None
-        if "address" in data:
-            mac_address = data["address"]
-
-        ipv4_addresses = []
-        ipv4_networks = []
-        ipv6_addresses = []
-        ipv6_networks = []
-
-        for addr_info in data.get("addr_info", []):
-            family = addr_info.get("family", "")
-            local = addr_info.get("local", "")
-            prefixlen = addr_info.get("prefixlen", 0)
-
-            if family == "inet" and local:
-                ipv4_addresses.append(local)
-                if prefixlen:
-                    ipv4_networks.append(f"{local}/{prefixlen}")
-            elif family == "inet6" and local:
-                ipv6_addresses.append(local)
-                if prefixlen:
-                    ipv6_networks.append(f"{local}/{prefixlen}")
-
-        return InterfaceInfo(
-            name=name,
-            index=index,
-            state=state,
-            mtu=mtu,
-            mac_address=mac_address,
-            ipv4_addresses=ipv4_addresses,
-            ipv4_networks=ipv4_networks,
-            ipv6_addresses=ipv6_addresses,
-            ipv6_networks=ipv6_networks,
-            flags=flags,
-        )
-
-    async def collect_routes(self) -> CollectionResult:
-        """Collect routing table using `ip -j route show`."""
-        start_time = datetime.now()
-        command = "ip -j route show"
-
-        if not self._check_tool("ip"):
-            return CollectionResult(
-                timestamp=start_time.isoformat() + "Z",
-                success=False,
-                error="`ip` command not available",
-                command=command,
-            )
-
-        rc, stdout, stderr = await self._run_command(["ip", "-j", "route", "show"])
-
-        duration_ms = (datetime.now() - start_time).total_seconds() * 1000
-
-        if rc != 0:
-            return CollectionResult(
-                timestamp=start_time.isoformat() + "Z",
-                success=False,
-                error=f"Command failed (rc={rc}): {stderr}",
-                command=command,
-                duration_ms=duration_ms,
-            )
-
-        try:
-            routes_data = json.loads(stdout)
-        except json.JSONDecodeError as e:
-            return CollectionResult(
-                timestamp=start_time.isoformat() + "Z",
-                success=False,
-                error=f"Failed to parse JSON output: {e}",
-                command=command,
-                duration_ms=duration_ms,
-            )
-
-        routes = []
-        for route_data in routes_data:
-            route = self._parse_route(route_data)
-            routes.append(route)
-
-        return CollectionResult(
-            timestamp=start_time.isoformat() + "Z",
-            success=True,
-            data=routes,
-            command=command,
-            duration_ms=duration_ms,
-        )
-
-    def _parse_route(self, data: dict) -> RouteInfo:
-        """Parse route data from `ip -j route show` JSON output."""
-        destination = data.get("dst", "default")
-        if destination == "default":
-            destination = "0.0.0.0/0"
-
-        gateway = data.get("gateway")
-        interface = data.get("dev")
-        metric = data.get("metric")
-        proto = data.get("protocol", "kernel")
-        scope = data.get("scope", "link")
-        pref_src = data.get("prefsrc")
-
-        return RouteInfo(
-            destination=destination,
-            gateway=gateway,
-            interface=interface,
-            metric=metric,
-            proto=proto,
-            scope=scope,
-            pref_src=pref_src,
-        )
-
-    async def collect_neighbors(self) -> CollectionResult:
-        """Collect ARP/IPv6 neighbors using `ip -j neigh show`."""
-        start_time = datetime.now()
-        command = "ip -j neigh show"
-
-        if not self._check_tool("ip"):
-            return CollectionResult(
-                timestamp=start_time.isoformat() + "Z",
-                success=False,
-                error="`ip` command not available",
-                command=command,
-            )
-
-        rc, stdout, stderr = await self._run_command(["ip", "-j", "neigh", "show"])
-
-        duration_ms = (datetime.now() - start_time).total_seconds() * 1000
-
-        if rc != 0:
-            return CollectionResult(
-                timestamp=start_time.isoformat() + "Z",
-                success=False,
-                error=f"Command failed (rc={rc}): {stderr}",
-                command=command,
-                duration_ms=duration_ms,
-            )
-
-        try:
-            neighbors_data = json.loads(stdout)
-        except json.JSONDecodeError as e:
-            return CollectionResult(
-                timestamp=start_time.isoformat() + "Z",
-                success=False,
-                error=f"Failed to parse JSON output: {e}",
-                command=command,
-                duration_ms=duration_ms,
-            )
-
-        neighbors = []
-        for neigh_data in neighbors_data:
-            neighbor = self._parse_neighbor(neigh_data)
-            neighbors.append(neighbor)
-
-        return CollectionResult(
-            timestamp=start_time.isoformat() + "Z",
-            success=True,
-            data=neighbors,
-            command=command,
-            duration_ms=duration_ms,
-        )
-
-    def _parse_neighbor(self, data: dict) -> NeighborInfo:
-        """Parse neighbor data from `ip -j neigh show` JSON output."""
-        ip_address = data.get("dst", "")
-        interface = data.get("dev", "")
-        mac_address = data.get("lladdr")
-        
-        # state can be a string or a list of strings in ip -j output
-        state_raw = data.get("state", "UNKNOWN")
-        if isinstance(state_raw, list):
-            state = state_raw[0].upper() if state_raw else "UNKNOWN"
-        else:
-            state = str(state_raw).upper()
-            
-        is_router = data.get("router", False)
-
-        return NeighborInfo(
-            ip_address=ip_address,
-            interface=interface,
-            mac_address=mac_address,
-            state=state,
-            is_router=is_router,
-        )
-
-    async def collect_all(self) -> dict[str, CollectionResult]:
-        """Collect all network data in parallel."""
-        interfaces_task = asyncio.create_task(self.collect_interfaces())
-        routes_task = asyncio.create_task(self.collect_routes())
-        neighbors_task = asyncio.create_task(self.collect_neighbors())
-
-        interfaces, routes, neighbors = await asyncio.gather(
-            interfaces_task,
-            routes_task,
-            neighbors_task,
-        )
-
-        return {
-            "interfaces": interfaces,
-            "routes": routes,
-            "neighbors": neighbors,
-        }
-
-    async def resolve_dns(
-        self,
-        hostname: str,
-        timeout: float = 5.0,
-        family: int = socket.AF_UNSPEC,
-    ) -> DnsResolutionResult:
-        """
-        Resolve a hostname to IP addresses using asyncio.getaddrinfo().
-        
-        Uses asyncio's native DNS resolution with configurable timeout.
-        Supports both IPv4 and IPv6 resolution.
-        
-        Args:
-            hostname: The hostname to resolve
-            timeout: Maximum time to wait for resolution (seconds)
-            family: Address family (AF_INET, AF_INET6, or AF_UNSPEC)
-            
-        Returns:
-            DnsResolutionResult with addresses, latency, and any error
-        """
-        start_time = datetime.now()
-        
-        # Validate hostname
-        if not hostname or not isinstance(hostname, str):
-            return DnsResolutionResult(
-                hostname=hostname,
-                addresses=[],
-                latency_ms=0.0,
-                error="Invalid hostname",
-            )
-        
-        hostname = hostname.strip()
-        if not hostname:
-            return DnsResolutionResult(
-                hostname=hostname,
-                addresses=[],
-                latency_ms=0.0,
-                error="Empty hostname",
-            )
-        
-        try:
-            # Use asyncio's native getaddrinfo with timeout
-            loop = asyncio.get_running_loop()
-            addrinfo = await asyncio.wait_for(
-                loop.getaddrinfo(
-                    hostname,
-                    0,  # port 0 means any port
-                    family=family,
-                    type=socket.SOCK_STREAM,
-                    proto=socket.IPPROTO_TCP,
-                    flags=socket.AI_ADDRCONFIG | socket.AI_V4MAPPED,
-                ),
-                timeout=timeout,
-            )
-            
-            latency_ms = (datetime.now() - start_time).total_seconds() * 1000
-            
-            # Parse results
-            records = []
-            seen_addresses = set()
-            
-            for info in addrinfo:
-                family_type = info[0]
-                sockaddr = info[4]
-                address = sockaddr[0]
-                
-                # Deduplicate addresses
-                if address in seen_addresses:
-                    continue
-                seen_addresses.add(address)
-                
-                record_type = "A" if family_type == socket.AF_INET else "AAAA"
-                records.append(DnsRecord(
-                    hostname=hostname,
-                    address=address,
-                    record_type=record_type,
-                ))
-            
-            return DnsResolutionResult(
-                hostname=hostname,
-                addresses=records,
-                latency_ms=latency_ms,
-            )
-            
-        except asyncio.TimeoutError:
-            latency_ms = (datetime.now() - start_time).total_seconds() * 1000
-            return DnsResolutionResult(
-                hostname=hostname,
-                addresses=[],
-                latency_ms=latency_ms,
-                error=f"DNS resolution timed out after {timeout}s",
-            )
-        except socket.gaierror as e:
-            latency_ms = (datetime.now() - start_time).total_seconds() * 1000
-            # Map common gaierror codes to readable messages
-            error_map = {
-                socket.EAI_NONAME: f"Hostname not found: {hostname}",
-                socket.EAI_AGAIN: "Temporary DNS failure (retry may succeed)",
-                socket.EAI_FAIL: "Non-recoverable DNS failure",
-                socket.EAI_NODATA: f"No DNS records found for {hostname}",
-                socket.EAI_MEMORY: "Out of memory during DNS resolution",
-                socket.EAI_SYSTEM: f"System error: {e}",
-            }
-            error_msg = error_map.get(e.errno, f"DNS resolution failed: {e}")
-            return DnsResolutionResult(
-                hostname=hostname,
-                addresses=[],
-                latency_ms=latency_ms,
-                error=error_msg,
-            )
-        except Exception as e:
-            latency_ms = (datetime.now() - start_time).total_seconds() * 1000
-            return DnsResolutionResult(
-                hostname=hostname,
-                addresses=[],
-                latency_ms=latency_ms,
-                error=f"Unexpected error during DNS resolution: {e}",
-            )
-
-    async def check_connectivity(
-        self,
-        target: str,
-        port: Optional[int] = None,
-        protocol: str = "tcp",
-        timeout: float = 5.0,
-        count: int = 3,
-        interval: float = 0.2,
-    ) -> "ConnectivityResult":
-        """
-        Check connectivity to a target using ICMP ping or TCP connect.
-        
-        Args:
-            target: Target hostname or IP address
-            port: Port number for TCP connect (required for TCP protocol)
-            protocol: "icmp" for ICMP ping, "tcp" for TCP connect
-            timeout: Per-attempt timeout in seconds
-            count: Number of attempts (for ICMP ping)
-            interval: Interval between attempts in seconds
-            
-        Returns:
-            ConnectivityResult with reachability, latency, and any error
-        """
-        start_time = datetime.now()
-        
-        if protocol.lower() == "icmp":
-            return await self._icmp_ping(target, count, interval, timeout)
-        elif protocol.lower() == "tcp":
-            if port is None:
-                return ConnectivityResult(
-                    target=target,
-                    port=port,
-                    protocol="tcp",
-                    reachable=False,
-                    latency_ms=0.0,
-                    error="Port is required for TCP connectivity check",
-                )
-            return await self._tcp_connect(target, port, timeout)
-        else:
-            return ConnectivityResult(
-                target=target,
-                port=port,
-                protocol=protocol,
-                reachable=False,
-                latency_ms=0.0,
-                error=f"Unsupported protocol: {protocol}. Use 'icmp' or 'tcp'.",
-            )
-
-    async def _icmp_ping(
-        self,
-        target: str,
-        count: int,
-        interval: float,
-        timeout: float,
-    ) -> "ConnectivityResult":
-        """Perform ICMP ping using system ping command."""
-        start_time = datetime.now()
-        
-        # Validate target
-        try:
-            socket.inet_aton(target)  # IPv4
-        except socket.error:
-            try:
-                socket.inet_pton(socket.AF_INET6, target)  # IPv6
-            except socket.error:
-                # Assume hostname, will be resolved by ping
-                pass
-        
-        # Clamp count and timeout
-        count = max(1, min(10, count))
-        timeout = max(0.5, min(30.0, timeout))
-        interval = max(0.1, min(5.0, interval))
-        
-        if not self._check_tool("ping"):
-            return ConnectivityResult(
-                target=target,
-                port=None,
-                protocol="icmp",
-                reachable=False,
-                latency_ms=0.0,
-                error="`ping` command not available",
-            )
-        
-        cmd = ["ping", "-c", str(count), "-i", str(interval), "-W", str(int(timeout)), "--", target]
-        
-        rc, stdout, stderr = await self._run_command(cmd, timeout=timeout * count + 5)
-        
-        latency_ms = (datetime.now() - start_time).total_seconds() * 1000
-        
-        if rc == 0 and stdout:
-            # Parse ping output for statistics
-            packets_sent = count
-            packets_received = 0
-            rtt_min = rtt_avg = rtt_max = rtt_mdev = None
-            
-            for line in stdout.splitlines():
-                if "packets transmitted" in line:
-                    parts = line.split(",")
-                    for part in parts:
-                        part = part.strip()
-                        if "packets transmitted" in part:
-                            packets_sent = int(part.split()[0])
-                        elif "received" in part:
-                            packets_received = int(part.split()[0])
-                elif "rtt min/avg/max/mdev" in line or "round-trip" in line:
-                    try:
-                        rtt_part = line.split("=")[1].split("ms")[0].strip()
-                        rtt_values = rtt_part.split("/")
-                        if len(rtt_values) >= 4:
-                            rtt_min = float(rtt_values[0])
-                            rtt_avg = float(rtt_values[1])
-                            rtt_max = float(rtt_values[2])
-                            rtt_mdev = float(rtt_values[3])
-                    except (ValueError, IndexError):
-                        pass
-            
-            reachable = packets_received > 0
-            avg_latency = rtt_avg if rtt_avg is not None else latency_ms
-            
-            return ConnectivityResult(
-                target=target,
-                port=None,
-                protocol="icmp",
-                reachable=reachable,
-                latency_ms=avg_latency,
-                packets_sent=packets_sent,
-                packets_received=packets_received,
-                packet_loss_percent=((packets_sent - packets_received) / packets_sent * 100) if packets_sent > 0 else 100.0,
-                rtt_min_ms=rtt_min,
-                rtt_avg_ms=rtt_avg,
-                rtt_max_ms=rtt_max,
-                rtt_mdev_ms=rtt_mdev,
-            )
-        else:
-            return ConnectivityResult(
-                target=target,
-                port=None,
-                protocol="icmp",
-                reachable=False,
-                latency_ms=latency_ms,
-                packets_sent=count,
-                packets_received=0,
-                packet_loss_percent=100.0,
-                error=stderr or "Ping failed",
-            )
-
-    async def _tcp_connect(self, target: str, port: int, timeout: float) -> "ConnectivityResult":
-        """Perform TCP connect using asyncio.open_connection."""
-        start_time = datetime.now()
-        
-        # Validate port
-        if port < 1 or port > 65535:
-            return ConnectivityResult(
-                target=target,
-                port=port,
-                protocol="tcp",
-                reachable=False,
-                latency_ms=0.0,
-                error=f"Invalid port: {port}",
-            )
-        
-        # Clamp timeout
-        timeout = max(0.5, min(30.0, timeout))
-        
-        try:
-            # Resolve target first
-            loop = asyncio.get_running_loop()
-            addrinfo = await asyncio.wait_for(
-                loop.getaddrinfo(target, port, family=socket.AF_UNSPEC, type=socket.SOCK_STREAM),
-                timeout=timeout,
-            )
-            
-            if not addrinfo:
-                return ConnectivityResult(
-                    target=target,
-                    port=port,
-                    protocol="tcp",
-                    reachable=False,
-                    latency_ms=0.0,
-                    error=f"Could not resolve target: {target}",
-                )
-            
-            # Try each address until one connects
-            last_error = None
-            for info in addrinfo:
-                family = info[0]
-                sockaddr = info[4]
-                
-                try:
-                    reader, writer = await asyncio.wait_for(
-                        asyncio.open_connection(sockaddr[0], sockaddr[1], family=family),
-                        timeout=timeout,
-                    )
-                    
-                    latency_ms = (datetime.now() - start_time).total_seconds() * 1000
-                    
-                    writer.close()
-                    await writer.wait_closed()
-                    
-                    return ConnectivityResult(
-                        target=target,
-                        port=port,
-                        protocol="tcp",
-                        reachable=True,
-                        latency_ms=latency_ms,
-                    )
-                except (asyncio.TimeoutError, ConnectionRefusedError, OSError) as e:
-                    last_error = e
-                    continue
-            
-            latency_ms = (datetime.now() - start_time).total_seconds() * 1000
-            return ConnectivityResult(
-                target=target,
-                port=port,
-                protocol="tcp",
-                reachable=False,
-                latency_ms=latency_ms,
-                error=f"Connection failed: {last_error}",
-            )
-            
-        except asyncio.TimeoutError:
-            latency_ms = (datetime.now() - start_time).total_seconds() * 1000
-            return ConnectivityResult(
-                target=target,
-                port=port,
-                protocol="tcp",
-                reachable=False,
-                latency_ms=latency_ms,
-                error=f"DNS resolution timed out after {timeout}s",
-            )
-        except socket.gaierror as e:
-            latency_ms = (datetime.now() - start_time).total_seconds() * 1000
-            return ConnectivityResult(
-                target=target,
-                port=port,
-                protocol="tcp",
-                reachable=False,
-                latency_ms=latency_ms,
-                error=f"Could not resolve target: {target}",
-            )
-        except Exception as e:
-            latency_ms = (datetime.now() - start_time).total_seconds() * 1000
-            return ConnectivityResult(
-                target=target,
-                port=port,
-                protocol="tcp",
-                reachable=False,
-                latency_ms=latency_ms,
-                error=f"Unexpected error during TCP connect: {e}",
-            )
 
 
 @dataclass
@@ -862,6 +153,7 @@ class TracerouteResult:
         return self.completed and self.error is None
 
 
+
 class NetworkCollector:
     """
     Safe collector for real local network information.
@@ -879,32 +171,6 @@ class NetworkCollector:
         self.max_output_bytes = max_output_bytes
         self._tool_cache: dict[str, bool] = {}
 
-    def _check_tool(self, tool: str) -> bool:
-        """Check if a tool is available (cached)."""
-        if tool not in self._tool_cache:
-            try:
-                subprocess.run(
-                    ["which", tool],
-                    capture_output=True,
-                    check=True,
-                    timeout=2,
-                )
-                self._tool_cache[tool] = True
-            except subprocess.CalledProcessError:
-                self._tool_cache[tool] = False
-        return self._tool_cache[tool]
-
-    def check_tools(self) -> tuple[list[str], list[str]]:
-        """Check which required tools are available."""
-        required = ["ip"]
-        available = []
-        missing = []
-        for tool in required:
-            if self._check_tool(tool):
-                available.append(tool)
-            else:
-                missing.append(tool)
-        return available, missing
 
     async def _run_command(
         self,
@@ -971,7 +237,11 @@ class NetworkCollector:
         return available, missing
 
     async def collect_interfaces(self) -> CollectionResult:
-        """Collect network interfaces using `ip -j addr show`."""
+        """Collect network interfaces using `ip -j addr show`.
+
+        `ip -j addr show` reports every address an interface holds, so this
+        one listing covers both families. The ip_version field says so.
+        """
         start_time = datetime.now()
         command = "ip -j addr show"
         
@@ -1018,6 +288,7 @@ class NetworkCollector:
             data=interfaces,
             command=command,
             duration_ms=duration_ms,
+            ip_version="both",
         )
 
     def _parse_interface(self, data: dict) -> InterfaceInfo:
@@ -1064,10 +335,33 @@ class NetworkCollector:
             flags=flags,
         )
 
-    async def collect_routes(self) -> CollectionResult:
-        """Collect routing table using `ip -j route show`."""
+    async def collect_routes(self, ip_version: str = "ipv4") -> CollectionResult:
+        """Collect a routing table using `ip -j route show`.
+
+        Args:
+            ip_version: "ipv4" reads the IPv4 table with `ip -j route show`.
+                "ipv6" reads the IPv6 table with `ip -j -6 route show`. The
+                kernel keeps the two tables separately, so they have to be
+                read separately.
+
+        Returns:
+            CollectionResult whose ip_version says which table this is.
+        """
         start_time = datetime.now()
-        command = "ip -j route show"
+
+        if ip_version not in ("ipv4", "ipv6"):
+            return CollectionResult(
+                timestamp=start_time.isoformat() + "Z",
+                success=False,
+                error=f"Unsupported address family: {ip_version}. Use 'ipv4' or 'ipv6'.",
+                command="",
+                ip_version=ip_version,
+            )
+
+        cmd = ["ip", "-j", "route", "show"]
+        if ip_version == "ipv6":
+            cmd.insert(2, "-6")
+        command = " ".join(cmd)
 
         if not self._check_tool("ip"):
             return CollectionResult(
@@ -1075,9 +369,10 @@ class NetworkCollector:
                 success=False,
                 error="`ip` command not available",
                 command=command,
+                ip_version=ip_version,
             )
 
-        rc, stdout, stderr = await self._run_command(["ip", "-j", "route", "show"])
+        rc, stdout, stderr = await self._run_command(cmd)
 
         duration_ms = (datetime.now() - start_time).total_seconds() * 1000
 
@@ -1088,6 +383,7 @@ class NetworkCollector:
                 error=f"Command failed (rc={rc}): {stderr}",
                 command=command,
                 duration_ms=duration_ms,
+                ip_version=ip_version,
             )
 
         try:
@@ -1099,11 +395,12 @@ class NetworkCollector:
                 error=f"Failed to parse JSON output: {e}",
                 command=command,
                 duration_ms=duration_ms,
+                ip_version=ip_version,
             )
 
         routes = []
         for route_data in routes_data:
-            route = self._parse_route(route_data)
+            route = self._parse_route(route_data, ip_version)
             routes.append(route)
 
         return CollectionResult(
@@ -1112,13 +409,21 @@ class NetworkCollector:
             data=routes,
             command=command,
             duration_ms=duration_ms,
+            ip_version=ip_version,
         )
 
-    def _parse_route(self, data: dict) -> RouteInfo:
-        """Parse route data from `ip -j route show` JSON output."""
+    def _parse_route(self, data: dict, ip_version: str = "ipv4") -> RouteInfo:
+        """Parse route data from `ip -j route show` JSON output.
+
+        Args:
+            data: One route as the kernel printed it.
+            ip_version: Which table this came from. The kernel spells the
+                default route as the word "default" in both families, so the
+                family has to come from the caller rather than be guessed.
+        """
         destination = data.get("dst", "default")
         if destination == "default":
-            destination = "0.0.0.0/0"
+            destination = "0.0.0.0/0" if ip_version == "ipv4" else "::/0"
 
         gateway = data.get("gateway")
         interface = data.get("dev")
@@ -1137,10 +442,33 @@ class NetworkCollector:
             pref_src=pref_src,
         )
 
-    async def collect_neighbors(self) -> CollectionResult:
-        """Collect ARP/IPv6 neighbors using `ip -j neigh show`."""
+    async def collect_neighbors(self, ip_version: str = "ipv4") -> CollectionResult:
+        """Collect the neighbour cache using `ip -j neigh show`.
+
+        Args:
+            ip_version: "ipv4" reads the IPv4 neighbour cache with
+                `ip -j neigh show`. "ipv6" reads the IPv6 neighbour cache with
+                `ip -j -6 neigh show`. The kernel keeps the two caches
+                separately, so they have to be read separately.
+
+        Returns:
+            CollectionResult whose ip_version says which cache this is.
+        """
         start_time = datetime.now()
-        command = "ip -j neigh show"
+
+        if ip_version not in ("ipv4", "ipv6"):
+            return CollectionResult(
+                timestamp=start_time.isoformat() + "Z",
+                success=False,
+                error=f"Unsupported address family: {ip_version}. Use 'ipv4' or 'ipv6'.",
+                command="",
+                ip_version=ip_version,
+            )
+
+        cmd = ["ip", "-j", "neigh", "show"]
+        if ip_version == "ipv6":
+            cmd.insert(2, "-6")
+        command = " ".join(cmd)
 
         if not self._check_tool("ip"):
             return CollectionResult(
@@ -1148,9 +476,10 @@ class NetworkCollector:
                 success=False,
                 error="`ip` command not available",
                 command=command,
+                ip_version=ip_version,
             )
 
-        rc, stdout, stderr = await self._run_command(["ip", "-j", "neigh", "show"])
+        rc, stdout, stderr = await self._run_command(cmd)
 
         duration_ms = (datetime.now() - start_time).total_seconds() * 1000
 
@@ -1161,6 +490,7 @@ class NetworkCollector:
                 error=f"Command failed (rc={rc}): {stderr}",
                 command=command,
                 duration_ms=duration_ms,
+                ip_version=ip_version,
             )
 
         try:
@@ -1172,6 +502,7 @@ class NetworkCollector:
                 error=f"Failed to parse JSON output: {e}",
                 command=command,
                 duration_ms=duration_ms,
+                ip_version=ip_version,
             )
 
         neighbors = []
@@ -1185,6 +516,7 @@ class NetworkCollector:
             data=neighbors,
             command=command,
             duration_ms=duration_ms,
+            ip_version=ip_version,
         )
 
     def _parse_neighbor(self, data: dict) -> NeighborInfo:
@@ -1211,21 +543,33 @@ class NetworkCollector:
         )
 
     async def collect_all(self) -> dict[str, CollectionResult]:
-        """Collect all network data in parallel."""
+        """Collect all network data in parallel.
+
+        The kernel keeps the IPv4 and IPv6 routing tables and neighbour
+        caches separately, so both are read. The "routes" and "neighbors"
+        entries are the IPv4 ones, which is what they have always been; the
+        IPv6 tables are under "routes_ipv6" and "neighbors_ipv6".
+        """
         interfaces_task = asyncio.create_task(self.collect_interfaces())
         routes_task = asyncio.create_task(self.collect_routes())
+        routes_v6_task = asyncio.create_task(self.collect_routes("ipv6"))
         neighbors_task = asyncio.create_task(self.collect_neighbors())
+        neighbors_v6_task = asyncio.create_task(self.collect_neighbors("ipv6"))
 
-        interfaces, routes, neighbors = await asyncio.gather(
+        interfaces, routes, routes_v6, neighbors, neighbors_v6 = await asyncio.gather(
             interfaces_task,
             routes_task,
+            routes_v6_task,
             neighbors_task,
+            neighbors_v6_task,
         )
 
         return {
             "interfaces": interfaces,
             "routes": routes,
+            "routes_ipv6": routes_v6,
             "neighbors": neighbors,
+            "neighbors_ipv6": neighbors_v6,
         }
 
     async def resolve_dns(
