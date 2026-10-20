@@ -15,6 +15,7 @@ from app.routing_logic import lookup_route, trace_packet_path
 from app.packet_lab_routes import router as packet_lab_router
 from app.scenario_routes import router as scenario_router, exercise_router
 from app.discovery_routes import router as discovery_router
+from app.report_routes import router as report_router
 from app.network_collector import get_network_collector
 from app.security import (
     TargetValidationError,
@@ -55,6 +56,7 @@ app.include_router(packet_lab_router, prefix="/api/lab")
 app.include_router(scenario_router)
 app.include_router(exercise_router)
 app.include_router(discovery_router)
+app.include_router(report_router)
 
 
 @app.get("/health", tags=["Health"])

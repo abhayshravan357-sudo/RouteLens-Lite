@@ -15,6 +15,7 @@ export default defineConfig({
       '/api/scenarios': 'http://127.0.0.1:8000',
       '/api/exercises': 'http://127.0.0.1:8000',
       '/api/discovery': 'http://127.0.0.1:8000',
+      '/api/report': 'http://127.0.0.1:8000',
       '/network': 'http://127.0.0.1:8000',
     },
   },

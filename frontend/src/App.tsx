@@ -31,6 +31,7 @@ import NetworkDiagnostics from './components/NetworkDiagnostics';
 import ScenarioJourney from './components/ScenarioJourney';
 import LearningLab from './components/LearningLab';
 import Overview from './components/Overview';
+import ReportPanel from './components/ReportPanel';
 import './index.css';
 
 function App() {
@@ -271,6 +272,9 @@ function App() {
                 legacyJourney={simulationResponse}
                 lookupResult={lookupResult}
               />
+              <div className="overview-report">
+                <ReportPanel />
+              </div>
             </div>
           </div>
         </section>

@@ -404,3 +404,19 @@ export async function cancelDiscovery(scanId: string): Promise<{ cancelled: bool
 export async function fetchDiscoveryAudit(): Promise<DiscoveryAuditEntry[]> {
   return fetchWithTimeout<DiscoveryAuditEntry[]>('/api/discovery/audit', 10000);
 }
+
+// Report export
+export async function fetchReportJson(): Promise<unknown> {
+  return fetchWithTimeout<unknown>('/api/report?format=json', 30000);
+}
+
+export async function fetchReportMarkdown(): Promise<string> {
+  const response = await fetch('/api/report?format=markdown');
+  if (!response.ok) {
+    throw new ApiError(
+      `Could not build the report: ${response.status}`,
+      response.status
+    );
+  }
+  return response.text();
+}

@@ -348,6 +348,47 @@ class TestOverview:
         assert errors == [], f"console errors: {errors}"
 
 
+class TestReport:
+    """The student must be able to take away what was measured."""
+
+    def test_the_report_panel_is_present(self, page, backend_available):
+        """There is a way to build a report."""
+        page.goto(BASE_URL, wait_until="networkidle", timeout=30000)
+        page.wait_for_timeout(1500)
+        body = page.inner_text("body")
+        assert "Build report" in body
+
+    def test_a_report_can_be_built(self, page, backend_available):
+        """Building a report shows the evidence and the limitations."""
+        page.goto(BASE_URL, wait_until="networkidle", timeout=30000)
+        page.wait_for_timeout(1500)
+
+        button = page.locator("button:has-text('Build report')")
+        assert button.count() == 1
+        button.click()
+        page.wait_for_timeout(4000)
+
+        body = page.inner_text("body")
+        assert "## Limitations" in body
+        assert "**Provenance:**" in body
+        assert "**Source:**" in body
+        # The simulated table must be labelled as such.
+        assert "simulated" in body
+
+    def test_building_a_report_produces_no_script_errors(self, page, backend_available):
+        """Building a report does not throw."""
+        page.goto(BASE_URL, wait_until="networkidle", timeout=30000)
+        page.wait_for_timeout(1500)
+
+        button = page.locator("button:has-text('Build report')")
+        if button.count():
+            button.click()
+            page.wait_for_timeout(4000)
+
+        errors = script_errors(page)
+        assert errors == [], f"console errors: {errors}"
+
+
 class TestResponsiveLayout:
     """The layout must work on a smaller screen too."""
 
