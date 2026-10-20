@@ -10,6 +10,12 @@
   gap: 16px;
 }
 
+/* The "what next" card reads as a full-width footer of the overview rather
+   than an orphan in a half-empty row. */
+.overview-card-wide {
+  grid-column: 1 / -1;
+}
+
 .overview-card {
   padding: 18px;
   border: 1px solid var(--color-border);
@@ -87,7 +93,7 @@
 .overview-error {
   margin: 0;
   font-size: 0.8125rem;
-  color: #991b1b;
+  color: var(--error-text);
   line-height: 1.6;
 }
 
@@ -141,11 +147,11 @@
 }
 
 .overview-outcome.succeeded {
-  background: #dcfce7;
+  background: var(--success-soft);
 }
 
 .overview-outcome.failed {
-  background: #fef3c7;
+  background: var(--warning-soft);
 }
 
 .overview-outcome-label {
@@ -154,11 +160,11 @@
 }
 
 .overview-outcome.succeeded .overview-outcome-label {
-  color: #166534;
+  color: var(--success-text);
 }
 
 .overview-outcome.failed .overview-outcome-label {
-  color: #92400e;
+  color: var(--warning-text);
 }
 
 .overview-outcome-detail {
@@ -171,11 +177,11 @@
   padding: 12px 14px;
   background: var(--color-bg);
   border-radius: var(--radius-md);
-  border-left: 3px solid #f59e0b;
+  border-left: 3px solid var(--color-warning);
 }
 
 .overview-failure h4 {
-  color: #92400e;
+  color: var(--warning-text);
   text-transform: none;
   letter-spacing: 0;
   font-size: 0.8125rem;

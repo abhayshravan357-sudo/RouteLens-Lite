@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   checkHealth,
   fetchRoutes,
@@ -16,17 +16,22 @@ import type {
   RoutingEntry,
   RouteLookupResult,
   LabState,
+  LabStatusResponse,
   PacketJourneyRequest,
   PacketJourneyResponse,
   Scenario,
   ScenarioSummary,
   ScenarioTrace,
 } from './types/routing';
+import AppShell, { type ViewId } from './components/AppShell';
+import DecisionChain from './components/DecisionChain';
+import KernelTable from './components/KernelTable';
 import RoutingTable from './components/RoutingTable';
 import LookupForm from './components/LookupForm';
 import ResultDisplay from './components/ResultDisplay';
 import Visualization from './components/Visualization';
 import PacketJourney from './components/PacketJourney';
+import VirtualLabPanel from './components/VirtualLabPanel';
 import NetworkDiagnostics from './components/NetworkDiagnostics';
 import ScenarioJourney from './components/ScenarioJourney';
 import LearningLab from './components/LearningLab';
@@ -35,17 +40,33 @@ import ReportPanel from './components/ReportPanel';
 import './index.css';
 
 function App() {
-  const [backendConnected, setBackendConnected] = useState(false);
+  const [view, setView] = useState<ViewId>('overview');
+
+  // --- Backend health ---
+  const [backendConnected, setBackendConnected] = useState<boolean | null>(null);
+  const [healthError, setHealthError] = useState<string | null>(null);
+
+  // --- Routing table ---
   const [routes, setRoutes] = useState<RoutingEntry[]>([]);
   const [routesLoading, setRoutesLoading] = useState(true);
+  const [routesError, setRoutesError] = useState<string | null>(null);
+
+  // --- Route lookup ---
   const [lookupResult, setLookupResult] = useState<RouteLookupResult | null>(null);
   const [lookupLoading, setLookupLoading] = useState(false);
   const [lookupError, setLookupError] = useState<string | null>(null);
-  const [labState, setLabState] = useState<LabState>('idle');
+  /** The address the student actually typed, kept for the decision chain. */
+  const [queriedAddress, setQueriedAddress] = useState<string | null>(null);
+
+  // --- Virtual lab ---
+  const [labStatus, setLabStatus] = useState<LabStatusResponse | null>(null);
+  const [labLoading, setLabLoading] = useState(false);
   const [labError, setLabError] = useState<string | null>(null);
+  const [labState, setLabState] = useState<LabState>('idle');
+  const [labRunError, setLabRunError] = useState<string | null>(null);
   const [simulationResponse, setSimulationResponse] = useState<PacketJourneyResponse | null>(null);
 
-  // Scenario engine state
+  // --- Scenario engine ---
   const [scenarios, setScenarios] = useState<ScenarioSummary[]>([]);
   const [selectedScenario, setSelectedScenario] = useState<Scenario | null>(null);
   const [scenarioTrace, setScenarioTrace] = useState<ScenarioTrace | null>(null);
@@ -53,392 +74,578 @@ function App() {
   const [scenarioError, setScenarioError] = useState<string | null>(null);
   const [scenarioWorkspace, setScenarioWorkspace] = useState<string | null>(null);
 
-  // Check backend health on mount
-  useEffect(() => {
-    const check = async () => {
-      try {
-        await checkHealth();
-        setBackendConnected(true);
-      } catch {
-        setBackendConnected(false);
-      }
-    };
-    check();
+  // ---------------------------------------------------------------------------
+  // Loading
+  // ---------------------------------------------------------------------------
 
-    // Poll health every 30 seconds
-    const interval = setInterval(check, 30000);
-    return () => clearInterval(interval);
+  const loadHealth = useCallback(async () => {
+    try {
+      await checkHealth();
+      setBackendConnected(true);
+      setHealthError(null);
+    } catch (err) {
+      setBackendConnected(false);
+      setHealthError(err instanceof Error ? err.message : 'Backend is not reachable');
+    }
   }, []);
 
-  // Check lab availability on mount and when backend connects
-  useEffect(() => {
-    if (!backendConnected) return;
-
-    const checkLab = async () => {
-      try {
-        const status = await checkLabStatus();
-        setLabState(status.available ? 'ready' : 'unavailable');
-        if (!status.available) {
-          setLabError(status.error || 'Virtual router not ready');
-        }
-      } catch {
-        setLabState('unavailable');
-        setLabError('Failed to check lab status');
-      }
-    };
-    checkLab();
-  }, [backendConnected]);
-
-  // Fetch routes on mount and when backend connects
-  useEffect(() => {
-    if (!backendConnected) return;
-
-    const loadRoutes = async () => {
-      setRoutesLoading(true);
-      try {
-        const data = await fetchRoutes();
-        setRoutes(data);
-      } catch (error) {
-        console.error('Failed to fetch routes:', error);
-        setRoutes([]);
-      } finally {
-        setRoutesLoading(false);
-      }
-    };
-
-    loadRoutes();
-  }, [backendConnected]);
-
-  // Load the scenario list once the backend is reachable
-  useEffect(() => {
-    if (!backendConnected) return;
-
-    const loadScenarios = async () => {
-      try {
-        const list = await fetchScenarios();
-        setScenarios(list);
-        if (list.length > 0) {
-          const first = await fetchScenario(list[0].id);
-          setSelectedScenario(first);
-        }
-      } catch (error) {
-        setScenarioError(
-          error instanceof Error ? error.message : 'Could not load scenarios'
-        );
-      }
-    };
-
-    loadScenarios();
-  }, [backendConnected]);
-
-  // Trace a packet through the selected scenario
-  const handleScenarioTrace = async (
-    src: string,
-    dst: string,
-    workspace?: string | null
-  ) => {
-    if (!selectedScenario) return;
-
-    setScenarioLoading(true);
-    setScenarioError(null);
-    setScenarioTrace(null);
+  const loadRoutes = useCallback(async () => {
+    setRoutesLoading(true);
+    setRoutesError(null);
     try {
-      const result = await traceScenario(selectedScenario.id, {
-        src,
-        dst,
-        workspace: workspace ?? undefined,
-      });
-      setScenarioTrace(result);
-      if (workspace) setScenarioWorkspace(workspace);
-    } catch (error) {
-      if (error instanceof TimeoutError) {
-        setScenarioError('The trace request timed out.');
-      } else if (error instanceof ApiError) {
-        setScenarioError(error.message);
+      const data = await fetchRoutes();
+      setRoutes(data);
+    } catch (err) {
+      setRoutes([]);
+      setRoutesError(
+        err instanceof Error ? err.message : 'Could not load the routing table'
+      );
+    } finally {
+      setRoutesLoading(false);
+    }
+  }, []);
+
+  const loadLabStatus = useCallback(async () => {
+    setLabLoading(true);
+    setLabError(null);
+    try {
+      const status = await checkLabStatus();
+      setLabStatus(status);
+      setLabState(status.available ? 'ready' : 'unavailable');
+    } catch (err) {
+      if (err instanceof LabUnavailableError) {
+        setLabStatus({
+          available: false,
+          state: 'unavailable',
+          message: err.message,
+          router_info: null,
+          error: err.message,
+        });
+        setLabState('unavailable');
       } else {
-        setScenarioError(error instanceof Error ? error.message : 'Trace failed');
+        setLabError(
+          err instanceof Error ? err.message : 'Could not reach the lab'
+        );
+        setLabState('unavailable');
       }
     } finally {
-      setScenarioLoading(false);
+      setLabLoading(false);
     }
-  };
+  }, []);
 
-  // Handle route lookup
-  const handleLookup = async (destination: string) => {
+  const loadScenarios = useCallback(async () => {
+    try {
+      const list = await fetchScenarios();
+      setScenarios(list);
+      if (list.length > 0) {
+        const first = await fetchScenario(list[0].id);
+        setSelectedScenario(first);
+      }
+    } catch (err) {
+      setScenarioError(
+        err instanceof Error ? err.message : 'Could not load scenarios'
+      );
+    }
+  }, []);
+
+  // Health is polled, but gently: the backend is local and this is not a
+  // page that needs a live dashboard.
+  useEffect(() => {
+    loadHealth();
+    const interval = setInterval(loadHealth, 30000);
+    return () => clearInterval(interval);
+  }, [loadHealth]);
+
+  useEffect(() => {
+    if (backendConnected !== true) return;
+    loadRoutes();
+    loadLabStatus();
+    loadScenarios();
+  }, [backendConnected, loadRoutes, loadLabStatus, loadScenarios]);
+
+  // ---------------------------------------------------------------------------
+  // Actions
+  // ---------------------------------------------------------------------------
+
+  const handleLookup = useCallback(async (destination: string) => {
     setLookupLoading(true);
     setLookupResult(null);
     setLookupError(null);
+    setQueriedAddress(destination);
     try {
       const result = await lookupRoute(destination);
       setLookupResult(result);
     } catch (error) {
       if (error instanceof TimeoutError) {
-        setLookupError('Request timed out. Please check your connection and try again.');
+        setLookupError(
+          'The lookup timed out. Check the backend is still running and try again.'
+        );
       } else if (error instanceof ApiError) {
         setLookupError(error.message);
       } else {
-        setLookupError(error instanceof Error ? error.message : 'Unknown error');
+        setLookupError(
+          error instanceof Error ? error.message : 'The lookup failed'
+        );
       }
       setLookupResult({
         matched: false,
         route: null,
         explanation: '',
-        error: error instanceof Error ? error.message : 'Unknown error',
+        error: error instanceof Error ? error.message : 'The lookup failed',
         transmitted: false,
       });
     } finally {
       setLookupLoading(false);
     }
-  };
+  }, []);
 
-  // Initial lookup with sample destination
+  // Show one real lookup as soon as the table is available, so the analyzer
+  // is never an empty page.
   useEffect(() => {
-    if (backendConnected && routes.length > 0 && !lookupResult && !lookupLoading) {
+    if (backendConnected === true && routes.length > 0 && !lookupResult && !lookupLoading) {
       handleLookup('192.168.1.50');
     }
-  }, [backendConnected, routes.length, lookupResult, lookupLoading]);
+  }, [backendConnected, routes.length, lookupResult, lookupLoading, handleLookup]);
 
-  // Handle packet journey trace - uses routing lookup result
-  const handleSimulatePacket = async () => {
+  const handleScenarioTrace = useCallback(
+    async (src: string, dst: string, workspace?: string | null) => {
+      if (!selectedScenario) return;
+
+      setScenarioLoading(true);
+      setScenarioError(null);
+      setScenarioTrace(null);
+      try {
+        const result = await traceScenario(selectedScenario.id, {
+          src,
+          dst,
+          workspace: workspace ?? undefined,
+        });
+        setScenarioTrace(result);
+        if (workspace) setScenarioWorkspace(workspace);
+      } catch (error) {
+        if (error instanceof TimeoutError) {
+          setScenarioError('The trace request timed out.');
+        } else if (error instanceof ApiError) {
+          setScenarioError(error.message);
+        } else {
+          setScenarioError(
+            error instanceof Error ? error.message : 'The trace failed'
+          );
+        }
+      } finally {
+        setScenarioLoading(false);
+      }
+    },
+    [selectedScenario]
+  );
+
+  const handleSimulatePacket = useCallback(async () => {
     if (!lookupResult?.matched || !lookupResult.route) return;
 
     setLabState('simulating');
-    setLabError(null);
+    setLabRunError(null);
     setSimulationResponse(null);
 
     try {
-      // Use the routing lookup result to determine the packet journey
-      // The source is the device that would send the packet, destination is the lookup target
       const request: PacketJourneyRequest = {
-        source_ip: '192.168.1.10', // Client device in the lab
-        destination_ip: lookupResult.route.destination.split('/')[0], // Use the network address from the matched route
+        source_ip: '192.168.1.10',
+        destination_ip: lookupResult.route.destination.split('/')[0],
       };
 
       const response = await tracePacketJourney(request);
       setSimulationResponse(response);
       setLabState(response.success ? 'completed' : 'error');
-
       if (!response.success) {
-        setLabError(response.error || 'Packet journey failed');
+        setLabRunError(response.error || 'The packet journey failed');
       }
     } catch (error) {
       setLabState('error');
       if (error instanceof LabUnavailableError) {
-        setLabError(error.message);
+        setLabRunError(error.message);
       } else if (error instanceof TimeoutError) {
-        setLabError('Packet journey timed out. The lab may be overloaded.');
+        setLabRunError('The packet journey timed out. The lab may be overloaded.');
       } else if (error instanceof ApiError) {
-        setLabError(error.message);
+        setLabRunError(error.message);
       } else {
-        setLabError(error instanceof Error ? error.message : 'Packet journey failed');
+        setLabRunError(
+          error instanceof Error ? error.message : 'The packet journey failed'
+        );
       }
     }
-  };
+  }, [lookupResult]);
 
-  // Reset lab state when lookup changes
+  // A new route means the previous trace no longer describes this question.
   useEffect(() => {
     setLabState('idle');
-    setLabError(null);
+    setLabRunError(null);
     setSimulationResponse(null);
   }, [lookupResult]);
 
-  return (
-    <div className="app">
-      <header className="header">
-        <div className="header-content">
-          <div className="header-title">
-            <h1>RouteLens Lite</h1>
-          </div>
-          <div className="header-status">
-            <span className={`status-badge ${backendConnected ? 'connected' : 'disconnected'}`}>
-              <span className="dot" aria-hidden="true"></span>
-              {backendConnected ? 'Backend Connected' : 'Backend Disconnected'}
-            </span>
-            <span className="route-count">
-              {routesLoading ? 'Loading...' : `${routes.length} route${routes.length !== 1 ? 's' : ''} available`}
-            </span>
-          </div>
+  // ---------------------------------------------------------------------------
+  // Derived
+  // ---------------------------------------------------------------------------
+
+  const isOnline = backendConnected === true;
+
+  /**
+   * The instrument strip. Every value here is a real reading or an honest
+   * statement that the source is unavailable. Nothing is estimated.
+   */
+  const readouts = useMemo(() => {
+    const v4 = routes.filter((r) => !r.destination.includes(':')).length;
+    const v6 = routes.length - v4;
+
+    return [
+      {
+        label: 'Routes',
+        value: routesLoading ? '···' : routesError ? 'n/a' : String(routes.length),
+        tone: routesError ? ('off' as const) : ('normal' as const),
+      },
+      {
+        label: 'IPv4',
+        value: routesLoading ? '···' : String(v4),
+        tone: 'normal' as const,
+      },
+      {
+        label: 'IPv6',
+        value: routesLoading ? '···' : String(v6),
+        tone: 'normal' as const,
+      },
+      {
+        label: 'Lab',
+        value: labLoading ? '···' : labStatus?.available ? 'ready' : 'down',
+        tone: labStatus?.available ? ('live' as const) : ('off' as const),
+      },
+      {
+        label: 'Match',
+        value: lookupResult?.route?.destination ?? (lookupResult ? 'none' : '—'),
+        tone: lookupResult?.route ? ('live' as const) : ('off' as const),
+      },
+    ];
+  }, [
+    routes,
+    routesLoading,
+    routesError,
+    labLoading,
+    labStatus,
+    lookupResult,
+  ]);
+
+  const handleRefresh = useCallback(() => {
+    loadHealth();
+    if (isOnline) {
+      loadRoutes();
+      loadLabStatus();
+      loadScenarios();
+    }
+  }, [loadHealth, loadRoutes, loadLabStatus, loadScenarios, isOnline]);
+
+  // ---------------------------------------------------------------------------
+  // Views
+  // ---------------------------------------------------------------------------
+
+  const renderOverview = () => (
+    <div className="view-stack">
+      <section className="card">
+        <div className="card-body">
+          <Overview
+            scenario={selectedScenario}
+            trace={scenarioTrace}
+            legacyJourney={simulationResponse}
+            lookupResult={lookupResult}
+          />
         </div>
-      </header>
+      </section>
 
-      <main className="main-content">
-        {/* Overview - answers what you are looking at before anything else */}
-        <section className="section">
-          <div className="card">
-            <div className="card-body">
-              <Overview
-                scenario={selectedScenario}
-                trace={scenarioTrace}
-                legacyJourney={simulationResponse}
-                lookupResult={lookupResult}
-              />
-              <div className="overview-report">
-                <ReportPanel />
-              </div>
-            </div>
+      <section className="card">
+        <div className="card-header">
+          <div>
+            <span className="eyebrow">04 · Evidence</span>
+            <h2>Measured report</h2>
           </div>
-        </section>
-
-        <section className="section">
-          <div className="card">
-            <div className="card-header">
-              <h2>Routing Table</h2>
-            </div>
-            <div className="card-body">
-              {routesLoading ? (
-                <div className="loading"><span className="spinner" aria-hidden="true"></span>Loading routes...</div>
-              ) : (
-                <RoutingTable routes={routes} />
-              )}
-            </div>
-          </div>
-        </section>
-
-        <section className="section">
-          <div className="card">
-            <div className="card-header">
-              <h2>Route Lookup</h2>
-            </div>
-            <div className="card-body">
-              <LookupForm
-                onSubmit={handleLookup}
-                disabled={lookupLoading || !backendConnected}
-                defaultValue="192.168.1.50"
-              />
-              {lookupError && (
-                <div className="error-message" role="alert">
-                  <span aria-hidden="true">⚠</span>
-                  {lookupError}
-                </div>
-              )}
-              {lookupResult && (
-                <ResultDisplay result={lookupResult} />
-              )}
-              {lookupLoading && !lookupResult && (
-                <div className="loading"><span className="spinner" aria-hidden="true"></span>Analyzing route...</div>
-              )}
-            </div>
-          </div>
-        </section>
-
-        {lookupResult && lookupResult.matched && lookupResult.route && (
-          <section className="section">
-            <div className="card">
-              <div className="card-header">
-                <h2>Route Decision Visualization</h2>
-              </div>
-              <div className="card-body">
-                <Visualization
-                  routes={routes}
-                  selectedRoute={lookupResult.route}
-                  destination={lookupResult.route.destination}
-                />
-              </div>
-            </div>
-          </section>
-        )}
-
-        {/* Packet Journey Section - shows when a route is found */}
-        {lookupResult && lookupResult.matched && lookupResult.route && (
-          <section className="section">
-            <div className="card">
-              <div className="card-header">
-                <h2>Packet Journey (Virtual Lab)</h2>
-              </div>
-              <div className="card-body">
-                {/* Topology Mismatch Warning */}
-                <div className="topology-warning">
-                  <span className="warning-icon" aria-hidden="true">⚠</span>
-                  <div className="warning-content">
-                    <strong>Topology Mismatch:</strong> The routing table above uses sample networks
-                    (192.168.1.0/24, 10.0.0.0/8), but the virtual packet lab uses isolated networks
-                    (192.168.10.0/24 client↔router, 192.168.20.0/24 router↔server). The simulation below uses the LAB topology, NOT your routing decision.
-                  </div>
-                </div>
-                <PacketJourney
-                  labState={labState}
-                  labError={labError}
-                  simulationResponse={simulationResponse}
-                  onSimulate={handleSimulatePacket}
-                  disabled={labState !== 'idle' && labState !== 'completed' && labState !== 'error' && labState !== 'timeout' && labState !== 'unavailable'}
-                />
-              </div>
-            </div>
-          </section>
-        )}
-
-        {/* Scenario Packet Journey - the multi-router teaching tool */}
-        {backendConnected && (
-          <section className="section">
-            <div className="card">
-              <div className="card-header">
-                <h2>Scenario Lab</h2>
-              </div>
-              <div className="card-body">
-                {scenarios.length > 1 && (
-                  <div className="scenario-picker">
-                    <label htmlFor="scenario-select">Choose a network:</label>
-                    <select
-                      id="scenario-select"
-                      value={selectedScenario?.id ?? ''}
-                      onChange={async (e) => {
-                        setScenarioTrace(null);
-                        setScenarioError(null);
-                        try {
-                          const next = await fetchScenario(e.target.value);
-                          setSelectedScenario(next);
-                        } catch (err) {
-                          setScenarioError(
-                            err instanceof Error ? err.message : 'Could not load scenario'
-                          );
-                        }
-                      }}
-                    >
-                      {scenarios.map((s) => (
-                        <option key={s.id} value={s.id}>
-                          {s.title}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-                {selectedScenario && (
-                  <p className="scenario-description">{selectedScenario.title}</p>
-                )}
-                <ScenarioJourney
-                  scenario={selectedScenario}
-                  trace={scenarioTrace}
-                  loading={scenarioLoading}
-                  error={scenarioError}
-                  workspace={scenarioWorkspace}
-                  onTrace={handleScenarioTrace}
-                />
-              </div>
-            </div>
-          </section>
-        )}
-
-        {/* Learning Lab - guided exercises checked by the real engine */}
-        {backendConnected && (
-          <section className="section">
-            <div className="card">
-              <div className="card-body">
-                <LearningLab workspace={scenarioWorkspace} />
-              </div>
-            </div>
-          </section>
-        )}
-
-        {/* Network Diagnostics Section - always visible */}
-        <section className="section">
-          <div className="card">
-            <div className="card-body">
-              <NetworkDiagnostics />
-            </div>
-          </div>
-        </section>
-      </main>
+          <span className="card-subtitle">
+            Export what was actually observed, with its evidence and limits
+          </span>
+        </div>
+        <div className="card-body">
+          <ReportPanel />
+        </div>
+      </section>
     </div>
+  );
+
+  const renderRouting = () => (
+    <div className="view-stack">
+      <section className="card">
+        <div className="card-header">
+          <div>
+            <span className="eyebrow">01 · Query</span>
+            <h2>Route lookup</h2>
+          </div>
+          <span className="card-subtitle">
+            Longest-prefix match against the routing table
+          </span>
+        </div>
+        <div className="card-body">
+          <LookupForm
+            onSubmit={handleLookup}
+            disabled={lookupLoading || !isOnline}
+            defaultValue="192.168.1.50"
+          />
+          {lookupError && (
+            <div className="error-message" role="alert">
+              <span aria-hidden="true">⚠</span>
+              {lookupError}
+            </div>
+          )}
+          {lookupLoading && !lookupResult && (
+            <div className="loading">
+              <span className="spinner" aria-hidden="true" />
+              Analysing the route…
+            </div>
+          )}
+          {lookupResult && <ResultDisplay result={lookupResult} />}
+        </div>
+      </section>
+
+      {lookupResult && (
+        <section className="card hud hud-lit">
+          <div className="card-body">
+            <DecisionChain result={lookupResult} queriedAddress={queriedAddress} />
+          </div>
+        </section>
+      )}
+
+      {lookupResult?.matched && lookupResult.route && (
+        <section className="card">
+          <div className="card-header">
+            <div>
+              <span className="eyebrow">02 · Decision</span>
+              <h2>Why that route won</h2>
+            </div>
+            <span className="card-subtitle">
+              Every matching prefix, longest first
+            </span>
+          </div>
+          <div className="card-body">
+            <Visualization
+              routes={routes}
+              selectedRoute={lookupResult.route}
+              destination={lookupResult.route.destination}
+            />
+          </div>
+        </section>
+      )}
+
+      <section className="card">
+        <div className="card-header">
+          <div>
+            <span className="eyebrow">03 · Table</span>
+            <h2>Routing table</h2>
+          </div>
+          <span className="card-subtitle">
+            {routesLoading
+              ? 'Loading…'
+              : routesError
+              ? 'Unavailable'
+              : `${routes.length} entries`}
+          </span>
+        </div>
+        <div className="card-body flush">
+          {routesLoading ? (
+            <div className="loading">
+              <span className="spinner" aria-hidden="true" />
+              Loading routes…
+            </div>
+          ) : routesError ? (
+            <div className="error-message" role="alert" style={{ margin: '20px' }}>
+              <span aria-hidden="true">⚠</span>
+              {routesError}
+            </div>
+          ) : (
+            <RoutingTable
+              routes={routes}
+              bestMatch={lookupResult?.route?.destination ?? null}
+            />
+          )}
+        </div>
+      </section>
+    </div>
+  );
+
+  const renderKernel = () => (
+    <div className="view-stack">
+      <section className="card">
+        <div className="card-header">
+          <div>
+            <span className="eyebrow">01 · Observed</span>
+            <h2>This machine's real routing table</h2>
+          </div>
+          <span className="card-subtitle">
+            Read from the kernel, not from a sample
+          </span>
+        </div>
+        <div className="card-body">
+          <KernelTable />
+        </div>
+      </section>
+    </div>
+  );
+
+  const renderJourney = () => (
+    <div className="view-stack">
+      {scenarios.length > 1 && (
+        <section className="card">
+          <div className="card-body">
+            <div className="scenario-picker">
+              <label htmlFor="scenario-select">Network</label>
+              <select
+                id="scenario-select"
+                value={selectedScenario?.id ?? ''}
+                onChange={async (e) => {
+                  setScenarioTrace(null);
+                  setScenarioError(null);
+                  try {
+                    const next = await fetchScenario(e.target.value);
+                    setSelectedScenario(next);
+                  } catch (err) {
+                    setScenarioError(
+                      err instanceof Error
+                        ? err.message
+                        : 'Could not load the scenario'
+                    );
+                  }
+                }}
+              >
+                {scenarios.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.title}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </section>
+      )}
+
+      <section className="card">
+        <div className="card-body">
+          <ScenarioJourney
+            scenario={selectedScenario}
+            trace={scenarioTrace}
+            loading={scenarioLoading}
+            error={scenarioError}
+            workspace={scenarioWorkspace}
+            onTrace={handleScenarioTrace}
+          />
+        </div>
+      </section>
+    </div>
+  );
+  const renderLab = () => (
+    <div className="view-stack">
+      <section className="card">
+        <div className="card-header">
+          <div>
+            <span className="eyebrow">01 · Facility</span>
+            <h2>Lab state</h2>
+          </div>
+          <span className="card-subtitle">
+            Read from the backend, not assumed
+          </span>
+        </div>
+        <div className="card-body">
+          <VirtualLabPanel
+            status={labStatus}
+            loading={labLoading}
+            error={labError}
+            onRetry={loadLabStatus}
+          />
+        </div>
+      </section>
+
+      {lookupResult?.matched && lookupResult.route && (
+        <section className="card">
+          <div className="card-header">
+            <div>
+              <span className="eyebrow">02 · Trace</span>
+              <h2>Trace against the routing table</h2>
+            </div>
+            <span className="card-subtitle">
+              The software forwarding decision for the address you looked up
+            </span>
+          </div>
+          <div className="card-body">
+            <div className="topology-warning">
+              <span className="warning-icon" aria-hidden="true">⚠</span>
+              <div className="warning-content">
+                <strong>Different topologies.</strong> The routing table uses
+                sample networks (192.168.1.0/24, 10.0.0.0/8). The isolated lab
+                runs on 192.168.10.0/24 and 192.168.20.0/24. The trace below
+                follows the routing table, not the physical lab.
+              </div>
+            </div>
+            <PacketJourney
+              labState={labState}
+              labError={labRunError}
+              simulationResponse={simulationResponse}
+              onSimulate={handleSimulatePacket}
+              disabled={
+                labState !== 'idle' &&
+                labState !== 'completed' &&
+                labState !== 'error' &&
+                labState !== 'timeout' &&
+                labState !== 'unavailable'
+              }
+            />
+          </div>
+        </section>
+      )}
+    </div>
+  );
+
+  const renderDiagnostics = () => (
+    <div className="view-stack">
+      <section className="card">
+        <div className="card-body">
+          <NetworkDiagnostics embedded />
+        </div>
+      </section>
+    </div>
+  );
+
+  const renderLearning = () => (
+    <div className="view-stack">
+      <section className="card">
+        <div className="card-body">
+          <LearningLab workspace={scenarioWorkspace} />
+        </div>
+      </section>
+    </div>
+  );
+
+  const views: Record<ViewId, () => React.ReactNode> = {
+    overview: renderOverview,
+    routing: renderRouting,
+    kernel: renderKernel,
+    journey: renderJourney,
+    lab: renderLab,
+    diagnostics: renderDiagnostics,
+    learning: renderLearning,
+  };
+
+  return (
+    <AppShell
+      activeView={view}
+      onViewChange={setView}
+      backendOnline={backendConnected}
+      backendError={healthError}
+      onRefresh={handleRefresh}
+      refreshing={routesLoading || labLoading}
+      readouts={readouts}
+    >
+      {views[view]()}
+    </AppShell>
   );
 }
 

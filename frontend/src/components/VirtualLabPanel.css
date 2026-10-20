@@ -1,0 +1,299 @@
+/* Virtual Lab panel */
+
+.virtual-lab {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.lab-state-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.lab-state-message {
+  font-size: var(--text-base);
+  color: var(--color-text-muted);
+  flex: 1;
+  min-width: 200px;
+}
+
+/* --- Topology --- */
+
+.lab-topology {
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  gap: var(--space-3);
+  padding: var(--space-6) var(--space-4);
+  background: var(--surface-inset);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+}
+
+.lab-node {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: var(--space-4);
+  min-width: 150px;
+  flex: 1;
+  max-width: 210px;
+  background: var(--color-panel);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  text-align: center;
+  position: relative;
+}
+
+.lab-node.client {
+  border-color: var(--color-border-strong);
+  box-shadow: var(--shadow-inset);
+}
+
+.lab-node.router {
+  border-color: rgba(242, 251, 255, 0.3);
+  background: var(--surface-subtle);
+  /* The router is the pivot of the lab, so it is the lit one. */
+  box-shadow: var(--shine-bloom-soft);
+}
+
+.lab-node.server {
+  border-color: var(--color-border-strong);
+  box-shadow: var(--shadow-inset);
+}
+
+.lab-node-icon {
+  color: var(--color-text-muted);
+  display: grid;
+  place-items: center;
+  height: 28px;
+}
+
+.lab-node.router .lab-node-icon {
+  color: var(--shining);
+  filter: drop-shadow(0 0 8px rgba(190, 235, 255, 0.6));
+}
+
+.lab-node-label {
+  font-size: var(--text-base);
+  font-weight: 600;
+}
+
+.lab-node-detail {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+
+.lab-node-detail code {
+  font-size: var(--text-xs);
+}
+
+.lab-node-address {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--shining-dim);
+  overflow-wrap: anywhere;
+}
+
+.lab-unknown {
+  font-style: italic;
+  color: var(--text-faint);
+  font-family: var(--font-sans);
+}
+
+/* --- Links --- */
+
+.lab-link {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex: 0 1 130px;
+  min-width: 110px;
+}
+
+/* The track is the wire between two devices. */
+.lab-link-track {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+}
+
+.lab-link-line {
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--color-border-strong) 20%,
+    var(--color-border-strong) 80%,
+    transparent
+  );
+  position: relative;
+}
+
+/* When the lab is genuinely up, the fabric is live and the signal moves. */
+.lab-topology-live .lab-link-line::after {
+  content: '';
+  position: absolute;
+  top: -1px;
+  left: 0;
+  width: 18px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--shining);
+  box-shadow: 0 0 10px 1px rgba(190, 235, 255, 0.9);
+  animation: link-signal 2.8s linear infinite;
+}
+
+.lab-topology-live .lab-link:nth-of-type(2) .lab-link-line::after {
+  animation-delay: 1.4s;
+}
+
+@keyframes link-signal {
+  0% {
+    left: 0;
+    opacity: 0;
+  }
+  12% {
+    opacity: 1;
+  }
+  88% {
+    opacity: 1;
+  }
+  100% {
+    left: calc(100% - 18px);
+    opacity: 0;
+  }
+}
+
+.lab-link-label {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
+.lab-link-ports {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.lab-link-arrow {
+  color: var(--text-faint);
+}
+
+/* --- Subnets --- */
+
+.lab-subnets {
+  margin: 0;
+  text-align: center;
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}
+
+.lab-subnets code {
+  color: var(--color-text);
+  background: var(--surface-subtle);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+}
+
+/* --- Routing table --- */
+
+.lab-routing .data-table {
+  font-size: var(--text-sm);
+}
+
+.lab-muted {
+  margin: 0;
+  font-size: var(--text-base);
+  color: var(--color-text-muted);
+}
+
+/* --- Note --- */
+
+.lab-note {
+  padding: var(--space-4);
+  background: var(--surface-subtle);
+  border: 1px solid var(--color-border);
+  border-left: 2px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  line-height: 1.65;
+  color: var(--color-text-muted);
+}
+
+.lab-note strong {
+  color: var(--color-text);
+}
+
+/* --- Responsive --- */
+
+@media (max-width: 860px) {
+  .lab-topology {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .lab-node {
+    max-width: none;
+  }
+
+  /* Stacked devices need a vertical wire, not a horizontal one. */
+  .lab-link {
+    flex-direction: column;
+    gap: 4px;
+    min-height: 56px;
+    width: 100%;
+  }
+
+  .lab-link-track {
+    position: relative;
+    flex-direction: column;
+    justify-content: center;
+    height: 34px;
+    width: 100%;
+  }
+
+  .lab-link-line {
+    display: none;
+  }
+
+  .lab-link-track::before {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    transform: translateX(-50%);
+    background: linear-gradient(
+      180deg,
+      transparent,
+      var(--color-border-strong) 20%,
+      var(--color-border-strong) 80%,
+      transparent
+    );
+  }
+
+  .lab-link-label,
+  .lab-link-ports {
+    position: relative;
+    z-index: 1;
+    background: var(--surface-inset);
+    padding: 0 var(--space-2);
+  }
+}

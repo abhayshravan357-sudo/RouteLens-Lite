@@ -37,6 +37,7 @@ import type {
   DiscoveryAuditEntry,
   PcapAnalyzeRequest,
   PcapAnalysisResult,
+  RouteAnalysisReport,
 } from '../types/routing';
 
 const API_BASE = '';
@@ -70,6 +71,51 @@ export class LabUnavailableError extends Error {
   }
 }
 
+/**
+ * Turn a FastAPI error body into something a person can read.
+ *
+ * `detail` is a string for HTTPException, but a list of objects for
+ * request-validation errors, and an object for a few other cases. Passing
+ * any of those straight to `new Error()` renders "[object Object]", so
+ * they are unpacked here.
+ */
+function formatDetail(detail: unknown, fallback: string): string {
+  if (typeof detail === 'string' && detail.trim()) return detail;
+
+  if (Array.isArray(detail)) {
+    const parts = detail
+      .map((item) => {
+        if (typeof item === 'string') return item;
+        if (item && typeof item === 'object') {
+          const record = item as Record<string, unknown>;
+          const loc = Array.isArray(record.loc)
+            ? record.loc.filter((p) => p !== 'body').join('.')
+            : '';
+          const msg = typeof record.msg === 'string' ? record.msg : 'invalid value';
+          return loc ? `${loc}: ${msg}` : msg;
+        }
+        return String(item);
+      })
+      .filter(Boolean);
+    if (parts.length) return parts.join('; ');
+  }
+
+  if (detail && typeof detail === 'object') {
+    const record = detail as Record<string, unknown>;
+    for (const key of ['message', 'error', 'reason'] as const) {
+      const value = record[key];
+      if (typeof value === 'string' && value.trim()) return value;
+    }
+    try {
+      return JSON.stringify(detail);
+    } catch {
+      return fallback;
+    }
+  }
+
+  return fallback;
+}
+
 async function fetchWithTimeout<T>(
   endpoint: string,
   timeoutMs = DEFAULT_TIMEOUT,
@@ -97,7 +143,9 @@ async function fetchWithTimeout<T>(
       const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
 
       if (response.status === 503) {
-        throw new LabUnavailableError(error.detail || 'Lab unavailable');
+        throw new LabUnavailableError(
+          formatDetail(error.detail, 'Lab unavailable')
+        );
       }
 
       if (response.status === 408) {
@@ -105,7 +153,7 @@ async function fetchWithTimeout<T>(
       }
 
       throw new ApiError(
-        error.detail || `Request failed: ${response.status}`,
+        formatDetail(error.detail, `Request failed: ${response.status}`),
         response.status,
         error.code
       );
@@ -146,6 +194,28 @@ export async function lookupRoute(destination: string): Promise<RouteLookupResul
 
 export async function checkLabStatus(): Promise<LabStatusResponse> {
   return fetchWithTimeout<LabStatusResponse>('/api/lab/status', 10000);
+}
+
+/**
+ * Analyse the routing table the running kernel actually holds.
+ *
+ * `ipVersion` is sent as `ip_version`. A backend that predates per-family
+ * analysis ignores it and returns the IPv4 table; the caller is expected to
+ * notice that from the response rather than to assume it worked.
+ */
+export async function fetchRouteAnalysis(
+  destination?: string | null,
+  ipVersion: 'ipv4' | 'ipv6' = 'ipv4'
+): Promise<RouteAnalysisReport> {
+  const params: Record<string, string> = { ip_version: ipVersion };
+  if (destination && destination.trim()) {
+    params.destination = destination.trim();
+  }
+  return fetchWithTimeout<RouteAnalysisReport>(
+    '/network/routes/analysis',
+    NETWORK_TIMEOUT,
+    { params }
+  );
 }
 
 export async function simulatePacket(request: SimulateRequest): Promise<SimulateResponse> {

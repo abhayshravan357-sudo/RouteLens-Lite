@@ -90,6 +90,7 @@ export default function NetworkRoutes({ data, loading, error }: NetworkRoutesPro
         <span>Collected: {new Date(data.timestamp).toLocaleTimeString()}</span>
         <span>Command: <code>{data.command}</code></span>
         <span>Duration: {data.duration_ms.toFixed(1)}ms</span>
+        {data.ip_version && <span>Family: {data.ip_version}</span>}
       </div>
     </div>
   );

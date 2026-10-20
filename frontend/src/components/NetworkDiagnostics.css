@@ -174,7 +174,7 @@
   text-transform: uppercase;
   letter-spacing: 0.05em;
   font-size: 0.75rem;
-  background: #fafafa;
+  background: var(--surface-subtle);
 }
 
 .network-table tbody tr:last-child td {
@@ -182,7 +182,7 @@
 }
 
 .network-table tbody tr:hover {
-  background: #fafafa;
+  background: var(--surface-subtle);
 }
 
 .table-container {
@@ -296,10 +296,10 @@
   align-items: center;
   gap: 12px;
   padding: 16px;
-  background: #fee2e2;
-  border: 1px solid #fecaca;
+  background: var(--error-soft);
+  border: 1px solid var(--error-border);
   border-radius: var(--radius-md);
-  color: #991b1b;
+  color: var(--error-text);
   font-size: 0.875rem;
   margin-top: 16px;
 }
@@ -343,10 +343,10 @@
   align-items: center;
   gap: 12px;
   padding: 16px;
-  background: #fee2e2;
-  border: 1px solid #fecaca;
+  background: var(--error-soft);
+  border: 1px solid var(--error-border);
   border-radius: var(--radius-md);
-  color: #991b1b;
+  color: var(--error-text);
   font-size: 0.875rem;
 }
 
@@ -389,4 +389,151 @@
     flex-direction: column;
     gap: 8px;
   }
+}
+/* --- Address family switch --- */
+
+.family-switch {
+  display: flex;
+  gap: 3px;
+  padding: 3px;
+  margin: 0 20px 16px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  width: fit-content;
+}
+
+.family-switch .family-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.family-missing {
+  font-family: var(--font-mono);
+  font-size: 0.5625rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+/* A tag showing which family a table came from. */
+.family-tag {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 7px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+
+.family-tag.ipv4 {
+  background: var(--primary-soft);
+  color: var(--color-primary);
+  border: 1px solid var(--color-border);
+}
+
+.family-tag.ipv6 {
+  background: var(--info-soft);
+  color: var(--info-text);
+  border: 1px solid var(--info-border);
+}
+
+/* --- Reverse name lookup --- */
+
+.name-lookup-summary {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+  padding: 10px 14px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+}
+
+.lookup-label {
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.lookup-cap {
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--warning-soft);
+  color: var(--warning-text);
+  font-size: 0.625rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.lookup-note {
+  margin-left: auto;
+  font-style: italic;
+  color: var(--text-faint);
+}
+
+/* --- Neighbour names --- */
+
+.cell-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  max-width: 260px;
+}
+
+.cell-hostname {
+  font-family: var(--font-mono);
+  color: var(--color-text);
+}
+
+.cell-no-name {
+  color: var(--text-faint);
+  font-style: italic;
+}
+
+.name-provenance {
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  cursor: help;
+}
+
+.name-provenance.inferred {
+  background: var(--warning-soft);
+  color: var(--warning-text);
+  border: 1px solid var(--warning-border);
+}
+
+.name-provenance.unknown,
+.name-provenance.not_looked_up {
+  background: var(--surface-active);
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
+}
+
+.name-error {
+  font-size: 0.6875rem;
+  color: var(--error-text);
+  cursor: help;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }

@@ -88,18 +88,18 @@
 }
 
 .compare-verdict.good {
-  background: #dcfce7;
-  color: #166534;
+  background: var(--success-soft);
+  color: var(--success-text);
 }
 
 .compare-verdict.bad {
-  background: #fee2e2;
-  color: #991b1b;
+  background: var(--error-soft);
+  color: var(--error-text);
 }
 
 .compare-verdict.unknown {
-  background: #f1f5f9;
-  color: #475569;
+  background: var(--surface-muted);
+  color: var(--text-faint);
 }
 
 .compare-status {
@@ -148,20 +148,20 @@
 }
 
 .compare-agreement.agree {
-  background: #dcfce7;
-  border-color: #86efac;
-  color: #166534;
+  background: var(--success-soft);
+  border-color: var(--success-border);
+  color: var(--success-text);
 }
 
 .compare-agreement.disagree {
-  background: #fee2e2;
-  border-color: #fca5a5;
-  color: #991b1b;
+  background: var(--error-soft);
+  border-color: var(--error-accent);
+  color: var(--error-text);
 }
 
 .compare-agreement.unknown {
-  background: #f1f5f9;
-  color: #475569;
+  background: var(--surface-muted);
+  color: var(--text-faint);
 }
 
 @media (max-width: 768px) {

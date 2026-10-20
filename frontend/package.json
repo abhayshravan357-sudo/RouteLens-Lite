@@ -6,13 +6,18 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "generate:api": "npx --yes openapi-typescript@7 http://127.0.0.1:8000/openapi.json -o src/types/api.generated.ts",
+    "check:api": "node scripts/check-api-contract.mjs"
   },
   "dependencies": {
+    "@xyflow/react": "^12.12.0",
+    "dagre": "^0.8.5",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
+    "@types/dagre": "^0.7.54",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^4.3.0",

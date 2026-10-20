@@ -11,7 +11,7 @@ import shutil
 import tempfile
 import threading
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Optional
@@ -129,7 +129,7 @@ class RoutingTablePersistence:
             # Prepare data
             data = {
                 "version": 1,
-                "saved_at": datetime.utcnow().isoformat() + "Z",
+                "saved_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
                 "routes": [r.model_dump() for r in routes],
             }
 

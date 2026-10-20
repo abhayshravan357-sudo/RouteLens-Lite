@@ -1,12 +1,96 @@
 import { useState } from 'react';
 import { analyzeCaptureFile } from '../api/routing';
-import type { PcapAnalysisResult, PcapHost, PcapConversation } from '../types/routing';
+import type {
+  PcapAnalysisResult,
+  PcapHost,
+  PcapConversation,
+  PcapPacketDetail,
+  PcapHandshake,
+} from '../types/routing';
 import './PCAPPanel.css';
 
 const MAX_FILE_SIZE = 32 * 1024 * 1024; // 32 MB
 
 interface PCAPPanelProps {
   onAnalysisComplete?: (result: PcapAnalysisResult) => void;
+}
+
+/**
+ * The protocol-specific facts a packet carries, in the order a reader
+ * would want them. Only the ones the packet actually has are shown.
+ */
+function packetFacts(packet: PcapPacketDetail): { label: string; value: string }[] {
+  const facts: { label: string; value: string }[] = [];
+
+  if (packet.protocol) facts.push({ label: 'Protocol', value: packet.protocol });
+  if (packet.src_ip) facts.push({ label: 'Source', value: packet.src_ip });
+  if (packet.dst_ip) facts.push({ label: 'Destination', value: packet.dst_ip });
+  if (packet.src_port !== null && packet.dst_port !== null) {
+    facts.push({
+      label: 'Ports',
+      value: `${packet.src_port} → ${packet.dst_port}`,
+    });
+  }
+  if (packet.tcp_flags.length > 0) {
+    facts.push({ label: 'TCP flags', value: packet.tcp_flags.join(', ') });
+  }
+  if (packet.icmp_type_name) {
+    facts.push({
+      label: 'ICMP type',
+      value:
+        packet.icmp_code_name !== null
+          ? `${packet.icmp_type_name} (${packet.icmp_type} / ${packet.icmp_code_name})`
+          : `${packet.icmp_type_name} (${packet.icmp_type})`,
+    });
+  }
+  if (packet.dns_query_name) {
+    facts.push({
+      label: 'DNS query',
+      value: packet.dns_query_name,
+    });
+  }
+  if (packet.dns_answers.length > 0) {
+    facts.push({ label: 'DNS answers', value: packet.dns_answers.join(', ') });
+  }
+  if (packet.arp_operation_name) {
+    facts.push({
+      label: 'ARP operation',
+      value: packet.arp_operation_name,
+    });
+  }
+  if (packet.handshake_stage) {
+    facts.push({ label: 'Handshake stage', value: packet.handshake_stage });
+  }
+  if (packet.src_mac) facts.push({ label: 'Source MAC', value: packet.src_mac });
+  if (packet.dst_mac) facts.push({ label: 'Destination MAC', value: packet.dst_mac });
+  if (packet.ethertype) facts.push({ label: 'Ethertype', value: packet.ethertype });
+
+  return facts;
+}
+
+function HandshakeCard({ handshake }: { handshake: PcapHandshake }) {
+  return (
+    <div className={`pcap-handshake ${handshake.complete ? 'complete' : 'partial'}`}>
+      <div className="pcap-handshake-head">
+        <span className="pcap-handshake-pair mono">
+          {handshake.client} ↔ {handshake.server}
+        </span>
+        <span className="pcap-handshake-badge">
+          {handshake.complete ? 'Complete' : 'Partial'}
+        </span>
+      </div>
+      {handshake.stages.length > 0 && (
+        <ol className="pcap-handshake-stages">
+          {handshake.stages.map((stage, i) => (
+            <li key={i} className="mono">
+              {stage}
+            </li>
+          ))}
+        </ol>
+      )}
+      <p className="pcap-handshake-explanation">{handshake.explanation}</p>
+    </div>
+  );
 }
 
 export default function PCAPPanel({ onAnalysisComplete }: PCAPPanelProps) {
@@ -285,6 +369,73 @@ export default function PCAPPanel({ onAnalysisComplete }: PCAPPanelProps) {
                         ))}
                       </tbody>
                     </table>
+                  </div>
+                </section>
+              )}
+
+              {result.handshakes && result.handshakes.length > 0 && (
+                <section className="pcap-section">
+                  <h4>Handshakes ({result.handshakes.length})</h4>
+                  <div className="pcap-handshake-list">
+                    {result.handshakes.map((handshake, i) => (
+                      <HandshakeCard key={i} handshake={handshake} />
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              {result.packets && result.packets.length > 0 && (
+                <section className="pcap-section">
+                  <h4>
+                    Packets ({result.packets.length})
+                    <span className="pcap-section-hint">
+                      what each packet actually carried
+                    </span>
+                  </h4>
+                  <div className="pcap-packet-list">
+                    {result.packets.map((packet) => (
+                      <details
+                        key={packet.index}
+                        className={`pcap-packet ${packet.parsed ? '' : 'unparsed'}`}
+                      >
+                        <summary>
+                          <span className="pcap-packet-index mono">
+                            #{packet.index}
+                          </span>
+                          <span className="pcap-packet-flow mono">
+                            {packet.src_ip ?? packet.src_mac ?? '?'} →{' '}
+                            {packet.dst_ip ?? packet.dst_mac ?? '?'}
+                          </span>
+                          {packet.protocol && (
+                            <span className="pcap-packet-protocol">
+                              {packet.protocol}
+                            </span>
+                          )}
+                          <span className="pcap-packet-time mono">
+                            {new Date(packet.timestamp).toLocaleTimeString()}
+                          </span>
+                        </summary>
+
+                        <div className="pcap-packet-facts">
+                          {packetFacts(packet).map((fact) => (
+                            <div className="pcap-packet-fact" key={fact.label}>
+                              <span className="detail-label">{fact.label}</span>
+                              <span className="detail-value mono">
+                                {fact.value}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+
+                        {packet.notes.length > 0 && (
+                          <ul className="pcap-packet-notes">
+                            {packet.notes.map((note, i) => (
+                              <li key={i}>{note}</li>
+                            ))}
+                          </ul>
+                        )}
+                      </details>
+                    ))}
                   </div>
                 </section>
               )}
