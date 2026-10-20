@@ -1,4 +1,4 @@
-/* Evidence-based topology graph */
+/* Evidence-based topology graph - Interactive SVG */
 
 .topology-graph {
   margin-top: 20px;
@@ -69,23 +69,152 @@
   font-family: var(--font-mono);
 }
 
-.topology-columns {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 16px;
-  align-items: start;
+/* SVG Graph */
+.topology-svg {
+  width: 100%;
+  height: 450px;
+  max-height: 60vh;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  overflow: visible;
 }
 
-.topology-group-title {
-  margin: 0 0 8px 0;
-  font-size: 0.6875rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+.topology-edges-layer {
+  pointer-events: none;
+}
+
+.topology-edge-group {
+  pointer-events: all;
+  cursor: pointer;
+  transition: opacity var(--transition);
+}
+
+.topology-edge-group:hover {
+  opacity: 0.8;
+}
+
+.topology-edge-path {
+  transition: stroke-width var(--transition), stroke var(--transition);
+}
+
+.topology-edge-group:focus-within .topology-edge-path,
+.topology-edge-group:hover .topology-edge-path {
+  stroke-width: 3;
+}
+
+.topology-nodes-layer {
+  pointer-events: all;
+}
+
+.topology-node-group {
+  cursor: pointer;
+  transition: transform var(--transition);
+}
+
+.topology-node-group:focus {
+  outline: none;
+}
+
+.topology-node-group:focus .topology-node-circle {
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.4);
+}
+
+.topology-node-group.selected .topology-node-circle {
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.4);
+}
+
+.topology-node-group.highlighted .topology-node-circle {
+  filter: brightness(1.1);
+}
+
+.topology-node-group:not(.highlighted).dimmed {
+  opacity: 0.4;
+}
+
+.topology-node-circle {
+  transition: all var(--transition);
+}
+
+.topology-node-icon {
+  pointer-events: none;
+  user-select: none;
+}
+
+.topology-node-label {
+  pointer-events: none;
+  user-select: none;
+  font-family: var(--font-sans);
+}
+
+.topology-node-address {
+  pointer-events: none;
+  user-select: none;
+}
+
+/* Empty State */
+.topology-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 300px;
+  text-align: center;
   color: var(--color-text-muted);
 }
 
-.topology-node-list {
+.topology-empty p {
+  margin: 0 0 8px 0;
+  font-size: 1rem;
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.topology-empty-hint {
+  font-size: 0.875rem !important;
+  max-width: 40ch;
+}
+
+/* Details Panel */
+.topology-details-panel {
+  margin-top: 20px;
+  padding: 16px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.topology-detail h4 {
+  margin: 0 0 12px 0;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.topology-detail h5 {
+  margin: 16px 0 8px 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.topology-addresses {
+  margin: 0 0 8px 0;
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  color: var(--color-text);
+}
+
+.topology-node-note {
+  margin: 0 0 12px 0;
+  color: var(--color-text-muted);
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+
+.topology-connection-list {
   list-style: none;
   margin: 0;
   padding: 0;
@@ -94,94 +223,35 @@
   gap: 6px;
 }
 
-.topology-node {
-  width: 100%;
+.topology-connection-list li {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
   padding: 8px 12px;
-  border: 1px solid var(--color-border);
-  border-left-width: 3px;
-  border-radius: var(--radius-md);
   background: var(--color-surface);
-  cursor: pointer;
-  text-align: left;
-  font-family: var(--font-sans);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
   font-size: 0.8125rem;
   color: var(--color-text);
-  transition: all var(--transition);
 }
 
-.topology-node:hover {
-  background: var(--color-bg);
-}
-
-.topology-node.observed {
-  border-left-color: #16a34a;
-}
-
-.topology-node.inferred {
-  border-left-color: #d97706;
-}
-
-.topology-node.simulated {
-  border-left-color: #7c3aed;
-}
-
-.topology-node.unknown {
-  border-left-color: #64748b;
-}
-
-.topology-node.selected {
-  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
-}
-
-.topology-node-label {
+.topology-connection-list .mono {
   font-family: var(--font-mono);
-  font-weight: 500;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
-.topology-node-detail {
-  margin: 6px 0 10px 0;
-  padding: 10px 12px;
-  background: var(--color-bg);
-  border-radius: var(--radius-sm);
+.topology-connection-list .no-connections {
+  color: var(--color-text-muted);
+  font-style: italic;
+  justify-content: center;
+}
+
+.edge-detail {
+  color: var(--color-text-muted);
   font-size: 0.75rem;
-  line-height: 1.7;
+  margin-left: auto;
 }
 
-.topology-addresses {
-  margin: 0 0 4px 0;
-  font-family: var(--font-mono);
-  color: var(--color-text);
-}
-
-.topology-node-note {
-  margin: 0 0 6px 0;
-  color: var(--color-text-muted);
-}
-
-.topology-edge {
-  margin: 2px 0;
-  color: var(--color-text-muted);
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-
-.topology-empty {
-  margin: 0;
-  padding: 24px;
-  text-align: center;
-  color: var(--color-text-muted);
-  font-size: 0.875rem;
-}
-
+/* Edges Table */
 .topology-edges {
   margin-top: 16px;
   font-size: 0.8125rem;
@@ -191,6 +261,11 @@
   cursor: pointer;
   color: var(--color-text-muted);
   padding: 6px 0;
+  font-weight: 500;
+}
+
+.topology-edges summary:hover {
+  color: var(--color-text);
 }
 
 .topology-edge-table {
@@ -219,9 +294,29 @@
   font-family: var(--font-mono);
 }
 
+/* Responsive */
 @media (max-width: 768px) {
   .topology-timestamp {
     margin-left: 0;
     width: 100%;
   }
+
+  .topology-svg {
+    height: 350px;
+  }
+
+  .topology-detail h4 {
+    flex-wrap: wrap;
+  }
+
+  .topology-connection-list li {
+    flex-wrap: wrap;
+  }
+}
+
+/* Focus visible for accessibility */
+.topology-node-group:focus-visible .topology-node-circle,
+.topology-edge-group:focus-visible .topology-edge-path {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
 }

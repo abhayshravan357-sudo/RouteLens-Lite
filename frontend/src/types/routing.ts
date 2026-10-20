@@ -536,3 +536,52 @@ export interface DiscoveryAuditEntry {
   reason: string | null;
   confirmed: boolean;
 }
+
+/**
+ * PCAP Analysis types - matching the FastAPI backend Pydantic models exactly.
+ * Backend contract: POST /api/pcap/analyze
+ */
+
+export interface PcapAnalyzeRequest {
+  filename: string;
+  data_base64: string;
+}
+
+export interface PcapSummary {
+  total_packets: number;
+  total_bytes: number;
+  duration_seconds: number;
+  start_time: string;
+  end_time: string;
+  protocols: Record<string, number>;
+  link_type: number;
+}
+
+export interface PcapHost {
+  ip: string;
+  packets: number;
+  bytes: number;
+  first_seen: string;
+  last_seen: string;
+}
+
+export interface PcapConversation {
+  src: string;
+  dst: string;
+  protocol: string;
+  packets: number;
+  bytes: number;
+}
+
+export interface PcapAnalysisResult {
+  filename: string;
+  size_bytes: number;
+  format: 'pcap' | 'pcapng' | 'unknown';
+  parsed: boolean;
+  error: string | null;
+  collected_at: string;
+  summary: PcapSummary | null;
+  hosts: PcapHost[];
+  conversations: PcapConversation[];
+  limitations: string[];
+}
