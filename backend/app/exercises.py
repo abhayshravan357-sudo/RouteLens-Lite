@@ -36,6 +36,18 @@ class ExerciseKind(str, Enum):
     EDIT = "edit"
 
 
+class TableSource(str, Enum):
+    """Where the routing table an exercise works against comes from.
+
+    A scenario exercise works against a modelled network. A host exercise
+    works against the routing table of the machine the student is sitting
+    at, read from the kernel.
+    """
+
+    SCENARIO = "scenario"
+    HOST = "host"
+
+
 class ExerciseCheck(BaseModel):
     """One condition that must hold for the exercise to be complete."""
 
@@ -52,6 +64,11 @@ class Exercise(BaseModel):
     concept: str
     kind: ExerciseKind
 
+    # Where the routing table comes from. "scenario" for the modelled
+    # network exercises, "host" for the ones that read the student's own
+    # machine.
+    table_source: TableSource = TableSource.SCENARIO
+
     # The six-part explanation.
     what_it_is: str
     why_it_matters: str
@@ -60,9 +77,9 @@ class Exercise(BaseModel):
 
     # What to do.
     instruction: str
-    scenario_id: str
-    source: str
-    destination: str
+    scenario_id: Optional[str] = None
+    source: str = ""
+    destination: str = ""
 
     # What the student predicts before checking.
     prediction_prompt: str
@@ -72,6 +89,10 @@ class Exercise(BaseModel):
 
     # Explanation shown once the exercise is complete.
     takeaway: str
+
+    # For a host exercise, what the student could look at instead when
+    # their own machine does not have what the exercise needs.
+    unavailable_hint: Optional[str] = None
 
     # An optional route edit the student can make, for edit exercises.
     editable_node: Optional[str] = None
@@ -479,6 +500,219 @@ def _build_exercises() -> Dict[str, Exercise]:
 EXERCISES: Dict[str, Exercise] = _build_exercises()
 
 
+# --------------------------------------------------------------------------
+# Exercises that work on the host's own routing table
+# --------------------------------------------------------------------------
+#
+# The exercises above all run against a modelled network. These three run
+# against the routing table of the machine the student is sitting at, which
+# is the thing they will actually meet.
+#
+# The table is read from the kernel and is OBSERVED. The conclusion drawn
+# from it is INFERRED, and the two are kept apart. Nothing here changes a
+# route: the collector is read-only.
+#
+# These live in their own registry rather than in EXERCISES so that the
+# existing exercise list, and the seven exercises in it, are untouched.
+
+
+def _build_host_exercises() -> Dict[str, Exercise]:
+    exercises: List[Exercise] = []
+
+    # ------------------------------------------------------------------
+    # H1. Which route would this machine use?
+    # ------------------------------------------------------------------
+    exercises.append(
+        Exercise(
+            id="host-which-route",
+            title="Which route would your machine use?",
+            concept="Reading your own routing table",
+            kind=ExerciseKind.LOOKUP,
+            table_source=TableSource.HOST,
+            what_it_is=(
+                "Your machine has a routing table, and it uses it to decide "
+                "where to send every packet it forwards. The rule is the same "
+                "longest-prefix match the modelled exercises use: the route "
+                "with the most bits that covers the destination wins."
+            ),
+            why_it_matters=(
+                "This is the table you will actually meet. When a packet to "
+                "some address does not arrive, the first place to look is "
+                "which route your own machine would have used for it, and "
+                "which other routes it passed on the way."
+            ),
+            what_happens=(
+                "Your machine's table is read with ip -j route show. The same "
+                "routing engine that runs the modelled exercises is then "
+                "asked what it would do with the address you picked. It lists "
+                "every route that covers the address, picks the most specific "
+                "one, and tells you which candidates it beat and why."
+            ),
+            analogy=(
+                "The same signpost post you have been reading about, except "
+                "this one is the real post outside your own house."
+            ),
+            instruction=(
+                "Pick one of your machine's own addresses, or one of your "
+                "network's addresses, and find out which route your machine "
+                "would use for it."
+            ),
+            source="host",
+            prediction_prompt=(
+                "Before you look: does your machine have a route more specific "
+                "than the default one for this address, or would the default "
+                "route take everything?"
+            ),
+            result_hint=(
+                "Read the selected route, then the list of candidates it beat. "
+                "If the default route won, that is a real answer about your "
+                "machine, not a failure."
+            ),
+            takeaway=(
+                "A table with one default route in it is a real and common "
+                "table. Longest-prefix match still applies; it simply has "
+                "less to choose from."
+            ),
+            unavailable_hint=(
+                "Your machine's routing table could not be read. Run "
+                "`ip route show` in a terminal and read the lines yourself - "
+                "that is the same table this exercise would have used."
+            ),
+        )
+    )
+
+    # ------------------------------------------------------------------
+    # H2. Is the default route shadowed?
+    # ------------------------------------------------------------------
+    exercises.append(
+        Exercise(
+            id="host-default-shadowed",
+            title="Is your default route shadowed?",
+            concept="Route shadowing",
+            kind=ExerciseKind.LOOKUP,
+            table_source=TableSource.HOST,
+            what_it_is=(
+                "A default route matches every address, so on its own it says "
+                "very little. The routes that make it meaningful are the more "
+                "specific ones beside it. Where a more specific route exists, "
+                "it takes the traffic for its own network and the default "
+                "route is shadowed for that part of the address space."
+            ),
+            why_it_matters=(
+                "A default route you did not know about, and a specific route "
+                "you did not know about, can send the same traffic in "
+                "different directions. Reading the table as a whole, rather "
+                "than one line at a time, is how you see that."
+            ),
+            what_happens=(
+                "The analysis finds the default route and works out which "
+                "more specific routes in the table cover part of the address "
+                "space it would otherwise have handled. Those specific "
+                "routes are what the default route really stands in for, and "
+                "the ones that take its traffic."
+            ),
+            analogy=(
+                "A signpost that says 'city centre, this way' for every "
+                "journey, with smaller signs for particular streets hidden "
+                "along the way."
+            ),
+            instruction=(
+                "Find a destination that one of your own more specific routes "
+                "covers, and see how much of the address space your default "
+                "route really handles."
+            ),
+            source="host",
+            prediction_prompt=(
+                "How much of the address space does your default route really "
+                "handle? All of it, or only what nothing more specific "
+                "covers?"
+            ),
+            result_hint=(
+                "Look at the default route finding: it names the more "
+                "specific routes that take traffic away from it."
+            ),
+            takeaway=(
+                "A default route is not doing all the work it appears to. "
+                "Count the more specific routes beside it and the picture "
+                "changes."
+            ),
+            unavailable_hint=(
+                "Your machine's table does not have a default route beside a "
+                "more specific one, so there is nothing here to compare. Run "
+                "`ip route show` and look at the `default` line and the "
+                "network lines around it."
+            ),
+        )
+    )
+
+    # ------------------------------------------------------------------
+    # H3. What is the gateway?
+    # ------------------------------------------------------------------
+    exercises.append(
+        Exercise(
+            id="host-gateway",
+            title="What is your gateway?",
+            concept="Default gateway",
+            kind=ExerciseKind.LOOKUP,
+            table_source=TableSource.HOST,
+            what_it_is=(
+                "The default gateway is the next hop your machine sends "
+                "traffic to when the destination is not on a network it is "
+                "attached to. It is the next hop on the default route."
+            ),
+            why_it_matters=(
+                "Most of what people mean by 'the router' is this one "
+                "address. It is the first hop out of your machine, and it is "
+                "where a traceroute's first line comes from."
+            ),
+            what_happens=(
+                "An address outside your local networks is not covered by any "
+                "connected route, so the default route is the one that "
+                "matches. Its next hop is your gateway. The analysis reads "
+                "both the route and the next hop straight out of your "
+                "machine's table."
+            ),
+            analogy=(
+                "The door of the building you are in, before the street. The "
+                "address on the other side of it is where everything outside "
+                "goes."
+            ),
+            instruction=(
+                "Work out which next hop your machine would use for an "
+                "address outside your local networks, then check it against "
+                "your table."
+            ),
+            source="host",
+            prediction_prompt=(
+                "Your machine has more than one interface. Which one does "
+                "traffic to the outside world leave by, and which address "
+                "does it hand over to?"
+            ),
+            result_hint=(
+                "Read the selected route and its next hop. If you typed an "
+                "answer, it is checked against the table."
+            ),
+            takeaway=(
+                "The gateway is not a setting you configure for its own sake. "
+                "It is whatever next hop the default route names, and reading "
+                "it out of the table tells you which interface is the way "
+                "out."
+            ),
+            unavailable_hint=(
+                "Your machine has no default route, so it has no default "
+                "gateway. Run `ip route show` and look for a line starting "
+                "with `default` - if there is none, this machine really has "
+                "no way out."
+            ),
+        )
+    )
+
+    return {ex.id: ex for ex in exercises}
+
+
+HOST_EXERCISES: Dict[str, Exercise] = _build_host_exercises()
+
+
 def exercise_list() -> List[dict]:
     """Summaries of every exercise."""
     return [
@@ -495,6 +729,103 @@ def exercise_list() -> List[dict]:
     ]
 
 
+def host_exercise_list() -> List[dict]:
+    """Summaries of the exercises that work on the host's own table."""
+    return [
+        {
+            "id": ex.id,
+            "title": ex.title,
+            "concept": ex.concept,
+            "kind": ex.kind,
+            "table_source": ex.table_source.value,
+            "source": ex.source,
+        }
+        for ex in HOST_EXERCISES.values()
+    ]
+
+
+def get_host_exercise(exercise_id: str) -> Optional[Exercise]:
+    """One host exercise by id."""
+    return HOST_EXERCISES.get(exercise_id)
+
+
 def get_exercise(exercise_id: str) -> Optional[Exercise]:
     """One exercise by id."""
     return EXERCISES.get(exercise_id)
+
+
+# --------------------------------------------------------------------------
+# HTTP endpoints for the host-table exercises
+# --------------------------------------------------------------------------
+#
+# These live in their own router so the existing /api/exercises list, and
+# the seven exercises in it, are left exactly as they were.
+#
+# Register the router in main.py with:
+#     from app.exercises import host_exercise_router
+#     app.include_router(host_exercise_router)
+
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, Field
+
+host_exercise_router = APIRouter(prefix="/api/host-exercises", tags=["exercises"])
+
+
+class HostExerciseCheckRequest(BaseModel):
+    """Request to check a host exercise."""
+
+    destination: Optional[str] = Field(
+        None,
+        description=(
+            "The address to work with. When omitted, the exercise picks one "
+            "from the host's own table."
+        ),
+    )
+    answer: Optional[str] = Field(
+        None,
+        description="What the student thinks the answer is, if they are answering.",
+    )
+
+
+@host_exercise_router.get("")
+def list_host_exercises():
+    """List the exercises that work on the host's own routing table."""
+    return host_exercise_list()
+
+
+@host_exercise_router.get("/{exercise_id}")
+def get_host_exercise_detail(exercise_id: str):
+    """The full explanation and instructions for one host exercise."""
+    exercise = get_host_exercise(exercise_id)
+    if exercise is None:
+        raise HTTPException(status_code=404, detail=f"Unknown exercise: {exercise_id}")
+    return exercise.model_dump()
+
+
+@host_exercise_router.post("/{exercise_id}/check")
+async def check_host_exercise(exercise_id: str, body: HostExerciseCheckRequest):
+    """
+    Check a host exercise against the student's own routing table.
+
+    The table is read from the kernel with `ip -j route show` and is
+    OBSERVED. The conclusion drawn from it is INFERRED. The two are reported
+    separately and never merged.
+
+    When the machine's table does not have what the exercise needs, the
+    result says so plainly and points at what the student could look at
+    instead. It does not fall back to a modelled table, and it does not
+    pretend the exercise succeeded.
+    """
+    from app.exercise_checks import check_host_exercise as _check
+
+    if get_host_exercise(exercise_id) is None:
+        raise HTTPException(status_code=404, detail=f"Unknown exercise: {exercise_id}")
+
+    state = await _check(
+        exercise_id,
+        destination=body.destination,
+        answer=body.answer,
+    )
+    if state is None:
+        raise HTTPException(status_code=404, detail=f"Unknown exercise: {exercise_id}")
+    return state.model_dump()
