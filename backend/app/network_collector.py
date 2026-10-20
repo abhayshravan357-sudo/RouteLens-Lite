@@ -9,10 +9,49 @@ import asyncio
 import json
 import socket
 import subprocess
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime
 from ipaddress import IPv4Address, IPv4Interface, IPv6Address, IPv6Interface
 from typing import Any, Optional
+
+
+# Reverse name lookup defaults.
+#
+# A reverse lookup on a working resolver takes milliseconds. Two seconds is
+# generous enough for a slow one and short enough that a resolver which is
+# not answering at all cannot hold up the neighbour list.
+DEFAULT_NAME_TIMEOUT = 2.0
+
+# A machine can have hundreds of neighbours. Looking up all of them turns a
+# neighbour listing into a burst of PTR queries that the resolver never
+# asked for. Thirty-two covers the neighbour cache of an ordinary machine,
+# and anything past the cap is reported as not looked up rather than
+# quietly dropped.
+DEFAULT_NAME_CAP = 32
+
+# How many lookups may be in flight at once. Resolvers cope with a handful
+# of concurrent queries; past that they start to rate-limit, which helps
+# nobody.
+DEFAULT_NAME_CONCURRENCY = 8
+
+
+def _same_address(a: str, b: str) -> bool:
+    """Whether two strings are the same IP address in different notation.
+
+    Used to spot a reverse lookup that returned the address again rather
+    than a name. Comparing the parsed addresses rather than the strings
+    catches the different ways the same address can be written, such as
+    "::1" against "0:0:0:0:0:0:0:1".
+    """
+    try:
+        return IPv4Address(a) == IPv4Address(b)
+    except ValueError:
+        pass
+    try:
+        return IPv6Address(a) == IPv6Address(b)
+    except ValueError:
+        return False
 
 
 @dataclass
@@ -50,6 +89,27 @@ class NeighborInfo:
     mac_address: Optional[str] = None
     state: str = "UNKNOWN"  # REACHABLE, STALE, DELAY, PROBE, FAILED, PERMANENT, NOARP
     is_router: bool = False
+    hostname: Optional[str] = None
+    name_provenance: str = "not_looked_up"
+    name_error: Optional[str] = None
+
+
+@dataclass
+class NameLookupSummary:
+    """How the reverse name lookup went.
+
+    The address in a neighbour entry is OBSERVED: the kernel told us about
+    it. A name for that address is INFERRED: it came from a reverse DNS
+    query, not from the kernel. The two are kept apart here.
+    """
+    attempted: int = 0
+    found: int = 0
+    no_name: int = 0
+    skipped: int = 0
+    cap: int = 0
+    timeout_seconds: float = 0.0
+    max_concurrency: int = 0
+    cap_reached: bool = False
 
 
 @dataclass
@@ -62,6 +122,7 @@ class CollectionResult:
     command: str = ""
     duration_ms: float = 0.0
     ip_version: str = "ipv4"
+    name_lookup: Optional[NameLookupSummary] = None
 
 
 class NetworkCollectorError(Exception):
@@ -442,7 +503,14 @@ class NetworkCollector:
             pref_src=pref_src,
         )
 
-    async def collect_neighbors(self, ip_version: str = "ipv4") -> CollectionResult:
+    async def collect_neighbors(
+        self,
+        ip_version: str = "ipv4",
+        resolve_names: bool = True,
+        name_timeout: float = DEFAULT_NAME_TIMEOUT,
+        name_cap: int = DEFAULT_NAME_CAP,
+        name_concurrency: int = DEFAULT_NAME_CONCURRENCY,
+    ) -> CollectionResult:
         """Collect the neighbour cache using `ip -j neigh show`.
 
         Args:
@@ -450,9 +518,16 @@ class NetworkCollector:
                 `ip -j neigh show`. "ipv6" reads the IPv6 neighbour cache with
                 `ip -j -6 neigh show`. The kernel keeps the two caches
                 separately, so they have to be read separately.
+            resolve_names: Whether to look up a reverse DNS name for each
+                neighbour. The lookup is bounded and never stops the
+                neighbour data being returned.
+            name_timeout: Seconds any single reverse lookup may take.
+            name_cap: The most neighbours that will be looked up.
+            name_concurrency: How many lookups may be in flight at once.
 
         Returns:
-            CollectionResult whose ip_version says which cache this is.
+            CollectionResult whose ip_version says which cache this is, and
+            whose name_lookup says how the reverse lookup went.
         """
         start_time = datetime.now()
 
@@ -510,6 +585,15 @@ class NetworkCollector:
             neighbor = self._parse_neighbor(neigh_data)
             neighbors.append(neighbor)
 
+        summary = None
+        if resolve_names and neighbors:
+            summary = await self.resolve_neighbour_names(
+                neighbors,
+                timeout=name_timeout,
+                cap=name_cap,
+                max_concurrency=name_concurrency,
+            )
+
         return CollectionResult(
             timestamp=start_time.isoformat() + "Z",
             success=True,
@@ -517,7 +601,164 @@ class NetworkCollector:
             command=command,
             duration_ms=duration_ms,
             ip_version=ip_version,
+            name_lookup=summary,
         )
+
+    # -- reverse name lookup ---------------------------------------------
+
+    async def resolve_neighbour_names(
+        self,
+        neighbors: list[NeighborInfo],
+        timeout: float = DEFAULT_NAME_TIMEOUT,
+        cap: int = DEFAULT_NAME_CAP,
+        max_concurrency: int = DEFAULT_NAME_CONCURRENCY,
+    ) -> NameLookupSummary:
+        """Look up a reverse DNS name for each neighbour.
+
+        A reverse lookup is a DNS query and can hang, so every lookup is
+        bounded by its own timeout and the whole batch is bounded by the
+        number of addresses that will be looked up at all. A machine can
+        have hundreds of neighbours; turning that into hundreds of PTR
+        queries at once is a burst of DNS traffic the resolver did not ask
+        for, so the number looked up is capped and the cap being reached
+        is reported rather than hidden.
+
+        The name is INFERRED. The address was observed by the kernel; the
+        name came from a resolver. A name that is really just the address
+        again is not a name, and is reported as no name.
+
+        Args:
+            neighbors: The neighbours to name. Modified in place.
+            timeout: Seconds any single lookup may take.
+            cap: The most neighbours that will be looked up.
+            max_concurrency: How many lookups may be in flight at once.
+
+        Returns:
+            A NameLookupSummary saying what was attempted and what was
+            found.
+        """
+        summary = NameLookupSummary(
+            cap=cap,
+            timeout_seconds=timeout,
+            max_concurrency=max_concurrency,
+        )
+
+        if not neighbors:
+            return summary
+
+        to_lookup = neighbors[:cap]
+        summary.skipped = len(neighbors) - len(to_lookup)
+        summary.cap_reached = summary.skipped > 0
+        summary.attempted = len(to_lookup)
+
+        loop = asyncio.get_running_loop()
+        executor = ThreadPoolExecutor(
+            max_workers=max(1, max_concurrency),
+            thread_name_prefix="routelens-ptr",
+        )
+
+        try:
+            results = await asyncio.gather(
+                *[
+                    self._lookup_one_name(loop, executor, neighbor, timeout)
+                    for neighbor in to_lookup
+                ],
+                return_exceptions=True,
+            )
+        finally:
+            # Do not wait for threads that are still stuck inside a resolver
+            # query. They finish on their own and their results are dropped.
+            executor.shutdown(wait=False, cancel_futures=True)
+
+        for neighbor, result in zip(to_lookup, results):
+            if isinstance(result, BaseException):
+                neighbor.name_provenance = "unknown"
+                neighbor.name_error = f"lookup failed: {result}"
+                summary.no_name += 1
+                continue
+
+            name, error = result
+            if name:
+                neighbor.hostname = name
+                neighbor.name_provenance = "inferred"
+                neighbor.name_error = None
+                summary.found += 1
+            else:
+                neighbor.hostname = None
+                neighbor.name_provenance = "unknown"
+                neighbor.name_error = error
+                summary.no_name += 1
+
+        for neighbor in neighbors[cap:]:
+            neighbor.hostname = None
+            neighbor.name_provenance = "not_looked_up"
+            neighbor.name_error = (
+                f"not looked up: the reverse lookup cap of {cap} was reached"
+            )
+
+        return summary
+
+    async def _lookup_one_name(
+        self,
+        loop: asyncio.AbstractEventLoop,
+        executor: ThreadPoolExecutor,
+        neighbor: NeighborInfo,
+        timeout: float,
+    ) -> tuple[Optional[str], Optional[str]]:
+        """Run one bounded reverse lookup.
+
+        getnameinfo is a blocking call, so it runs in a thread. The thread
+        cannot be cancelled once it is inside the resolver, but the await
+        can be given up on, so a slow resolver delays nothing.
+        """
+        try:
+            return await asyncio.wait_for(
+                loop.run_in_executor(
+                    executor, self._lookup_name_blocking, neighbor.ip_address
+                ),
+                timeout=timeout,
+            )
+        except asyncio.TimeoutError:
+            return None, f"reverse lookup timed out after {timeout}s"
+        except Exception as e:
+            return None, f"lookup failed: {e}"
+
+    @staticmethod
+    def _lookup_name_blocking(ip_address: str) -> tuple[Optional[str], Optional[str]]:
+        """Do one reverse lookup. Returns (name, error).
+
+        NI_NAMEREQD is required. Without it, getnameinfo returns the
+        numeric form of the address when no name exists, which is a string
+        that looks like a hostname but is not one.
+
+        The result is checked anyway. A resolver can return a PTR record
+        whose value is the address in text form, and that is still not a
+        name.
+        """
+        try:
+            host, _service = socket.getnameinfo(
+                (ip_address, 0), socket.NI_NAMEREQD
+            )
+        except socket.gaierror as e:
+            if e.errno == socket.EAI_NONAME:
+                return None, "no PTR record for this address"
+            if e.errno == socket.EAI_AGAIN:
+                return None, "resolver is not answering at the moment"
+            if e.errno == socket.EAI_FAIL:
+                return None, "the resolver reported a non-recoverable failure"
+            return None, f"reverse lookup failed: {e.strerror or e}"
+        except OSError as e:
+            return None, f"reverse lookup failed: {e}"
+        except Exception as e:
+            return None, f"reverse lookup failed: {e}"
+
+        if not host:
+            return None, "the resolver returned an empty name"
+
+        if _same_address(host, ip_address):
+            return None, "the resolver returned the numeric address instead of a name"
+
+        return host, None
 
     def _parse_neighbor(self, data: dict) -> NeighborInfo:
         """Parse neighbor data from `ip -j neigh show` JSON output."""

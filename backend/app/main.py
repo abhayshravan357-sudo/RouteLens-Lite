@@ -531,7 +531,7 @@ async def get_routes_analysis(destination: Optional[str] = None, ip_version: str
 
 
 @app.get("/network/neighbors", tags=["Network"])
-async def get_neighbors():
+async def get_neighbors(resolve_names: bool = True):
     """
     Get real ARP/IPv6 neighbor cache from the host system.
 
@@ -541,12 +541,27 @@ async def get_neighbors():
     - MAC address (if available)
     - Neighbor state (REACHABLE, STALE, etc.)
     - Router flag
+    - A reverse DNS name, when one could be looked up
+
+    The name is looked up with a reverse DNS query, which is INFERRED, while
+    the address itself is OBSERVED. The two are reported separately. A
+    neighbour with no PTR record is reported as having no name, not with
+    its own address repeated back as if it were a hostname.
+
+    The lookup is bounded: it has a short timeout, it runs concurrently, and
+    only a limited number of neighbours are looked up at all. A neighbour
+    list always comes back complete, with names absent if they could not be
+    found.
+
+    Args:
+        resolve_names: Whether to look up reverse DNS names. Turning this off
+            avoids the DNS traffic entirely.
 
     Returns:
         CollectionResult with list of NeighborInfo objects
     """
     collector = get_network_collector()
-    result = await collector.collect_neighbors()
+    result = await collector.collect_neighbors(resolve_names=resolve_names)
 
     if not result.success:
         raise HTTPException(status_code=500, detail=result.error or "Failed to collect neighbors")
