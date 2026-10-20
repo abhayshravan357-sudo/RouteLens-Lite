@@ -319,12 +319,94 @@
 
 ### TASK-404: Frontend Connectivity Panel
 - **Owner**: JourneyUI
-- **Status**: ⏳ **Pending**
+- **Status**: ✅ **Done** (component exists; full UI wiring still pending)
 - **Files**: 
   - `frontend/src/components/ConnectivityPanel.tsx` (new)
   - `frontend/src/api/routing.ts` (add connectivity API calls)
   - `frontend/src/components/NetworkDiagnostics.tsx` (integrate)
 - **Depends On**: TASK-401, TASK-402, TASK-403
+
+---
+
+## Phase 6: Scenario Engine & Security Hardening — ✅ **COMPLETE**
+
+### TASK-601: Scenario Engine (backend)
+- **Owner**: RouteCore
+- **Status**: ✅ **Done**
+- **Branch**: `integration/baseline-2026-10-20`
+- **Files**:
+  - `backend/app/scenario.py` (new) — Scenario/Node/Iface/Route/Link/Hop/TraceResult models, `lookup()`, `trace()`
+  - `backend/app/scenarios_data.py` (new) — 5 scenarios: client-router-server, two-routers, loop, dual-stack, ipv6-only
+  - `backend/app/lab_builder.py` (new) — namespace command generation, dry-run, root guard, probe
+  - `backend/app/scenario_routes.py` (new) — `/api/scenarios/*` endpoints
+  - `backend/tests/test_scenario.py` (new) — 32 tests
+  - `backend/tests/test_scenario_api.py` (new) — 16 API tests
+- **Acceptance Criteria**: ✅ Met
+  - One Scenario drives both the simulator and the lab builder
+  - Longest-prefix match, metric tiebreak, connected routes
+  - Outcomes: delivered, no_route, loop, unresolved_next_hop, not_forwarding, max_hops
+  - IPv4 and IPv6 never mix
+  - Route editing works on a copy; the shared registry is never mutated
+  - Lab commands are argument lists, never shell strings
+  - `compare` reports `agree: null` when the lab is unavailable; nothing is faked
+- **Verification**: ✅ Passed
+  ```bash
+  cd backend && source .venv/bin/activate && python -m pytest tests/test_scenario.py -v
+  # 31 passed, 1 skipped (root-only sim-vs-lab)
+  cd backend && source .venv/bin/activate && python -m pytest tests/test_scenario_api.py -v
+  # 16 passed
+  ```
+
+### TASK-602: Diagnostic Security Hardening (backend)
+- **Owner**: PacketLab
+- **Status**: ✅ **Done**
+- **Files**:
+  - `backend/app/security.py` (new) — `validate_target()`, `RateLimiter`
+  - `backend/app/main.py` — CORS allowlist, validation + rate limiting on diagnostic endpoints
+  - `backend/app/network_collector.py` — `--` separator before ping/traceroute targets
+  - `backend/tests/test_security.py` (new) — 42 tests
+  - `backend/tests/test_diagnostic_security.py` (new) — 17 tests
+  - `backend/pytest.ini` (new) — asyncio fixture loop scope
+- **Acceptance Criteria**: ✅ Met
+  - Targets that look like options (`-oProxy`) or contain shell metacharacters are rejected with 400
+  - Rate limiting returns 429 with `Retry-After`
+  - CORS is an explicit localhost allowlist, not `*`
+  - `ping` and `traceroute` receive `--` before the target
+- **Verification**: ✅ Passed
+  ```bash
+  cd backend && source .venv/bin/activate && python -m pytest tests/test_security.py tests/test_diagnostic_security.py -v
+  # 59 passed
+  ```
+
+### TASK-603: Small Cleanups
+- **Owner**: QA/TestPilot
+- **Status**: ✅ **Done**
+- **Files**:
+  - `backend/app/lab_adapter.py` — `datetime.now(timezone.utc)` instead of deprecated `utcnow()`
+  - `backend/tests/test_network_collector.py` — `MagicMock` for the synchronous `close()` call
+  - `backend/pytest.ini` — `asyncio_default_fixture_loop_scope = function`
+- **Verification**: ✅ Full suite runs with **zero warnings**
+
+---
+
+## Phase 7: Scenario Frontend — **PENDING**
+
+### TASK-701: Scenario Picker + Trace UI
+- **Owner**: JourneyUI
+- **Status**: ⏳ **Pending**
+- **Files**: `frontend/src/components/ScenarioPicker.tsx`, `frontend/src/components/ScenarioJourney.tsx`, `frontend/src/api/routing.ts`, `frontend/src/types/routing.ts`
+- **Depends On**: TASK-601
+
+### TASK-702: Provenance Badges + Compare-with-Lab Panel
+- **Owner**: JourneyUI
+- **Status**: ⏳ **Pending**
+- **Files**: `frontend/src/components/ProvenanceBadge.tsx`, `frontend/src/components/ComparePanel.tsx`
+- **Depends On**: TASK-601, TASK-701
+
+### TASK-703: Evidence-Based Topology Map
+- **Owner**: JourneyUI
+- **Status**: ⏳ **Pending**
+- **Depends On**: TASK-701, TASK-702
 
 ---
 

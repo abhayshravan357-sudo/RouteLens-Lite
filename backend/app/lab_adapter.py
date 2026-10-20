@@ -9,7 +9,7 @@ import asyncio
 import subprocess
 import time
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from ipaddress import IPv4Address, IPv4Network
 from typing import Any, Optional
@@ -429,7 +429,7 @@ class LabAdapter:
 
     async def check_lab_readiness(self) -> LabReadinessReport:
         """Comprehensive lab readiness check."""
-        timestamp = datetime.utcnow().isoformat() + "Z"
+        timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         available_tools, missing_tools = self.check_tools()
         permission_issues = []
 
@@ -524,7 +524,7 @@ class LabAdapter:
     ) -> PingResult:
         """Send ICMP ping from a namespace to a destination."""
         start_time = time.time()
-        timestamp = datetime.utcnow().isoformat() + "Z"
+        timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
         # Validate inputs
         try:
@@ -607,7 +607,7 @@ class LabAdapter:
     ) -> PacketCaptureResult:
         """Capture packets on a namespace interface."""
         start_time = time.time()
-        timestamp = datetime.utcnow().isoformat() + "Z"
+        timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
         cmd = ["timeout", str(int(self.capture_timeout)), "tcpdump", "-i", interface, "-n", "-c", str(count), filter_expr]
         rc, stdout, stderr = await self._run_in_namespace(namespace, cmd, timeout=self.capture_timeout + 2)
@@ -656,7 +656,7 @@ class LabAdapter:
     ) -> LabOperationResult:
         """Run ping and capture packets simultaneously."""
         start_time = time.time()
-        timestamp = datetime.utcnow().isoformat() + "Z"
+        timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
         # Start capture in background
         capture_task = asyncio.create_task(

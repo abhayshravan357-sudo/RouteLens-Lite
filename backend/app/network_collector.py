@@ -647,7 +647,7 @@ class NetworkCollector:
                 error="`ping` command not available",
             )
         
-        cmd = ["ping", "-c", str(count), "-i", str(interval), "-W", str(int(timeout)), target]
+        cmd = ["ping", "-c", str(count), "-i", str(interval), "-W", str(int(timeout)), "--", target]
         
         rc, stdout, stderr = await self._run_command(cmd, timeout=timeout * count + 5)
         
@@ -1430,7 +1430,7 @@ class NetworkCollector:
                 error="`ping` command not available",
             )
         
-        cmd = ["ping", "-c", str(count), "-i", str(interval), "-W", str(int(timeout)), target]
+        cmd = ["ping", "-c", str(count), "-i", str(interval), "-W", str(int(timeout)), "--", target]
         
         rc, stdout, stderr = await self._run_command(cmd, timeout=timeout * count + 5)
         
@@ -1655,6 +1655,7 @@ class NetworkCollector:
         # -w: timeout per hop in seconds
         # -q: number of probes per hop
         # -m: max hops
+        # --: end of options, so the target can never be read as one
         # target: the destination
         cmd = [
             "traceroute",
@@ -1662,6 +1663,7 @@ class NetworkCollector:
             "-w", str(int(timeout_per_hop)),  # Wait time per hop
             "-q", str(probes_per_hop),        # Probes per hop
             "-m", str(max_hops),              # Max hops
+            "--",
             target,
         ]
         

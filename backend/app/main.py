@@ -13,7 +13,13 @@ from pydantic import BaseModel, Field
 from app.routing import RouteLookupResult, RoutingEntry, SAMPLE_ROUTES, PacketJourneyRequest, PacketJourneyResponse
 from app.routing_logic import lookup_route, trace_packet_path
 from app.packet_lab_routes import router as packet_lab_router
+from app.scenario_routes import router as scenario_router
 from app.network_collector import get_network_collector
+from app.security import (
+    TargetValidationError,
+    diagnostic_limiter,
+    validate_target,
+)
 from app.network_collector import CollectionResult as NetworkCollectionResult
 from app.network_collector import InterfaceInfo, RouteInfo, NeighborInfo
 from app.network_collector import DnsResolutionResult, TracerouteResult, TracerouteHop
@@ -24,17 +30,28 @@ app = FastAPI(
     version="0.1.0",
 )
 
-# CORS middleware allows the frontend (running on a different port) to call this API
-# In production, you'd restrict origins to your actual frontend domain
+# CORS middleware allows the frontend (running on a different port) to call this API.
+#
+# Only the local Vite dev servers are allowed. The diagnostic endpoints can run
+# ping and traceroute, so an open CORS policy would let any page on the
+# machine use this backend as a network proxy.
+ALLOWED_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:5174",
+    "http://127.0.0.1:5174",
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins for development
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=ALLOWED_ORIGINS,
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "PUT"],
+    allow_headers=["Content-Type"],
 )
 
 app.include_router(packet_lab_router, prefix="/api/lab")
+app.include_router(scenario_router)
 
 
 @app.get("/health", tags=["Health"])
@@ -299,10 +316,17 @@ async def resolve_dns(request: DnsResolveRequest):
         DnsResolveResponse with resolved addresses, latency, and any error
 
     Raises:
-        HTTPException: 400 for invalid hostname, 500 for internal errors
+        HTTPException: 400 for invalid hostname, 429 when rate limited, 500 for internal errors
     """
     if not request.hostname or not request.hostname.strip():
         raise HTTPException(status_code=400, detail="Hostname is required")
+
+    diagnostic_limiter.check("dns")
+
+    try:
+        hostname = validate_target(request.hostname)
+    except TargetValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
     collector = get_network_collector()
 
@@ -312,7 +336,7 @@ async def resolve_dns(request: DnsResolveRequest):
         family = socket.AF_UNSPEC
 
     result = await collector.resolve_dns(
-        hostname=request.hostname.strip(),
+        hostname=hostname,
         timeout=request.timeout,
         family=family,
     )
@@ -389,7 +413,7 @@ async def check_connectivity(request: ConnectivityRequest):
         ConnectivityResponse with reachability, latency, and any error
 
     Raises:
-        HTTPException: 400 for invalid input, 408 for timeout, 500 for internal errors
+        HTTPException: 400 for invalid input, 408 for timeout, 429 when rate limited, 500 for internal errors
     """
     if not request.target or not request.target.strip():
         raise HTTPException(status_code=400, detail="Target is required")
@@ -400,10 +424,17 @@ async def check_connectivity(request: ConnectivityRequest):
     if request.protocol.lower() == "tcp" and request.port is None:
         raise HTTPException(status_code=400, detail="Port is required for TCP protocol")
 
+    diagnostic_limiter.check("connectivity")
+
+    try:
+        target = validate_target(request.target)
+    except TargetValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
     collector = get_network_collector()
 
     result = await collector.check_connectivity(
-        target=request.target.strip(),
+        target=target,
         port=request.port,
         protocol=request.protocol,
         timeout=request.timeout,
@@ -482,15 +513,22 @@ async def trace_route(request: TracerouteRequest):
         TracerouteResponse with list of hops, each containing TTL, address, hostname, RTT
 
     Raises:
-        HTTPException: 400 for invalid input, 408 for timeout, 500 for internal errors
+        HTTPException: 400 for invalid input, 408 for timeout, 429 when rate limited, 500 for internal errors
     """
     if not request.target or not request.target.strip():
         raise HTTPException(status_code=400, detail="Target is required")
 
+    diagnostic_limiter.check("traceroute")
+
+    try:
+        target = validate_target(request.target)
+    except TargetValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
     collector = get_network_collector()
 
     result = await collector.trace_route(
-        target=request.target.strip(),
+        target=target,
         max_hops=request.max_hops,
         timeout_per_hop=request.timeout_per_hop,
         probes_per_hop=request.probes_per_hop,

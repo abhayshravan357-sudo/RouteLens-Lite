@@ -6,7 +6,7 @@ import json
 import pytest
 import asyncio
 import socket
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 from datetime import datetime
 
 from app.network_collector import (
@@ -700,8 +700,9 @@ class TestConnectivityCheck:
             
             with patch('asyncio.open_connection', new_callable=AsyncMock) as mock_open:
                 mock_reader = AsyncMock()
-                mock_writer = AsyncMock()
-                mock_writer.close = AsyncMock()
+                # close() is called synchronously by the adapter; wait_closed() is awaited.
+                mock_writer = MagicMock()
+                mock_writer.close = MagicMock()
                 mock_writer.wait_closed = AsyncMock()
                 mock_open.return_value = (mock_reader, mock_writer)
                 
