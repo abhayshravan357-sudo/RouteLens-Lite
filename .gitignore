@@ -1,11 +1,22 @@
-.venv/
-venv/
-__pycache__/
-*.py[cod]
-.pytest_cache/
-node_modules/
-dist/
-.env
-.env.*
-!.env.example
+# Generated files
+.routelens/
+backend/backend.log
+backend/__pycache__/
+backend/app/__pycache__/
+backend/tests/__pycache__/
+backend/.venv/
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/frontend.log
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
 .DS_Store
+Thumbs.db

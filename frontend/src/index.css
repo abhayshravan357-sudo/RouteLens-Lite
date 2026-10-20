@@ -648,6 +648,35 @@ body {
   gap: 20px;
 }
 
+/* Topology Warning */
+.topology-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px;
+  background: #fef3c7;
+  border: 1px solid #fcd34d;
+  border-radius: var(--radius-md);
+  color: #92400e;
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+
+.topology-warning .warning-icon {
+  font-size: 1.25rem;
+  line-height: 1;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.topology-warning .warning-content {
+  flex: 1;
+}
+
+.topology-warning .warning-content strong {
+  color: #78350f;
+}
+
 .journey-state {
   display: flex;
   flex-direction: column;

@@ -3,15 +3,19 @@ import {
   checkHealth,
   fetchRoutes,
   lookupRoute,
+  checkLabStatus,
+  tracePacketJourney,
   ApiError,
   TimeoutError,
+  LabUnavailableError,
 } from './api/routing';
-import type { RoutingEntry, RouteLookupResult, LabState } from './types/routing';
+import type { RoutingEntry, RouteLookupResult, LabState, PacketJourneyRequest, PacketJourneyResponse } from './types/routing';
 import RoutingTable from './components/RoutingTable';
 import LookupForm from './components/LookupForm';
 import ResultDisplay from './components/ResultDisplay';
 import Visualization from './components/Visualization';
 import PacketJourney from './components/PacketJourney';
+import NetworkDiagnostics from './components/NetworkDiagnostics';
 import './index.css';
 
 function App() {
@@ -23,6 +27,7 @@ function App() {
   const [lookupError, setLookupError] = useState<string | null>(null);
   const [labState, setLabState] = useState<LabState>('idle');
   const [labError, setLabError] = useState<string | null>(null);
+  const [simulationResponse, setSimulationResponse] = useState<PacketJourneyResponse | null>(null);
 
   // Check backend health on mount
   useEffect(() => {
@@ -40,6 +45,25 @@ function App() {
     const interval = setInterval(check, 30000);
     return () => clearInterval(interval);
   }, []);
+
+  // Check lab availability on mount and when backend connects
+  useEffect(() => {
+    if (!backendConnected) return;
+
+    const checkLab = async () => {
+      try {
+        const status = await checkLabStatus();
+        setLabState(status.available ? 'ready' : 'unavailable');
+        if (!status.available) {
+          setLabError(status.error || 'Virtual router not ready');
+        }
+      } catch {
+        setLabState('unavailable');
+        setLabError('Failed to check lab status');
+      }
+    };
+    checkLab();
+  }, [backendConnected]);
 
   // Fetch routes on mount and when backend connects
   useEffect(() => {
@@ -96,39 +120,40 @@ function App() {
     }
   }, [backendConnected, routes.length, lookupResult, lookupLoading]);
 
-  // Handle packet lab simulation (placeholder for packet-lab API integration)
+  // Handle packet journey trace - uses routing lookup result
   const handleSimulatePacket = async () => {
     if (!lookupResult?.matched || !lookupResult.route) return;
 
     setLabState('simulating');
     setLabError(null);
-
-    // TODO: Replace with actual packet-lab API call when Agent B provides the contract
-    // This is a placeholder structure showing the intended flow:
-    // 1. Simulated decision (route lookup already done)
-    // 2. Lab readiness check
-    // 3. Packet transmission
-    // 4. Capture verification
+    setSimulationResponse(null);
 
     try {
-      // Simulate the state progression for demonstration
-      await new Promise((resolve) => setTimeout(resolve, 500));
-      setLabState('ready');
+      // Use the routing lookup result to determine the packet journey
+      // The source is the device that would send the packet, destination is the lookup target
+      const request: PacketJourneyRequest = {
+        source_ip: '192.168.1.10', // Client device in the lab
+        destination_ip: lookupResult.route.destination.split('/')[0], // Use the network address from the matched route
+      };
 
-      await new Promise((resolve) => setTimeout(resolve, 800));
-      setLabState('transmitting');
+      const response = await tracePacketJourney(request);
+      setSimulationResponse(response);
+      setLabState(response.success ? 'completed' : 'error');
 
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      setLabState('capturing');
-
-      await new Promise((resolve) => setTimeout(resolve, 800));
-      setLabState('verifying');
-
-      await new Promise((resolve) => setTimeout(resolve, 500));
-      setLabState('completed');
-    } catch {
+      if (!response.success) {
+        setLabError(response.error || 'Packet journey failed');
+      }
+    } catch (error) {
       setLabState('error');
-      setLabError('Packet simulation failed');
+      if (error instanceof LabUnavailableError) {
+        setLabError(error.message);
+      } else if (error instanceof TimeoutError) {
+        setLabError('Packet journey timed out. The lab may be overloaded.');
+      } else if (error instanceof ApiError) {
+        setLabError(error.message);
+      } else {
+        setLabError(error instanceof Error ? error.message : 'Packet journey failed');
+      }
     }
   };
 
@@ -136,6 +161,7 @@ function App() {
   useEffect(() => {
     setLabState('idle');
     setLabError(null);
+    setSimulationResponse(null);
   }, [lookupResult]);
 
   return (
@@ -222,20 +248,38 @@ function App() {
           <section className="section">
             <div className="card">
               <div className="card-header">
-                <h2>Packet Journey</h2>
+                <h2>Packet Journey (Virtual Lab)</h2>
               </div>
               <div className="card-body">
+                {/* Topology Mismatch Warning */}
+                <div className="topology-warning">
+                  <span className="warning-icon" aria-hidden="true">⚠</span>
+                  <div className="warning-content">
+                    <strong>Topology Mismatch:</strong> The routing table above uses sample networks
+                    (192.168.1.0/24, 10.0.0.0/8), but the virtual packet lab uses isolated networks
+                    (192.168.10.0/24 client↔router, 192.168.20.0/24 router↔server). The simulation below uses the LAB topology, NOT your routing decision.
+                  </div>
+                </div>
                 <PacketJourney
-                  route={lookupResult.route}
                   labState={labState}
                   labError={labError}
+                  simulationResponse={simulationResponse}
                   onSimulate={handleSimulatePacket}
-                  disabled={labState !== 'idle' && labState !== 'completed' && labState !== 'error'}
+                  disabled={labState !== 'idle' && labState !== 'completed' && labState !== 'error' && labState !== 'timeout' && labState !== 'unavailable'}
                 />
               </div>
             </div>
           </section>
         )}
+
+        {/* Network Diagnostics Section - always visible */}
+        <section className="section">
+          <div className="card">
+            <div className="card-body">
+              <NetworkDiagnostics />
+            </div>
+          </div>
+        </section>
       </main>
     </div>
   );

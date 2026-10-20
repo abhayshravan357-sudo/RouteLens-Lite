@@ -84,6 +84,13 @@ class SimulateResponse:
     error: Optional[str] = None
 
 
+# Lab topology constants - only these IPs are supported for simulation
+LAB_CLIENT_IP = "192.168.10.2"
+LAB_SERVER_IP = "192.168.20.2"
+LAB_CLIENT_NETWORK = "192.168.10.0/24"
+LAB_SERVER_NETWORK = "192.168.20.0/24"
+
+
 class PacketLab:
     """
     PacketLab virtual router controller.
@@ -161,14 +168,22 @@ class PacketLab:
         except ValueError:
             return f"Invalid destination IP: {request.destination_ip}"
 
-        if request.protocol.lower() not in ("icmp", "tcp", "udp"):
-            return f"Unsupported protocol: {request.protocol}"
+        # Validate protocol - only ICMP is currently supported
+        if request.protocol.lower() != "icmp":
+            return f"Unsupported protocol: {request.protocol}. Only 'icmp' is currently supported."
 
         if request.ttl < 1 or request.ttl > 255:
             return f"TTL out of range (1-255): {request.ttl}"
 
         if request.length < 28 or request.length > 65535:
             return f"Packet length out of range: {request.length}"
+
+        # Topology validation - lab only supports specific source/destination
+        if request.source_ip != LAB_CLIENT_IP:
+            return f"Invalid source IP for lab topology. Must be {LAB_CLIENT_IP} (client), got {request.source_ip}"
+
+        if request.destination_ip != LAB_SERVER_IP:
+            return f"Invalid destination IP for lab topology. Must be {LAB_SERVER_IP} (server), got {request.destination_ip}"
 
         return None
 

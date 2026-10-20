@@ -1,9 +1,9 @@
-import type { RoutingEntry, LabState, PacketDetails } from '../types/routing';
+import type { LabState, PacketJourneyResponse } from '../types/routing';
 
 interface PacketJourneyProps {
-  route: RoutingEntry;
   labState: LabState;
   labError: string | null;
+  simulationResponse: PacketJourneyResponse | null;
   onSimulate: () => void;
   disabled: boolean;
 }
@@ -56,32 +56,38 @@ function getProgress(state: LabState): number {
   return ((index + 1) / states.length) * 100;
 }
 
+function getActionIcon(action: string): string {
+  switch (action) {
+    case 'forward': return '→';
+    case 'deliver': return '✓';
+    case 'drop': return '✕';
+    case 'loop': return '↻';
+    case 'error': return '⚠';
+    default: return '?';
+  }
+}
+
+function getActionLabel(action: string): string {
+  switch (action) {
+    case 'forward': return 'Forward';
+    case 'deliver': return 'Delivered';
+    case 'drop': return 'Dropped';
+    case 'loop': return 'Loop Detected';
+    case 'error': return 'Error';
+    default: return action;
+  }
+}
+
 export default function PacketJourney({
-  route,
   labState,
   labError,
+  simulationResponse,
   onSimulate,
   disabled,
 }: PacketJourneyProps) {
   const isActive = ACTIVE_STATES.includes(labState);
   const isTerminal = ['completed', 'error', 'timeout', 'unavailable'].includes(labState);
   const progress = getProgress(labState);
-
-  // Sample packet details based on the selected route (placeholder for real API data)
-  const packetDetails: PacketDetails = {
-    source_ip: '192.168.1.100',
-    destination_ip: route.destination.split('/')[0].replace(/\.\d+$/, '.50'),
-    protocol: 'icmp',
-    ttl: 64,
-    length: 84,
-    forwarding_info: {
-      ingress_interface: 'eth0',
-      egress_interface: route.next_hop_type === 'direct' ? route.interface : null,
-      next_hop: route.next_hop,
-      route_matched: route.destination,
-      action: route.next_hop_type === 'direct' ? 'forward' : 'forward',
-    },
-  };
 
   return (
     <div className="packet-journey">
@@ -117,7 +123,7 @@ export default function PacketJourney({
             disabled={disabled}
             aria-busy={false}
           >
-            Simulate Packet
+            Trace Packet Journey
           </button>
         )}
         {isTerminal && labState !== 'completed' && (
@@ -141,173 +147,146 @@ export default function PacketJourney({
         )}
       </div>
 
-      {/* Packet Details Panel */}
-      <div className="packet-details-panel">
-        <h3 className="panel-title">Packet Details</h3>
-        <div className="details-grid">
-          <div className="detail-row">
-            <span className="detail-label">Source IP</span>
-            <span className="detail-value">{packetDetails.source_ip}</span>
-          </div>
-          <div className="detail-row">
-            <span className="detail-label">Destination IP</span>
-            <span className="detail-value">{packetDetails.destination_ip}</span>
-          </div>
-          <div className="detail-row">
-            <span className="detail-label">Protocol</span>
-            <span className="detail-value">{packetDetails.protocol.toUpperCase()}</span>
-          </div>
-          <div className="detail-row">
-            <span className="detail-label">TTL</span>
-            <span className="detail-value">{packetDetails.ttl}</span>
-          </div>
-          <div className="detail-row">
-            <span className="detail-label">Length</span>
-            <span className="detail-value">{packetDetails.length} bytes</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Forwarding Information Panel */}
-      {packetDetails.forwarding_info && (
-        <div className="packet-details-panel">
-          <h3 className="panel-title">Forwarding Decision</h3>
-          <div className="details-grid">
-            <div className="detail-row">
-              <span className="detail-label">Ingress Interface</span>
-              <span className="detail-value">{packetDetails.forwarding_info.ingress_interface}</span>
-            </div>
-            {packetDetails.forwarding_info.egress_interface && (
-              <div className="detail-row">
-                <span className="detail-label">Egress Interface</span>
-                <span className="detail-value">{packetDetails.forwarding_info.egress_interface}</span>
+      {/* Hop-by-Hop Journey Visualization */}
+      {simulationResponse && simulationResponse.hops.length > 0 && (
+        <div className="journey-hops">
+          <h3 className="panel-title">Packet Journey</h3>
+          <div className="hops-timeline">
+            {simulationResponse.hops.map((hop, index) => (
+              <div key={hop.hop_number} className={`hop-step ${hop.action}`}>
+                <div className="hop-header">
+                  <span className="hop-number">Hop {hop.hop_number}</span>
+                  <span className={`hop-action ${hop.action}`}>
+                    <span className="action-icon">{getActionIcon(hop.action)}</span>
+                    <span className="action-label">{getActionLabel(hop.action)}</span>
+                  </span>
+                </div>
+                <div className="hop-details">
+                  <div className="hop-detail-row">
+                    <span className="detail-label">From:</span>
+                    <span className="detail-value">{hop.current_device}</span>
+                  </div>
+                  <div className="hop-detail-row">
+                    <span className="detail-label">To:</span>
+                    <span className="detail-value">{hop.destination_ip}</span>
+                  </div>
+                  {hop.matched_route && (
+                    <div className="hop-details-group">
+                      <div className="hop-detail-row">
+                        <span className="detail-label">Route:</span>
+                        <span className="detail-value">{hop.matched_route.destination}</span>
+                      </div>
+                      {hop.matched_route.next_hop && (
+                        <div className="hop-detail-row">
+                          <span className="detail-label">Next Hop:</span>
+                          <span className="detail-value">{hop.matched_route.next_hop}</span>
+                        </div>
+                      )}
+                      <div className="hop-detail-row">
+                        <span className="detail-label">Interface:</span>
+                        <span className="detail-value">{hop.matched_route.interface}</span>
+                      </div>
+                      <div className="hop-detail-row">
+                        <span className="detail-label">Metric:</span>
+                        <span className="detail-value">{hop.matched_route.metric}</span>
+                      </div>
+                    </div>
+                  )}
+                  {hop.next_hop_ip && (
+                    <div className="hop-detail-row">
+                      <span className="detail-label">Next Hop:</span>
+                      <span className="detail-value">{hop.next_hop_ip}</span>
+                    </div>
+                  )}
+                  {hop.egress_interface && (
+                    <div className="hop-detail-row">
+                      <span className="detail-label">Egress Interface:</span>
+                      <span className="detail-value">{hop.egress_interface}</span>
+                    </div>
+                  )}
+                  <div className="hop-detail-row">
+                    <span className="detail-label">Action:</span>
+                    <span className={`detail-value action-${hop.action}`}>{getActionLabel(hop.action)}</span>
+                  </div>
+                  <div className="hop-explanation">
+                    {hop.explanation}
+                  </div>
+                </div>
+                {index < simulationResponse.hops.length - 1 && (
+                  <div className="hop-connector" aria-hidden="true">
+                    <span className="connector-line" />
+                    <span className="connector-arrow">↓</span>
+                  </div>
+                )}
               </div>
-            )}
-            {packetDetails.forwarding_info.next_hop && (
-              <div className="detail-row">
-                <span className="detail-label">Next Hop</span>
-                <span className="detail-value">{packetDetails.forwarding_info.next_hop}</span>
-              </div>
-            )}
-            <div className="detail-row">
-              <span className="detail-label">Route Matched</span>
-              <span className="detail-value">{packetDetails.forwarding_info.route_matched}</span>
-            </div>
-            <div className="detail-row">
-              <span className="detail-label">Action</span>
-              <span className={`detail-value ${packetDetails.forwarding_info.action}`}>
-                {packetDetails.forwarding_info.action}
-              </span>
-            </div>
+            ))}
           </div>
         </div>
       )}
 
-      {/* Network Topology Visualization */}
-      <div className="journey-topology">
-        <h3 className="panel-title">Network Topology</h3>
-        <div className="topology">
-          <div className="topology-node client">
-            <div className="node-icon" aria-hidden="true">💻</div>
-            <div className="node-label">Client</div>
-            <div className="node-ip">{packetDetails.source_ip}</div>
-          </div>
-
-          <div className="topology-link" aria-hidden="true">
-            <span className="link-arrow">→</span>
-            {isActive && labState !== 'ready' && <span className="link-pulse" aria-hidden="true" />}
-          </div>
-
-          <div className="topology-node router">
-            <div className="node-icon" aria-hidden="true">🔀</div>
-            <div className="node-label">Virtual Router</div>
-            <div className="node-interface">{route.interface}</div>
-          </div>
-
-          {route.next_hop && (
-            <>
-              <div className="topology-link" aria-hidden="true">
-                <span className="link-arrow">→</span>
-                {isActive && ['transmitting', 'capturing'].includes(labState) && (
-                  <span className="link-pulse" aria-hidden="true" />
-                )}
-              </div>
-              <div className="topology-node next-hop">
-                <div className="node-icon" aria-hidden="true">🌐</div>
-                <div className="node-label">Next Hop</div>
-                <div className="node-ip">{route.next_hop}</div>
-              </div>
-            </>
-          )}
-
-          {route.next_hop_type === 'direct' && (
-            <>
-              <div className="topology-link" aria-hidden="true">
-                <span className="link-arrow">→</span>
-                {isActive && ['transmitting', 'capturing'].includes(labState) && (
-                  <span className="link-pulse" aria-hidden="true" />
-                )}
-              </div>
-              <div className="topology-node destination">
-                <div className="node-icon" aria-hidden="true">🖥️</div>
-                <div className="node-label">Destination</div>
-                <div className="node-ip">{packetDetails.destination_ip}</div>
-              </div>
-            </>
-          )}
-        </div>
-        <p className="topology-legend">
-          {route.next_hop_type === 'direct'
-            ? 'Directly connected network — packet delivered locally'
-            : 'Routed via gateway — packet forwarded to next hop'}
-        </p>
+      {/* Action Button */}
+      <div className="journey-actions">
+        {!simulationResponse && !isActive && !isTerminal && (
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={onSimulate}
+            disabled={disabled}
+            aria-busy={false}
+          >
+            Trace Packet Journey
+          </button>
+        )}
+        {simulationResponse && !simulationResponse.success && labState !== 'completed' && (
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={onSimulate}
+            disabled={disabled}
+          >
+            Try Again
+          </button>
+        )}
+        {simulationResponse && simulationResponse.success && (
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={onSimulate}
+          >
+            Trace Another Packet
+          </button>
+        )}
       </div>
 
-      {/* Capture Verification Panel */}
-      {(
-        labState === 'verifying' ||
-        labState === 'completed' ||
-        labState === 'error' ||
-        labState === 'timeout' ||
-        labState === 'unavailable'
-      ) && (
-        <div className="packet-details-panel verification-panel">
-          <h3 className="panel-title">Capture Verification</h3>
-          <div className="verification-status">
-            <span
-              className={`verification-badge ${
-                labState === 'completed'
-                  ? 'success'
-                  : labState === 'error'
-                  ? 'error'
-                  : labState === 'timeout'
-                  ? 'warning'
-                  : labState === 'unavailable'
-                  ? 'warning'
-                  : 'pending'
-              }`}
-            >
-              {labState === 'completed'
-                ? 'Verified'
-                : labState === 'error'
-                ? 'Failed'
-                : labState === 'timeout'
-                ? 'Timeout'
-                : labState === 'unavailable'
-                ? 'Unavailable'
-                : 'Verifying…'}
-            </span>
-            <p className="verification-message">
-              {labState === 'completed'
-                ? 'Captured packet matches expected forwarding behavior. TTL decremented, checksum valid.'
-                : labState === 'error'
-                ? 'Capture verification failed. Packet may have been dropped or corrupted.'
-                : labState === 'timeout'
-                ? 'No response captured within timeout window. Check lab connectivity.'
-                : labState === 'unavailable'
-                ? 'Packet lab service is unavailable. Cannot verify capture.'
-                : 'Comparing captured packet headers with simulated forwarding decision…'}
-            </p>
+      {/* Summary */}
+      {simulationResponse && (
+        <div className="journey-summary">
+          <h3 className="panel-title">Journey Summary</h3>
+          <div className="summary-grid">
+            <div className="summary-item">
+              <span className="summary-label">Total Hops</span>
+              <span className="summary-value">{simulationResponse.hops.length}</span>
+            </div>
+            <div className="summary-item">
+              <span className="summary-label">Status</span>
+              <span className={`summary-value ${simulationResponse.success ? 'success' : 'error'}`}>
+                {simulationResponse.success ? 'Delivered' : 'Failed'}
+              </span>
+            </div>
+            <div className="summary-item">
+              <span className="summary-label">Source</span>
+              <span className="summary-value">{simulationResponse.source_ip}</span>
+            </div>
+            <div className="summary-item">
+              <span className="summary-label">Destination</span>
+              <span className="summary-value">{simulationResponse.destination_ip}</span>
+            </div>
+            {simulationResponse.error && (
+              <div className="summary-item error">
+                <span className="summary-label">Error</span>
+                <span className="summary-value">{simulationResponse.error}</span>
+              </div>
+            )}
           </div>
         </div>
       )}

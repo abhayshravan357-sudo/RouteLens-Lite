@@ -119,7 +119,7 @@ async def test_routes_endpoint_returns_all_samples():
     assert response.status_code == 200
     data = response.json()
     assert isinstance(data, list)
-    assert len(data) == 5
+    assert len(data) == 10
     for route in data:
         assert "destination" in route
         assert "next_hop" in route

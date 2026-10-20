@@ -6,7 +6,6 @@ Provides controlled operations for checking lab readiness, sending test packets,
 """
 
 import asyncio
-import json
 import subprocess
 import time
 from dataclasses import dataclass, field
@@ -171,12 +170,16 @@ class LabAdapter:
         capture_timeout: float = 5.0,
         max_output_lines: int = 100,
         use_pkexec: bool = True,
+        privilege_check_timeout: float = 2.0,
     ):
         self.command_timeout = command_timeout
         self.capture_timeout = capture_timeout
         self.max_output_lines = max_output_lines
         self.use_pkexec = use_pkexec
+        self.privilege_check_timeout = privilege_check_timeout
         self._tool_cache: dict[str, bool] = {}
+        self._privilege_validated: bool = False
+        self._privilege_available: bool = False
 
     def _build_ns_cmd(self, namespace: str, command: list[str]) -> list[str]:
         """Build a command to run in a network namespace."""
@@ -184,6 +187,38 @@ class LabAdapter:
         base.extend(["ip", "netns", "exec", namespace])
         base.extend(command)
         return base
+
+    async def _validate_privileges(self) -> bool:
+        """Quick non-interactive check if privilege escalation works.
+
+        Returns True if pkexec/sudo works non-interactively, False otherwise.
+        Uses a short timeout to avoid blocking on graphical prompts.
+        """
+        if self._privilege_validated:
+            return self._privilege_available
+
+        self._privilege_validated = True
+
+        # Use a simple, fast command to test privilege escalation
+        test_cmd = ["pkexec", "true"] if self.use_pkexec else ["sudo", "-n", "true"]
+
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *test_cmd,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            try:
+                await asyncio.wait_for(proc.wait(), timeout=self.privilege_check_timeout)
+                self._privilege_available = proc.returncode == 0
+            except asyncio.TimeoutError:
+                proc.kill()
+                await proc.wait()
+                self._privilege_available = False
+        except (FileNotFoundError, PermissionError, OSError):
+            self._privilege_available = False
+
+        return self._privilege_available
 
     async def _run_command(
         self,
@@ -209,6 +244,7 @@ class LabAdapter:
             stderr_str = stderr.decode("utf-8", errors="replace") if stderr else ""
             if capture_output and len(stdout_str.splitlines()) > self.max_output_lines:
                 stdout_str = "\n".join(stdout_str.splitlines()[: self.max_output_lines]) + "\n[output truncated]"
+
             return proc.returncode or 0, stdout_str, stderr_str
         except FileNotFoundError as e:
             return -1, "", f"Command not found: {e}"
@@ -249,6 +285,14 @@ class LabAdapter:
         """Run a command in a network namespace."""
         if not self._check_tool("ip"):
             raise ToolMissingError("ip command not available")
+
+        # Check privileges before attempting namespace operations
+        if not await self._validate_privileges():
+            return -1, "", (
+                f"Privilege escalation (pkexec/sudo) not available for namespace operations. "
+                f"Configure passwordless sudo for 'ip netns exec' commands or run backend with appropriate capabilities."
+            )
+
         full_cmd = self._build_ns_cmd(namespace, command)
         return await self._run_command(full_cmd, timeout=timeout)
 
@@ -277,8 +321,9 @@ class LabAdapter:
         # Check accessibility and get interfaces
         rc, stdout, stderr = await self._run_in_namespace(namespace, ["ip", "addr", "show"])
         if rc != 0:
-            if "permission" in stderr.lower() or "operation not permitted" in stderr.lower():
-                status.error = f"Permission denied accessing {namespace}"
+            combined = (stdout + stderr).lower()
+            if "permission" in combined or "operation not permitted" in combined or "request dismissed" in combined or "error executing command as another user" in combined:
+                status.error = f"Permission denied accessing {namespace}. Privilege escalation (sudo/pkexec) not configured for web backend."
                 return status
             status.error = f"Failed to get interfaces: {stderr}"
             return status
@@ -316,7 +361,7 @@ class LabAdapter:
                 if current_iface:
                     interfaces.append(current_iface)
                 parts = line.split(": ", 1)[1].split()
-                name = parts[0].rstrip("@")
+                name = parts[0].split("@")[0].rstrip(":")
                 state = "DOWN"
                 if "<" in line and ">" in line:
                     flags = line[line.index("<") + 1 : line.index(">")]
@@ -395,7 +440,7 @@ class LabAdapter:
             if ns_status.error and "permission" in ns_status.error.lower():
                 permission_issues.append(f"{component}: {ns_status.error}")
 
-        # Validate expected topology
+        # Validate expected topology (only if accessible)
         topology_ok = True
         expected = EXPECTED_TOPOLOGY
         issues = []
@@ -440,6 +485,7 @@ class LabAdapter:
                 topology_ok = False
                 issues.append("Server missing default route via 192.168.20.1")
 
+        # Lab is ready if topology is correct, all namespaces accessible, tools available, no permission issues
         overall_ready = (
             topology_ok
             and all(ns.exists and ns.accessible for ns in namespaces.values())

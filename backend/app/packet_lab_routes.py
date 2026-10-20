@@ -4,7 +4,8 @@ RouteLens Lite - PacketLab API Routes
 FastAPI routes for the virtual router lab operations.
 """
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException
+from fastapi import status as http_status
 from pydantic import BaseModel, Field, field_validator
 from ipaddress import IPv4Address
 
@@ -17,15 +18,15 @@ from app.packet_lab import (
     LabState,
 )
 
-router = APIRouter(prefix="/api/lab", tags=["PacketLab"])
+router = APIRouter(tags=["PacketLab"])
 
 
 class SimulateRequestModel(BaseModel):
-    source_ip: str = Field(..., description="Source IPv4 address")
-    destination_ip: str = Field(..., description="Destination IPv4 address")
-    protocol: str = Field("icmp", description="Protocol: icmp, tcp, or udp")
-    ttl: int = Field(64, ge=1, le=255, description="Time to live")
-    length: int = Field(84, ge=28, le=65535, description="Packet length in bytes")
+    source_ip: str = Field(..., description="Source IPv4 address (must be 192.168.10.2)")
+    destination_ip: str = Field(..., description="Destination IPv4 address (must be 192.168.20.2)")
+    protocol: str = Field("icmp", description="Protocol: only icmp is currently supported")
+    ttl: int = Field(64, ge=1, le=255, description="Time to live (not currently used in packet generation)")
+    length: int = Field(84, ge=28, le=65535, description="Packet length in bytes (not currently used in packet generation)")
     route_matched: str | None = Field(None, description="Route that was matched")
     egress_interface: str | None = Field(None, description="Expected egress interface")
     next_hop: str | None = Field(None, description="Expected next hop")
@@ -42,8 +43,8 @@ class SimulateRequestModel(BaseModel):
     @field_validator("protocol")
     @classmethod
     def validate_protocol(cls, v: str) -> str:
-        if v.lower() not in ("icmp", "tcp", "udp"):
-            raise ValueError(f"Unsupported protocol: {v}")
+        if v.lower() != "icmp":
+            raise ValueError(f"Unsupported protocol: {v}. Only 'icmp' is currently supported.")
         return v.lower()
 
 
@@ -103,16 +104,21 @@ async def get_lab_status() -> LabStatusResponse:
     Returns lab status, router interfaces, and routing table when available.
     """
     lab = get_packet_lab()
-    status: LabStatus = await lab.get_status()
+    lab_status: LabStatus = await lab.get_status()
 
-    http_status = status.HTTP_200_OK if status.available else status.HTTP_503_SERVICE_UNAVAILABLE
+    # Return appropriate HTTP status code
+    if not lab_status.available:
+        raise HTTPException(
+            status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=lab_status.error or "Virtual router not ready",
+        )
 
     return LabStatusResponse(
-        available=status.available,
-        state=status.state.value,
-        message=status.message,
-        router_info=status.router_info,
-        error=status.error,
+        available=lab_status.available,
+        state=lab_status.state.value,
+        message=lab_status.message,
+        router_info=lab_status.router_info,
+        error=lab_status.error,
     )
 
 
@@ -152,17 +158,17 @@ async def simulate_packet(request: SimulateRequestModel) -> SimulateResponseMode
     # Map state to HTTP status
     if response.state == LabState.UNAVAILABLE:
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=response.error or "Lab unavailable",
         )
     elif response.state == LabState.TIMEOUT:
         raise HTTPException(
-            status_code=status.HTTP_408_REQUEST_TIMEOUT,
+            status_code=http_status.HTTP_408_REQUEST_TIMEOUT,
             detail=response.error or "Capture timeout",
         )
     elif response.state == LabState.ERROR:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
+            status_code=http_status.HTTP_400_BAD_REQUEST,
             detail=response.error or "Simulation error",
         )
 
