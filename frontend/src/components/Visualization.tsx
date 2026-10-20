@@ -117,7 +117,7 @@ export default function Visualization({ routes, selectedRoute, destination }: Vi
           );
         })}
       </div>
-      <p className="explanation" style={{ marginTop: '16px' }}>
+      <div className="explanation" style={{ marginTop: '16px' }}>
         <strong>Algorithm:</strong> Routes are evaluated in order:
         <ol style={{ margin: '8px 0 0 20px', padding: 0 }}>
           <li>Filter routes that contain the destination IP</li>
@@ -126,7 +126,7 @@ export default function Visualization({ routes, selectedRoute, destination }: Vi
           <li>If still tied, use deterministic ordering (interface name, then next hop)</li>
         </ol>
         The highlighted route above is the winner.
-      </p>
+      </div>
     </div>
   );
 }
