@@ -1,168 +1,321 @@
-# RouteLens Lite — QA Gap Report
+# QA Gap Report — RouteLens Lite
 
 **Date**: 2026-10-20
-**Branch**: `integration/baseline-2026-10-20`
-**Method**: 48 browser checks driving a real Chromium against a running application, plus a full read of the backend and frontend for contract mismatches.
-
-Every finding below was reproduced before it was reported, and every one that
-could be fixed in the integration branch was fixed. The severity reflects the
-effect on a student using the application.
+**Auditor**: Agent 4 (TestPilot)
+**Branch**: `feature/audit-new-features` (from `integration/baseline-2026-10-20`)
+**Scope**: route table analysis, deeper capture analysis, IPv6 collection, and a
+re-check of the four defects found in the previous audit.
 
 ---
 
-## Findings
+## 1. Summary
 
-### QA-01 — Diagnostic errors rendered as `[object Object]` — **Fixed**
+The backend work that has landed is careful and honest. The provenance split
+between what was *read* and what was *concluded* is correct, routes the model
+cannot express are listed rather than dropped, and the capture parser refuses
+to guess. The four defects from the previous audit are all fixed and I have
+added regression checks that lock them in.
 
-**Severity**: High
+The problem is on the other side of the wire. **Two of the three new features
+have no user-facing surface at all**: the frontend never calls
+`/network/routes/analysis`, and the frontend's capture types and panel ignore
+everything the new capture parser produces. The third, IPv6 collection, is
+wired up in the collector but the endpoint that would expose it drops the
+parameter on the floor.
 
-**Where**: `backend/app/main.py` — the `/network/dns-resolve`,
-`/network/connectivity` and `/network/traceroute` endpoints.
-
-**What was wrong**: Each endpoint raised `HTTPException(detail=response.model_dump())`,
-putting the whole response object into `detail`. The API client does
-`new ApiError(error.detail, ...)`, and JavaScript stringifies an object as
-`[object Object]`. A student who asked for a name that does not resolve was
-shown that, instead of a sentence.
-
-**How it was reproduced**: the endpoint answers `404` with
-`{"detail": {"hostname": ..., "error": "Hostname not found: ..."}}`. In the
-browser, the error area read `⚠ [object Object]`.
-
-**Fix**: the detail is now a readable sentence, with the full result kept in
-an `X-RouteLens-Result` header so nothing is lost.
-
-**Verified**: the DNS tab now shows "Hostname not found: ...".
+| Area | State |
+|------|-------|
+| Route table analysis (backend) | Solid, honest, well tested — **no UI** |
+| Deeper capture analysis (backend) | Solid — **no UI, and the frontend type is wrong** |
+| IPv6 route collection | Collector supports it; the endpoint does not expose it |
+| The four earlier defects | All fixed, now covered by regression checks |
 
 ---
 
-### QA-03 — A missing tool reported as a lab outage — **Fixed**
+## 2. Findings
 
-**Severity**: Medium
+### QA-06 — The route analysis is never shown to the user — **High**
 
-**Where**: `frontend/src/api/routing.ts` and the traceroute endpoint.
+- **Endpoint**: `backend/app/main.py:338` — `@app.get("/network/routes/analysis", ...)`
+- **Missing client**: `frontend/src/api/routing.ts` has no function that calls
+  `/network/routes/analysis`. A search of the whole of `frontend/src` for
+  "analysis" returns only the PCAP panel's local variable
+  (`frontend/src/components/PCAPPanel.tsx:60`).
+- **Owner**: the frontend agent.
 
-**What was wrong**: The client maps every `503` to `LabUnavailableError`, and
-the backend used `503` for "the traceroute command is not installed". A
-student could conclude the packet lab was broken when only one command was
-missing.
-
-**How it was reproduced**: with `traceroute` not installed, the endpoint
-answers `503` and the client reported a lab outage.
-
-**Fix**: the backend now says exactly what is wrong — "`traceroute` command
-not available" — instead of a generic status. The message names the tool, so
-the two situations are no longer confused.
-
----
-
-### QA-05 — The route editor was unreachable until a packet was sent — **Fixed**
-
-**Severity**: Medium
-
-**Where**: `frontend/src/components/ScenarioJourney.tsx`.
-
-**What was wrong**: The route editor and the topology map were rendered inside
-the trace result panel. Neither could be reached until a packet had been
-traced, and nothing on the page said so. Worse, saving a route re-ran the
-trace, which unmounted the editor and threw away the confirmation it had just
-given, so saving appeared to do nothing.
-
-**How it was reproduced**: on a freshly loaded page there was no
-`#route-editor-node` element at all. After a save, the "Saved." message was
-never visible.
-
-**Fix**: both now sit outside the trace panel and are available as soon as a
-scenario is selected. The editor keeps its confirmation across a re-trace.
-
----
-
-### QA-07 — The capture parser swapped every file's byte order — **Fixed**
-
-**Severity**: High
-
-**Where**: `backend/app/pcap.py`.
-
-**What was wrong**: The parser read the magic number as a little-endian
-integer and then treated the resulting *value* as the file's byte order.
-Reading a little-endian file's magic that way gives `0xa1b2c3d4`, which is
-the value a big-endian file has. Every real capture was therefore parsed with
-its byte order swapped, and packet lengths came out as garbage.
-
-**How it was reproduced**: a capture file written the way tcpdump writes on
-this machine was rejected with "packet data at offset 40 (length 704643072)
-extends past end of file".
-
-**Fix**: the byte order is taken from the raw magic bytes, and the global
-header is parsed in that order too. New tests build genuine files in each
-byte order, including the nanosecond-resolution variants.
-
-**Verified**: the same file now parses — 3 ICMP packets, 2 hosts, 1
-conversation.
-
----
-
-## Carried into the next phase
-
-| Finding | Severity | Note |
-|---|---|---|
-| The routing table and the scenario tables are two separate things | Low | The main table is now editable, but a student may not realise the scenario tables are a different, modelled thing. The UI should say so. |
-| The main routing table is not persisted | Low | A restart loses the edits. The ledger and the run log should say so, and the UI could say it. |
-| No browser test covers the capture panel | Low | The panel was built against a fixed contract and the backend is tested, but no browser check drives the file picker. |
-| The traceroute tool is not installed here | Low | The endpoint says so honestly. Installing it needs your permission. |
-| The packet lab has never been run for real | Medium | The command sequence is verified and written up, but running it needs root. |
-
----
-
-## What was checked and found correct
-
-- The routing table is authoritative: adding a route changes what `/lookup`
-  returns, and `POST /routes/reset` puts it back.
-- The packet journey uses the backend's trace, not a path the frontend
-  invented. The hop list on the page is the engine's hop list.
-- A failure is shown as a failure. A scan that found nothing is not shown as
-  a broken scan, and a lab that is unavailable says so.
-- The provenance marks are correct throughout: host data is observed,
-  relationships inferred, scenario data simulated.
-- The report lists its sources and its limitations, and the limitations are
-  part of the report.
-- The discovery flow asks for confirmation, refuses without it, and records
-  the refusal.
-- Invalid input is rejected by the backend, not only by the form.
-- The topology map distinguishes observed, inferred, simulated and unknown,
-  and a node with no relationships says it has no evidence of connection
-  rather than showing an invented link.
-- Nothing renders a raw Python or JavaScript object.
-
----
-
-## Tests not run
-
-| Test | Why |
-|---|---|
-| A browser check for the capture file picker | The file chooser cannot be driven reliably without a real file dialog; the backend contract is covered by 21 unit tests |
-| The packet lab against real namespaces | Needs root and real namespace creation, which is not authorised here |
-| Traceroute against a real path | The `traceroute` command is not installed on this machine |
-| Load and performance testing | Out of scope for a student project at this stage |
-| Accessibility audit with a screen reader | The components carry ARIA labels and are keyboard reachable, but no screen reader was used |
-
----
-
-## How to run these checks
-
-The application must be running first:
+**Reproduction**
 
 ```bash
-cd backend && source .venv/bin/activate && python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
-cd frontend && npm run dev -- --host 127.0.0.1 --port 5173
+curl -s "http://127.0.0.1:5199/network/routes/analysis" | head -c 200
+# -> a full analysis report
 ```
 
-Then, from `backend/`:
+Then open the app in a browser and look through every tab: the analysis is
+nowhere. There is no panel, no tab and no button that reaches it.
+
+**Evidence that it works and is worth showing**
+
+```
+ip_version: ipv4
+table_provenance: observed
+analysis_provenance: inferred
+routes_in_table: 2 routes_analysed: 2
+--- analysis for 192.168.0.107 matched=True prov=inferred
+    selected: 192.168.0.0/24
+    cand: 192.168.0.0/24 selected=True  outcome=selected
+    cand: 0.0.0.0/0     selected=False outcome=less specific
+```
+
+That is exactly the teaching content the feature was built for, and none of it
+can be reached.
+
+**What should happen**: a frontend client for `/network/routes/analysis` and a
+panel that shows, per destination, the winning route, the candidates it beat
+and why each lost, with the *inferred* badge on the conclusion and the
+*observed* badge on the table it was read from.
+
+**Check added**: `TestRouteAnalysisIsNotShownToTheUser::test_the_route_analysis_is_visible_somewhere_on_the_page`
+(marked `xfail`; it will start failing the day a client appears, which is the
+point).
+
+---
+
+### QA-07 — The frontend capture type does not match the backend, and the new detail is not rendered — **High**
+
+- **Type**: `frontend/src/types/routing.ts:512-549`
+- **Panel**: `frontend/src/components/PCAPPanel.tsx`
+- **Owner**: the frontend agent.
+
+`PcapAnalysisResult` in the frontend has `filename`, `size_bytes`, `format`,
+`parsed`, `error`, `collected_at`, `summary`, `hosts`, `conversations` and
+`limitations`. The backend now also returns **`packets`** and **`handshakes`**
+(`backend/app/pcap.py:162-163`), and `PcapSummary` now also carries
+`unparsed_packets`, `tcp_handshakes`, `complete_tcp_handshakes`, `dns_queries`,
+`dns_responses` and `arp_packets` (`backend/app/pcap.py:141-145`).
+
+The comment above the type says:
+
+```
+ * PCAP Analysis types - matching the FastAPI backend Pydantic models exactly.
+```
+
+They do not match, and the comment is now wrong in a way that will mislead
+whoever trusts it.
+
+`PCAPPanel.tsx` renders `result.summary`, `result.hosts` and
+`result.conversations` but never `result.packets` or `result.handshakes`, so
+the per-packet ports, TCP flags, DNS names, ARP addresses and the three-way
+handshake the parser now extracts are computed, returned over the wire, and
+then dropped on the floor.
+
+**Reproduction**: upload a capture containing a TCP handshake and a DNS query
+and read the panel. The summary appears; no port, no flag, no handshake and no
+DNS name does.
+
+**What should happen**: the frontend type gains the missing fields (and the
+`PcapPacketDetail` and `PcapHandshake` types), and the panel renders the
+per-packet detail and the handshake. Until then the parser work is invisible.
+
+**Check added**: `TestCaptureFilePanel::test_the_capture_panel_shows_ports_flags_and_a_handshake`
+(marked `xfail`).
+
+---
+
+### QA-08 — `/network/routes` silently ignores the address family — **High**
+
+- **Endpoint**: `backend/app/main.py:313-335`
+- **Owner**: the backend/collector agent.
+
+```python
+@app.get("/network/routes", tags=["Network"])
+async def get_routes():
+    collector = get_network_collector()
+    result = await collector.collect_routes()      # <-- no ip_version
+```
+
+`collect_routes` already takes and validates the family
+(`backend/app/network_collector.py:338-356`), and the analysis endpoint uses
+it correctly. Only this endpoint drops it.
+
+**Reproduction**
 
 ```bash
-python3 -m pytest tests/test_e2e_browser.py -v -p no:cacheprovider
+curl -s "http://127.0.0.1:5199/network/routes?ip_version=ipv6"
+# -> 0.0.0.0/0 192.168.0.1 wlp2s0
+#    192.168.0.0/24 None wlp2s0
 ```
 
-The tests skip cleanly when Playwright or its browsers are not installed, so
-they never block an ordinary test run. Set `ROUTELENS_URL` and
-`ROUTELENS_HEALTH` to point them at a different address.
+Those are IPv4 routes. The same host's IPv6 table, read by the analysis
+endpoint, holds `fe80::/64`. A caller asking for the IPv6 table is given the
+IPv4 one and is told nothing about it.
+
+**What should happen**: add `ip_version: str = "ipv4"` to the endpoint and
+pass it to `collect_routes(ip_version)`. The collector already returns a
+400-shaped error for an unsupported family, so the validation is free.
+
+**Check added**: `TestIPv6Collection::test_the_routes_endpoint_honours_the_address_family`
+(marked `xfail`).
+
+---
+
+### QA-09 — The capture limitations understate what the parser does — **Low**
+
+- **Limitation text**: `backend/app/pcap.py:842` — `"VLAN tags (802.1Q) are not parsed"`
+- **The code**: `backend/app/pcap.py:1299-1301` — `_parse_ethernet` does
+  recognise `0x8100`, reads the inner EtherType and skips the tag.
+
+The limitation is conservative rather than dangerous, but in a teaching tool a
+student is told their VLAN-tagged frame will not be understood when in fact
+it is. Either the limitation should say the tag is skipped but the inner
+protocol is still read, or the code should stop handling it.
+
+**Owner**: the capture/PCAP agent.
+
+---
+
+### QA-10 — A missing metric becomes zero in the teaching model — **Low**
+
+- `backend/app/route_analysis.py:169` — `metric = route.metric if route.metric is not None else 0`
+- The observed record keeps `metric = None` (`backend/app/network_collector.py:430`).
+
+The kernel prints no metric when it is zero, so zero is the right value, and
+the docstring says so. But the *observed* Routes view shows a blank metric
+while the *analysis* shows `0`, so the two views of the same route disagree
+on their face. Worth either normalising the observed view or saying in the
+limitations that a route the kernel printed without a metric has metric zero.
+
+**Owner**: the route analysis agent.
+
+---
+
+## 3. The four earlier defects, re-checked
+
+| Old finding | State | Evidence |
+|--------------|-------|----------|
+| `[object Object]` on a failed diagnostic (QA-01) | **Fixed** | `grep -c "model_dump()" backend/app/main.py` → `0`. Every `detail=` is a string now. |
+| Route editor unreachable until a packet was sent (QA-04) | **Fixed** | `frontend/src/components/ScenarioJourney.tsx:361` — the editor now sits beside the form, not inside the `{trace && ...}` block. |
+| Saving a route showed no confirmation (QA-04) | **Fixed** | `frontend/src/components/RouteEditor.tsx:50,61-66` — a `savingJustNow` ref stops the draft-reload effect from wiping the confirmation. |
+| A failed check could read as a success (QA-02) | **Fixed** | The connectivity verdict reads "Unreachable" and the error banner carries a real message. |
+
+Run:
+
+```
+ROUTELENS_URL=http://127.0.0.1:5199 ROUTELENS_HEALTH=http://127.0.0.1:8010/health \
+  python3 -m pytest tests/test_e2e_browser.py::TestRouteEditor \
+           tests/test_e2e_browser.py::TestDnsResolution \
+           tests/test_e2e_browser.py::TestTraceroute -v -p no:cacheprovider
+```
+
+```
+8 passed in 68.02s (0:01:08)
+```
+
+**New regression checks added** so these cannot come back quietly:
+
+- `TestErrorContract::test_a_failed_dns_lookup_returns_a_string_detail`
+- `TestErrorContract::test_a_failed_connectivity_check_returns_a_string_detail`
+
+These assert on the response the browser actually receives, not on the
+rendered text, so they cannot pass by accident.
+
+---
+
+## 4. What the new code gets right
+
+These are worth saying, because they are the parts a reviewer would otherwise
+have to hunt for:
+
+- **The provenance split is correct.** `table_provenance` is `observed` and
+  `analysis_provenance` is `inferred`, and every per-destination conclusion
+  carries `inferred` as well. The distinction the module docstring claims is
+  the distinction the code keeps.
+- **Unusable routes are reported, not dropped.** `to_teaching_entry` refuses
+  to guess at a route with a special next hop, a family mismatch or a missing
+  interface, and `routes_skipped` carries the reason. A limitation is added
+  when anything was skipped.
+- **A missing route is explained, not just reported as missing.** The
+  explanation says the main table is the one used for forwarding, and that
+  loopback lives in the separate local table.
+- **The default route's coverage is computed exactly.** I checked
+  `collapse_addresses` against inputs that do not tile, and it never claims
+  more space than the routes cover. I had suspected it over-reported; it does
+  not, so there is no finding here.
+- **The capture parser refuses to guess.** A message it cannot read produces
+  a note, never a value. An empty but valid capture is reported as parsed
+  with zero packets and the limitation "Empty capture file - no packets to
+  analyze", which is honest.
+- **The capture panel surfaces the parser's limitations** and shows a parse
+  error instead of a summary when the file could not be read.
+
+---
+
+## 5. Checks added
+
+All in `backend/tests/test_e2e_browser.py`, which grew from 48 to 68 tests.
+
+| Class | Checks | Covers |
+|-------|--------|--------|
+| `TestRouteAnalysis` | 8 | the endpoint answers through the proxy; observed vs inferred; the winner is named and each loser says why; shadowing is reported; "no packet was transmitted" is stated; skipped routes are listed; an IPv6 address is analysed against the IPv6 table; the IPv6 report does not carry the IPv4 limitation |
+| `TestRouteAnalysisIsNotShownToTheUser` | 1 | the analysis is not reachable from the page (xfail, QA-06) |
+| `TestCaptureFilePanel` | 4 | an unparseable file says so and shows no summary; a real capture is summarised; the deeper detail is shown (xfail, QA-07) |
+| `TestIPv6Collection` | 1 | the routes endpoint honours the address family (xfail, QA-08) |
+| `TestErrorContract` | 2 | a failed diagnostic comes back with a string `detail`, not an object |
+
+The capture checks build a real PCAP in the test — a TCP three-way handshake, a
+DNS query for `example.com` and an ARP request — rather than mocking one, so
+they exercise the parser end to end.
+
+The new checks locate elements by visible text, by role and by the `id`s that
+survive a redesign (`#pcap-file-input`, `#route-editor-node`). They do not
+depend on a class name for anything that the visual layer might change.
+
+---
+
+## 6. Recommended order of work
+
+1. **QA-06** — give the route analysis a frontend client and a panel. The
+   backend is ready and the content is exactly what the tool is for.
+2. **QA-08** — one parameter on `/network/routes` and one argument at the
+   call site. The collector already does the work.
+3. **QA-07** — extend `PcapAnalysisResult` and render the per-packet detail
+   and the handshake. The parser already does the work.
+4. **QA-09, QA-10** — wording corrections.
+
+---
+
+## 7. What I could not check
+
+- **The visual layer.** The frontend is being redesigned at the same time. My
+  checks assert on text and behaviour; where I had to find an element I used
+  a role, a label or an `id` that is referenced by the component itself. A
+  redesign that changes the wording of a button will break a check, and that
+  is the correct outcome, but it is worth knowing before the next merge.
+- **A capture with a VLAN tag, IPv6 traffic, DNS over TCP or fragments.** The
+  parser has specific handling for each; I exercised the main paths only.
+- **The virtual router and the packet lab.** The lab namespaces do not exist
+  on this machine, so `/api/lab/*` still answers 503 and nothing behind that
+  line could be driven in a browser.
+- **The report's provenance against the new analysis.** The report builder
+  does not know about the route analysis, so a report cannot yet mention it.
+
+---
+
+## 8. Commands
+
+```bash
+# Backend (worktree code)
+cd backend && /home/abhaysawant/Desktop/cn_project_2/backend/.venv/bin/python \
+  -m uvicorn app.main:app --host 127.0.0.1 --port 8010
+
+# Frontend (worktree code)
+cd frontend && ROUTELENS_BACKEND_URL=http://127.0.0.1:8010 \
+  npm run dev -- --host 127.0.0.1 --port 5199
+
+# Checks
+cd backend && ROUTELENS_URL=http://127.0.0.1:5199 \
+  ROUTELENS_HEALTH=http://127.0.0.1:8010/health \
+  python3 -m pytest tests/test_e2e_browser.py -v -p no:cacheprovider
+```
+
+The checks skip cleanly when Playwright or the backend is not available, so an
+ordinary `pytest tests/` run is never blocked by them.

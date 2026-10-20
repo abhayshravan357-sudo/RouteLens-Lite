@@ -1020,3 +1020,442 @@ class TestHonestReporting:
 
         body = page.inner_text("body")
         assert "**Source:**" in body, "the report does not name its sources"
+
+
+# =============================================================================
+# Coverage for the newly integrated features.
+#
+# These checks are deliberately written against visible text and against the
+# API the page itself talks to, rather than against class names, because the
+# visual layer is being redesigned at the same time.
+#
+# Requests go through page.request, which uses the page's own origin and
+# therefore the same Vite proxy the application uses. That makes these checks
+# a real test of the proxy as well as of the endpoint.
+# =============================================================================
+
+
+def api_get(page, path):
+    """GET a path on the application's own origin, through the proxy."""
+    response = page.request.get(f"{BASE_URL}{path}")
+    return response.status, response.json()
+
+
+def api_post(page, path, payload):
+    """POST JSON to a path on the application's own origin, through the proxy."""
+    response = page.request.post(f"{BASE_URL}{path}", data=payload)
+    return response.status, response.json()
+
+
+# ---------------------------------------------------------------------------
+# A small PCAP builder, so the capture checks use a real file.
+# ---------------------------------------------------------------------------
+
+
+def _ethernet(dst_mac, src_mac, ethertype, payload):
+    return dst_mac + src_mac + ethertype.to_bytes(2, "big") + payload
+
+
+def _ipv4(src_ip, dst_ip, protocol, payload):
+    header = bytearray(20)
+    header[0] = 0x45
+    total = 20 + len(payload)
+    header[2:4] = total.to_bytes(2, "big")
+    header[8] = 64
+    header[9] = protocol
+    header[12:16] = bytes(int(p) for p in src_ip.split("."))
+    header[16:20] = bytes(int(p) for p in dst_ip.split("."))
+    return bytes(header) + payload
+
+
+def _tcp(src_port, dst_port, flags):
+    header = bytearray(20)
+    header[0:2] = src_port.to_bytes(2, "big")
+    header[2:4] = dst_port.to_bytes(2, "big")
+    header[12] = 5 << 4          # data offset, 20 bytes
+    header[13] = flags
+    return bytes(header)
+
+
+def _udp(src_port, dst_port, payload):
+    header = bytearray(8)
+    header[0:2] = src_port.to_bytes(2, "big")
+    header[2:4] = dst_port.to_bytes(2, "big")
+    header[4:6] = (8 + len(payload)).to_bytes(2, "big")
+    return bytes(header) + payload
+
+
+def _dns_query(name):
+    labels = b"".join(bytes([len(part)]) + part.encode() for part in name.split(".")) + b"\x00"
+    header = bytearray(12)
+    header[2:4] = (1).to_bytes(2, "big")   # one question
+    return bytes(header) + labels + (1).to_bytes(2, "big") + (1).to_bytes(2, "big")
+
+
+def _arp_request(sender_mac, sender_ip, target_ip):
+    payload = bytearray(28)
+    payload[0:2] = (1).to_bytes(2, "big")   # Ethernet
+    payload[2:4] = (0x0800).to_bytes(2, "big")
+    payload[4] = 6
+    payload[5] = 4
+    payload[6:8] = (1).to_bytes(2, "big")   # request
+    payload[8:14] = sender_mac
+    payload[14:18] = bytes(int(p) for p in sender_ip.split("."))
+    payload[24:28] = bytes(int(p) for p in target_ip.split("."))
+    return bytes(payload)
+
+
+def build_pcap_bytes():
+    """
+    A small but real capture: a TCP three-way handshake, a DNS query and an
+    ARP request. Written in classic PCAP, little-endian, microseconds.
+    """
+    client_mac = bytes.fromhex("020000000001")
+    server_mac = bytes.fromhex("020000000002")
+    ethertype_ip = 0x0800
+    ethertype_arp = 0x0806
+
+    frames = []
+
+    # The three-way handshake: SYN, SYN-ACK, ACK.
+    frames.append(_ethernet(
+        server_mac, client_mac, ethertype_ip,
+        _ipv4("10.0.0.1", "10.0.0.2", 6, _tcp(40000, 80, 0x02)),      # SYN
+    ))
+    frames.append(_ethernet(
+        client_mac, server_mac, ethertype_ip,
+        _ipv4("10.0.0.2", "10.0.0.1", 6, _tcp(80, 40000, 0x12)),      # SYN-ACK
+    ))
+    frames.append(_ethernet(
+        server_mac, client_mac, ethertype_ip,
+        _ipv4("10.0.0.1", "10.0.0.2", 6, _tcp(40000, 80, 0x10)),      # ACK
+    ))
+
+    # A DNS query for example.com.
+    frames.append(_ethernet(
+        server_mac, client_mac, ethertype_ip,
+        _ipv4("10.0.0.1", "8.8.8.8", 17, _udp(53000, 53, _dns_query("example.com"))),
+    ))
+
+    # An ARP request.
+    frames.append(_ethernet(
+        bytes.fromhex("ffffffffffff"), client_mac, ethertype_arp,
+        _arp_request(client_mac, "10.0.0.1", "10.0.0.2"),
+    ))
+
+    out = bytearray()
+    out += bytes.fromhex("d4c3b2a1")          # magic, little-endian
+    out += (2).to_bytes(2, "little")          # version major
+    out += (4).to_bytes(2, "little")          # version minor
+    out += (0).to_bytes(4, "little")          # thiszone
+    out += (0).to_bytes(4, "little")          # sigfigs
+    out += (65535).to_bytes(4, "little")      # snaplen
+    out += (1).to_bytes(4, "little")          # link type: Ethernet
+
+    for index, frame in enumerate(frames):
+        out += (1700000000 + index).to_bytes(4, "little")
+        out += (0).to_bytes(4, "little")
+        out += len(frame).to_bytes(4, "little")
+        out += len(frame).to_bytes(4, "little")
+        out += frame
+
+    return bytes(out)
+
+
+def write_temp_file(tmp_path, name, content):
+    path = tmp_path / name
+    path.write_bytes(content)
+    return str(path)
+
+
+class TestRouteAnalysis:
+    """
+    The real routing table analysis.
+
+    The endpoint is reached through the same proxy the page uses, so these
+    checks also prove the proxy forwards it.
+    """
+
+    def test_the_analysis_endpoint_is_reachable(self, page, backend_available):
+        """The analysis endpoint answers through the application's proxy."""
+        open_page(page)
+
+        status, payload = api_get(page, "/network/routes/analysis")
+        assert status == 200, f"the analysis endpoint answered {status}"
+        assert "analyses" in payload, "the response is not an analysis report"
+
+    def test_the_analysis_separates_what_was_read_from_what_was_concluded(self, page, backend_available):
+        """The table is observed; the conclusion drawn from it is inferred."""
+        open_page(page)
+
+        status, payload = api_get(page, "/network/routes/analysis")
+        assert status == 200
+
+        assert payload["table_provenance"] == "observed", (
+            f"the table should be observed, not {payload['table_provenance']!r}"
+        )
+        assert payload["analysis_provenance"] == "inferred", (
+            f"the analysis should be inferred, not {payload['analysis_provenance']!r}"
+        )
+        for analysis in payload["analyses"]:
+            assert analysis["provenance"] == "inferred", (
+                f"a per-destination conclusion is marked {analysis['provenance']!r}"
+            )
+
+    def test_the_analysis_names_the_winner_and_the_candidates_it_beat(self, page, backend_available):
+        """A destination with more than one match says which won and why the other lost."""
+        open_page(page)
+
+        status, payload = api_get(page, "/network/routes/analysis")
+        assert status == 200
+
+        with_candidates = [
+            a for a in payload["analyses"] if len(a.get("candidates") or []) > 1
+        ]
+        assert with_candidates, "no analysed destination had more than one candidate"
+
+        for analysis in with_candidates:
+            selected = [c for c in analysis["candidates"] if c["selected"]]
+            beaten = [c for c in analysis["candidates"] if not c["selected"]]
+            assert len(selected) == 1, (
+                f"{analysis['destination']} has {len(selected)} winners, not one"
+            )
+            assert beaten, "a loser was expected"
+            for candidate in beaten:
+                assert candidate["outcome"] != "selected", "a loser is marked selected"
+                assert candidate["explanation"], (
+                    f"{candidate['destination']} lost without saying why"
+                )
+
+    def test_a_shadowed_route_is_reported_as_shadowed(self, page, backend_available):
+        """A less specific route that a more specific one takes traffic from is reported."""
+        open_page(page)
+
+        status, payload = api_get(page, "/network/routes/analysis")
+        assert status == 200
+
+        findings = payload.get("shadow_findings") or []
+        assert findings, "no shadowing was reported for a table that has a default route"
+
+        for finding in findings:
+            assert finding["less_specific_destination"], "a finding names no shadowed route"
+            assert finding["explanation"], "a finding gives no explanation"
+
+    def test_the_analysis_says_no_packet_was_sent(self, page, backend_available):
+        """The report states plainly that nothing was transmitted."""
+        open_page(page)
+
+        status, payload = api_get(page, "/network/routes/analysis")
+        assert status == 200
+
+        limitations = " ".join(payload.get("limitations") or []).lower()
+        assert "no packet was transmitted" in limitations, (
+            "the limitations do not say that nothing was transmitted"
+        )
+
+    def test_routes_it_could_not_express_are_listed_rather_than_guessed(self, page, backend_available):
+        """A route the model cannot express is reported, not silently dropped."""
+        open_page(page)
+
+        status, payload = api_get(page, "/network/routes/analysis")
+        assert status == 200
+
+        assert "routes_skipped" in payload, "the report has no list of skipped routes"
+        for skipped in payload["routes_skipped"]:
+            assert skipped["reason"], "a skipped route gives no reason"
+
+    def test_an_ipv6_address_is_analysed_rather_than_reported_as_missing(self, page, backend_available):
+        """The IPv6 table is read and an IPv6 destination is looked up in it."""
+        open_page(page)
+
+        status, payload = api_get(page, "/network/routes/analysis?ip_version=ipv6")
+        assert status == 200
+        assert payload["ip_version"] == "ipv6"
+
+        analyses = payload.get("analyses") or []
+        assert analyses, "the IPv6 table produced no analyses at all"
+
+        # Every destination offered must be an IPv6 address, and the host's own
+        # link-local address must be found in the IPv6 table.
+        for analysis in analyses:
+            assert ":" in analysis["destination"], (
+                f"an IPv4 address {analysis['destination']} was analysed against "
+                "the IPv6 table"
+            )
+
+    def test_the_ipv6_analysis_does_not_repeat_the_ipv4_limitation(self, page, backend_available):
+        """The IPv6 report does not claim IPv6 routes are missing."""
+        open_page(page)
+
+        status, payload = api_get(page, "/network/routes/analysis?ip_version=ipv6")
+        assert status == 200
+
+        limitations = " ".join(payload.get("limitations") or [])
+        assert "IPv6 routes are a separate table and are not included" not in limitations, (
+            "the IPv6 report says IPv6 routes are not included"
+        )
+
+
+class TestRouteAnalysisIsNotShownToTheUser:
+    """
+    The analysis endpoint has no client in the frontend.
+
+    The coordinator asked for a browser check that the route analysis renders.
+    It cannot render, because nothing in the page calls the endpoint. This
+    check records that gap; it will start failing when the frontend grows a
+    client for it.
+    """
+
+    @pytest.mark.xfail(
+        reason=(
+            "QA-06: no frontend code calls /network/routes/analysis, so the "
+            "analysis is never shown. The route analysis panel does not exist."
+        ),
+    )
+    def test_the_route_analysis_is_visible_somewhere_on_the_page(self, page, backend_available):
+        """The analysis should be reachable from the page, not only from the API."""
+        open_page(page)
+
+        body = page.inner_text("body").lower()
+        assert "shadow" in body or "route analysis" in body, (
+            "the route analysis is not shown anywhere on the page"
+        )
+
+
+class TestCaptureFilePanel:
+    """The capture panel must report what it read, and admit what it could not."""
+
+    def _open_capture_tab(self, page):
+        page.locator(".tab-navigation button", has_text="Capture file").first.click()
+        page.wait_for_timeout(400)
+
+    def _upload(self, page, path):
+        page.locator("input[type='file']").first.set_input_files(path)
+        page.wait_for_timeout(400)
+        page.get_by_role("button", name="Analyze").first.click()
+        page.wait_for_timeout(4000)
+
+    def test_a_capture_that_cannot_be_parsed_says_so(self, page, backend_available, tmp_path):
+        """A file that is not a capture is reported as a parse failure."""
+        open_page(page)
+        self._open_capture_tab(page)
+
+        path = write_temp_file(tmp_path, "not-a-capture.pcap", b"this is not a capture file at all")
+        self._upload(page, path)
+
+        body = page.inner_text("body")
+        assert "Parse error" in body or "could not" in body.lower(), (
+            "the parse failure was not shown"
+        )
+        assert "[object Object]" not in body, "an error object was rendered raw"
+
+    def test_a_capture_that_cannot_be_parsed_shows_no_summary(self, page, backend_available, tmp_path):
+        """A failed parse must not also present a summary as though it had read the file."""
+        open_page(page)
+        self._open_capture_tab(page)
+
+        path = write_temp_file(tmp_path, "not-a-capture.pcap", b"this is not a capture file at all")
+        self._upload(page, path)
+
+        body = page.inner_text("body")
+        # The summary of a successfully read file lists its protocols and
+        # hosts. None of that may be present for a file that was not read.
+        assert "Total packets" not in body, "a summary was shown for a file that failed to parse"
+        assert "Total bytes" not in body, "a summary was shown for a file that failed to parse"
+
+    def test_a_real_capture_produces_a_summary(self, page, backend_available, tmp_path):
+        """A real capture is read and summarised."""
+        open_page(page)
+        self._open_capture_tab(page)
+
+        path = write_temp_file(tmp_path, "sample.pcap", build_pcap_bytes())
+        self._upload(page, path)
+
+        body = page.inner_text("body")
+        assert "Parse error" not in body, f"a real capture failed to parse: {body[-500:]}"
+        assert "10.0.0.1" in body, "the capture's own addresses were not listed"
+
+    @pytest.mark.xfail(
+        reason=(
+            "QA-07: the deeper capture analysis is not shown. The frontend "
+            "PcapAnalysisResult type has no packets or handshakes field and "
+            "the panel renders neither."
+        ),
+    )
+    def test_the_capture_panel_shows_ports_flags_and_a_handshake(self, page, backend_available, tmp_path):
+        """The panel should show the per-packet detail the backend now returns."""
+        open_page(page)
+        self._open_capture_tab(page)
+
+        path = write_temp_file(tmp_path, "sample.pcap", build_pcap_bytes())
+        self._upload(page, path)
+
+        body = page.inner_text("body")
+        assert "40000" in body, "the TCP ports were not shown"
+        assert "SYN" in body, "the TCP flags were not shown"
+        assert "handshake" in body.lower(), "no handshake was shown"
+        assert "example.com" in body, "the DNS name was not shown"
+
+
+class TestIPv6Collection:
+    """The collector must be able to read the IPv6 table, not only IPv4."""
+
+    @pytest.mark.xfail(
+        reason=(
+            "QA-08: /network/routes does not take an ip_version parameter, so it "
+            "always returns the IPv4 table even when the IPv6 table is asked for."
+        ),
+    )
+    def test_the_routes_endpoint_honours_the_address_family(self, page, backend_available):
+        """Asking for the IPv6 table should return IPv6 routes."""
+        open_page(page)
+
+        status, payload = api_get(page, "/network/routes?ip_version=ipv6")
+        assert status == 200
+
+        for route in payload.get("data") or []:
+            assert ":" in route["destination"] or route["destination"] == "default", (
+                f"an IPv4 route {route['destination']} was returned for the IPv6 table"
+            )
+
+
+class TestErrorContract:
+    """
+    A failed request must come back with a message, not an object.
+
+    The backend used to put the whole result object in HTTPException.detail.
+    FastAPI documents `detail` as a string and the client renders it as one,
+    so the page showed "[object Object]" instead of the reason. This check
+    locks the fix in place at the level the bug actually lived.
+    """
+
+    def test_a_failed_dns_lookup_returns_a_string_detail(self, page, backend_available):
+        """A name that cannot be resolved comes back with a readable message."""
+        open_page(page)
+
+        status, payload = api_post(
+            page,
+            "/network/dns-resolve",
+            {"hostname": "this-name-does-not-exist-12345.invalid"},
+        )
+        assert status >= 400, "the lookup should have failed"
+        assert isinstance(payload.get("detail"), str), (
+            f"detail should be a message, got {type(payload.get('detail')).__name__}: "
+            f"{payload.get('detail')!r}"
+        )
+        assert payload["detail"], "the error message was empty"
+
+    def test_a_failed_connectivity_check_returns_a_string_detail(self, page, backend_available):
+        """A refused connection comes back with a readable message."""
+        open_page(page)
+
+        status, payload = api_post(
+            page,
+            "/network/connectivity",
+            {"target": "127.0.0.1", "protocol": "tcp", "port": 1, "timeout": 3},
+        )
+        assert status >= 400, "the check should have failed"
+        assert isinstance(payload.get("detail"), str), (
+            f"detail should be a message, got {type(payload.get('detail')).__name__}: "
+            f"{payload.get('detail')!r}"
+        )
