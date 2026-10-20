@@ -10,7 +10,7 @@
  * anyone else's trace.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { updateScenarioRoutes } from '../api/routing';
 import type { Scenario, ScenarioRoute } from '../types/routing';
 import './RouteEditor.css';
@@ -45,6 +45,10 @@ export default function RouteEditor({ scenario, nodeId, onSaved }: RouteEditorPr
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
+  // Set while our own save is in flight, so the effect that reloads the
+  // drafts does not wipe the confirmation the user just earned.
+  const savingJustNow = useRef(false);
+
   // Load the node's current routes whenever the scenario or node changes.
   useEffect(() => {
     if (!scenario) {
@@ -54,7 +58,12 @@ export default function RouteEditor({ scenario, nodeId, onSaved }: RouteEditorPr
     const node = scenario.nodes.find((n) => n.id === nodeId);
     setDrafts(node ? node.routes.map(toDraft) : []);
     setError(null);
-    setSaved(false);
+    if (savingJustNow.current) {
+      // This is the scenario we just saved ourselves. Keep the confirmation.
+      savingJustNow.current = false;
+    } else {
+      setSaved(false);
+    }
   }, [scenario, nodeId]);
 
   if (!scenario) return null;
@@ -82,6 +91,7 @@ export default function RouteEditor({ scenario, nodeId, onSaved }: RouteEditorPr
   const handleSave = async () => {
     setSaving(true);
     setError(null);
+    savingJustNow.current = true;
     try {
       const routes = drafts.map((d) => ({
         prefix: d.prefix.trim(),

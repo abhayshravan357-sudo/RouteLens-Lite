@@ -457,14 +457,28 @@ async def resolve_dns(request: DnsResolveRequest):
         error=result.error,
     )
 
-    # Return appropriate status code based on result
+    # Return appropriate status code based on result. The detail is a
+    # readable sentence, because the client shows it to the user; the
+    # full result travels alongside it under "result" so nothing is lost.
     if result.error:
         if "timed out" in result.error.lower():
-            raise HTTPException(status_code=408, detail=response.model_dump())
+            raise HTTPException(
+                status_code=408,
+                detail=result.error,
+                headers={"X-RouteLens-Result": response.model_dump_json()},
+            )
         elif "not found" in result.error.lower() or "no dns records" in result.error.lower():
-            raise HTTPException(status_code=404, detail=response.model_dump())
+            raise HTTPException(
+                status_code=404,
+                detail=result.error,
+                headers={"X-RouteLens-Result": response.model_dump_json()},
+            )
         else:
-            raise HTTPException(status_code=500, detail=response.model_dump())
+            raise HTTPException(
+                status_code=500,
+                detail=result.error,
+                headers={"X-RouteLens-Result": response.model_dump_json()},
+            )
 
     return response
 
@@ -556,12 +570,21 @@ async def check_connectivity(request: ConnectivityRequest):
         error=result.error,
     )
 
-    # Return appropriate status code based on result
+    # Return appropriate status code based on result. The detail is a
+    # readable sentence, because the client shows it to the user.
     if result.error:
         if "timed out" in result.error.lower():
-            raise HTTPException(status_code=408, detail=response.model_dump())
+            raise HTTPException(
+                status_code=408,
+                detail=result.error,
+                headers={"X-RouteLens-Result": response.model_dump_json()},
+            )
         else:
-            raise HTTPException(status_code=500, detail=response.model_dump())
+            raise HTTPException(
+                status_code=500,
+                detail=result.error,
+                headers={"X-RouteLens-Result": response.model_dump_json()},
+            )
 
     return response
 
@@ -653,13 +676,26 @@ async def trace_route(request: TracerouteRequest):
         error=result.error,
     )
 
-    # Return appropriate status code based on result
+    # Return appropriate status code based on result. The detail is a
+    # readable sentence, because the client shows it to the user.
     if result.error:
         if "timed out" in result.error.lower() or "timeout" in result.error.lower():
-            raise HTTPException(status_code=408, detail=response.model_dump())
+            raise HTTPException(
+                status_code=408,
+                detail=result.error,
+                headers={"X-RouteLens-Result": response.model_dump_json()},
+            )
         elif "not found" in result.error.lower() or "not available" in result.error.lower():
-            raise HTTPException(status_code=503, detail=response.model_dump())
+            raise HTTPException(
+                status_code=503,
+                detail=result.error,
+                headers={"X-RouteLens-Result": response.model_dump_json()},
+            )
         else:
-            raise HTTPException(status_code=500, detail=response.model_dump())
+            raise HTTPException(
+                status_code=500,
+                detail=result.error,
+                headers={"X-RouteLens-Result": response.model_dump_json()},
+            )
 
     return response

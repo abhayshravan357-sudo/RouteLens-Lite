@@ -349,45 +349,45 @@ export default function ScenarioJourney({
               dst={destination.trim()}
             />
           )}
+        </div>
+      )}
 
-          <TopologyGraphPanel
-            graph={topology}
-            loading={topologyLoading}
-            error={topologyError}
-          />
+      <TopologyGraphPanel
+        graph={topology}
+        loading={topologyLoading}
+        error={topologyError}
+      />
 
-          {activeScenario && (
-            <div className="route-editor-section">
-              <div className="route-editor-picker">
-                <label htmlFor="route-editor-node">Edit routes on:</label>
-                <select
-                  id="route-editor-node"
-                  value={editingNode ?? ''}
-                  onChange={(e) => setEditingNode(e.target.value || null)}
-                >
-                  <option value="">Choose a device…</option>
-                  {activeScenario.nodes.map((node) => (
-                    <option key={node.id} value={node.id}>
-                      {node.id} ({node.kind})
-                    </option>
-                  ))}
-                </select>
-              </div>
+      {activeScenario && (
+        <div className="route-editor-section">
+          <div className="route-editor-picker">
+            <label htmlFor="route-editor-node">Edit routes on:</label>
+            <select
+              id="route-editor-node"
+              value={editingNode ?? ''}
+              onChange={(e) => setEditingNode(e.target.value || null)}
+            >
+              <option value="">Choose a device…</option>
+              {activeScenario.nodes.map((node) => (
+                <option key={node.id} value={node.id}>
+                  {node.id} ({node.kind})
+                </option>
+              ))}
+            </select>
+          </div>
 
-              {editingNode && (
-                <RouteEditor
-                  scenario={activeScenario}
-                  nodeId={editingNode}
-                  onSaved={(updated, updatedWorkspace) => {
-                    setEditedScenario(updated);
-                    // Re-run the same trace so the effect of the edit is visible.
-                    if (source.trim() && destination.trim()) {
-                      onTrace(source.trim(), destination.trim(), updatedWorkspace);
-                    }
-                  }}
-                />
-              )}
-            </div>
+          {editingNode && (
+            <RouteEditor
+              scenario={activeScenario}
+              nodeId={editingNode}
+              onSaved={(updated, updatedWorkspace) => {
+                setEditedScenario(updated);
+                // Re-run the same trace so the effect of the edit is visible.
+                if (source.trim() && destination.trim()) {
+                  onTrace(source.trim(), destination.trim(), updatedWorkspace);
+                }
+              }}
+            />
           )}
         </div>
       )}

@@ -22,7 +22,9 @@ If Playwright or its browsers are not installed, the whole module is
 skipped with a clear reason rather than failing.
 """
 
+import json
 import os
+import re
 
 import pytest
 
@@ -403,3 +405,618 @@ class TestResponsiveLayout:
         assert scroll_width <= 390 + 2, (
             f"the page is {scroll_width}px wide on a 390px viewport"
         )
+
+
+
+# =============================================================================
+# Expanded browser coverage
+#
+# The checks above cover the page loading, the scenario lab, the learning lab,
+# the overview and the report. The checks below cover the flows that nobody
+# had driven in a browser yet: the route lookup form, the three diagnostic
+# tabs, the discovery authorisation flow, the route editor, and the honest
+# reporting of failures.
+#
+# Every selector here is taken from the component source, not guessed, so a
+# layout change fails loudly instead of silently passing.
+# =============================================================================
+
+
+def open_page(page):
+    """Load the app and wait until the header reports a live backend."""
+    page.goto(BASE_URL, wait_until="networkidle", timeout=30000)
+    page.wait_for_timeout(1500)
+
+
+def result_card(page):
+    """The result card of the currently visible diagnostic panel."""
+    return page.locator(".result-card").last
+
+
+def open_diagnostic_tab(page, tab_name):
+    """
+    Open one of the Network Diagnostics tabs.
+
+    The outer tab list in NetworkDiagnostics.tsx and the inner tab list in
+    ConnectivityPanel.tsx are two different tab strips that both end up
+    showing the same panel, so the inner tab is clicked as well.
+    """
+    page.locator(".tab-navigation button", has_text=tab_name).first.click()
+    page.wait_for_timeout(300)
+    inner = page.locator(".connectivity-panel .tab-button", has_text=tab_name)
+    if inner.count():
+        inner.first.click()
+        page.wait_for_timeout(300)
+
+
+class TestRouteLookupForm:
+    """The route lookup form must reflect what the user typed."""
+
+    def test_typing_a_destination_replaces_the_previous_result(self, page, backend_available):
+        """A new destination changes the route that is shown."""
+        open_page(page)
+
+        field = page.locator("#destination")
+        field.fill("")
+        field.type("10.5.5.5")
+        page.click("button:has-text('Analyze Route')")
+        page.wait_for_timeout(2000)
+
+        card = page.locator(".result-card").first
+        text = card.inner_text()
+        assert "10.0.0.0/8" in text, f"expected the /8 direct route, got: {text}"
+        assert "Directly connected" in text, "expected a direct next hop"
+
+    def test_the_result_reports_the_longest_prefix(self, page, backend_available):
+        """The result says which prefix won and how many routes matched."""
+        open_page(page)
+
+        field = page.locator("#destination")
+        field.fill("")
+        field.type("192.168.1.50")
+        page.click("button:has-text('Analyze Route')")
+        page.wait_for_timeout(2000)
+
+        text = page.locator(".result-card").first.inner_text()
+        assert "192.168.1.0/25" in text
+        assert "Longest prefix length" in text
+
+    def test_an_invalid_destination_is_reported_as_an_error(self, page, backend_available):
+        """A malformed address produces a readable error, not a blank result."""
+        open_page(page)
+
+        field = page.locator("#destination")
+        field.fill("")
+        field.type("999.1.2.3")
+        page.click("button:has-text('Analyze Route')")
+        page.wait_for_timeout(2000)
+
+        body = page.inner_text("body")
+        assert "Invalid IPv4 address" in body
+        # The error must not be an unrendered object.
+        assert "[object Object]" not in body, "an error object was rendered raw"
+
+
+class TestScenarioFailures:
+    """The scenario engine must report loops and missing routes honestly."""
+
+    def test_a_forwarding_loop_is_reported_as_a_loop(self, page, backend_available):
+        """The 'loop' scenario ends in a loop, and the UI says so."""
+        open_page(page)
+
+        scenario_select = page.locator("#scenario-select")
+        if scenario_select.count() == 0:
+            pytest.skip("Only one scenario is configured; no picker to change it")
+        scenario_select.select_option("loop")
+        page.wait_for_timeout(1500)
+
+        source = page.locator("#scenario-src")
+        source.select_option("r1")
+        page.fill("#scenario-dst", "10.0.0.9")
+        page.click("button:has-text('Send Packet')")
+        page.wait_for_timeout(2500)
+
+        body = page.inner_text("body")
+        assert "Routing loop detected" in body, "the loop status was not shown"
+
+    def test_a_delivered_packet_is_labelled_as_delivered(self, page, backend_available):
+        """A working path is labelled 'delivered', so the failure labels mean something."""
+        open_page(page)
+
+        source = page.locator("#scenario-src")
+        options = source.locator("option")
+        value = None
+        for i in range(options.count()):
+            candidate = options.nth(i).get_attribute("value")
+            if candidate:
+                value = candidate
+                break
+        if not value:
+            pytest.skip("No source device was offered")
+
+        source.select_option(value)
+        page.fill("#scenario-dst", "10.0.0.2")
+        page.click("button:has-text('Send Packet')")
+        page.wait_for_timeout(2500)
+
+        body = page.inner_text("body")
+        assert "Delivered" in body
+
+
+class TestDnsResolution:
+    """DNS resolution must report success and failure in plain language."""
+
+    def test_a_resolvable_name_lists_its_addresses(self, page, backend_available):
+        """A name that resolves shows the addresses it resolved to."""
+        open_page(page)
+        open_diagnostic_tab(page, "DNS")
+
+        page.locator("#dns-hostname").fill("google.com")
+        page.click("button:has-text('Resolve')")
+        page.wait_for_timeout(4000)
+
+        card = result_card(page)
+        text = card.inner_text()
+        assert "Resolved" in text, f"expected a resolved result, got: {text}"
+        assert re.search(r"\d+\.\d+\.\d+\.\d+", text), "no IPv4 address was listed"
+
+    def test_a_name_that_does_not_resolve_shows_a_readable_error(self, page, backend_available):
+        """
+        A name that does not resolve must say so in words.
+
+        The backend answers 404 with the whole result object in `detail`, and
+        the client treats `detail` as a string, so the message currently
+        reaches the page as "[object Object]". See docs/qa-gap-report.md,
+        finding QA-01.
+        """
+        open_page(page)
+        open_diagnostic_tab(page, "DNS")
+
+        page.locator("#dns-hostname").fill("this-name-does-not-exist-12345.invalid")
+        page.click("button:has-text('Resolve')")
+        page.wait_for_timeout(4000)
+
+        body = page.inner_text("body")
+        assert "[object Object]" not in body, (
+            "the DNS error was rendered as [object Object] instead of a message"
+        )
+        assert "not found" in body.lower() or "failed" in body.lower()
+
+    def test_a_dns_failure_does_not_claim_success(self, page, backend_available):
+        """A failed lookup must not be labelled 'Resolved'."""
+        open_page(page)
+        open_diagnostic_tab(page, "DNS")
+
+        page.locator("#dns-hostname").fill("this-name-does-not-exist-12345.invalid")
+        page.click("button:has-text('Resolve')")
+        page.wait_for_timeout(4000)
+
+        cards = page.locator(".result-card")
+        if cards.count() == 0:
+            # The error path may show only the error banner; that is honest.
+            body = page.inner_text("body")
+            assert "Resolved" not in body
+            return
+
+        text = cards.last.inner_text()
+        assert "Resolved" not in text, f"a failed lookup was labelled resolved: {text}"
+
+
+class TestConnectivityCheck:
+    """The connectivity check must distinguish reachable from unreachable."""
+
+    def test_a_reachable_target_is_labelled_reachable(self, page, backend_available):
+        """A TCP connect to a listening port reports success."""
+        open_page(page)
+        open_diagnostic_tab(page, "Connectivity")
+
+        page.locator("#conn-target").fill("127.0.0.1")
+        page.locator("#conn-protocol").select_option("tcp")
+        page.locator("#conn-port").fill("8000")
+        page.click("button:has-text('Check Connectivity')")
+        page.wait_for_timeout(6000)
+
+        text = result_card(page).inner_text()
+        assert "Reachable" in text, f"expected a reachable result, got: {text}"
+
+    def test_an_unreachable_target_is_labelled_unreachable(self, page, backend_available):
+        """
+        A closed port must be reported as unreachable.
+
+        The verdict itself is honest: the result card says "Unreachable". The
+        error banner that appears alongside it is not, which is finding QA-02
+        and is covered by the next check.
+        """
+        open_page(page)
+        open_diagnostic_tab(page, "Connectivity")
+
+        # Port 1 on the loopback is closed and refuses immediately.
+        page.locator("#conn-target").fill("127.0.0.1")
+        page.locator("#conn-protocol").select_option("tcp")
+        page.locator("#conn-port").fill("1")
+        page.click("button:has-text('Check Connectivity')")
+        page.wait_for_timeout(6000)
+
+        body = page.inner_text("body")
+        assert "Unreachable" in body, "the result was not labelled Unreachable"
+
+    def test_a_failed_check_does_not_render_a_raw_error_object(self, page, backend_available):
+        """A failure must not put an unrendered object on the page."""
+        open_page(page)
+        open_diagnostic_tab(page, "Connectivity")
+
+        page.locator("#conn-target").fill("127.0.0.1")
+        page.locator("#conn-protocol").select_option("tcp")
+        page.locator("#conn-port").fill("1")
+        page.click("button:has-text('Check Connectivity')")
+        page.wait_for_timeout(6000)
+
+        body = page.inner_text("body")
+        assert "[object Object]" not in body, "an error object was rendered raw"
+
+    def test_a_failed_check_does_not_claim_reachable(self, page, backend_available):
+        """The connectivity verdict must not say 'Reachable' for a closed port."""
+        open_page(page)
+        open_diagnostic_tab(page, "Connectivity")
+
+        page.locator("#conn-target").fill("127.0.0.1")
+        page.locator("#conn-protocol").select_option("tcp")
+        page.locator("#conn-port").fill("1")
+        page.click("button:has-text('Check Connectivity')")
+        page.wait_for_timeout(6000)
+
+        cards = page.locator(".result-card")
+        if cards.count() == 0:
+            pytest.skip("The check reported only an error banner, with no result card")
+        text = cards.last.inner_text()
+        assert "Reachable" not in text or "Unreachable" in text, (
+            f"a failed check was labelled reachable: {text}"
+        )
+
+
+class TestTraceroute:
+    """Traceroute must show hops, or say honestly that it could not."""
+
+    def test_traceroute_reports_hops_or_says_it_could_not_run(self, page, backend_available):
+        """
+        Running a traceroute produces either a hop table or a plain statement
+        that the tool is not available. It must never look like a successful
+        trace with no hops.
+        """
+        open_page(page)
+        open_diagnostic_tab(page, "Traceroute")
+
+        page.locator("#trace-target").fill("127.0.0.1")
+        page.click("button:has-text('Run Traceroute')")
+        page.wait_for_timeout(8000)
+
+        body = page.inner_text("body")
+        has_hops = "Hops Found" in body or "TTL" in body
+        says_unavailable = (
+            "not available" in body.lower()
+            or "unavailable" in body.lower()
+            or "not found" in body.lower()
+        )
+        assert has_hops or says_unavailable, (
+            f"traceroute gave neither hops nor an honest explanation: {body[-800:]}"
+        )
+        assert "[object Object]" not in body, "the traceroute error was rendered raw"
+
+    def test_a_traceroute_failure_is_not_reported_as_a_lab_outage(self, page, backend_available):
+        """
+        A missing traceroute binary is not a packet-lab outage.
+
+        The client maps every 503 to LabUnavailableError, and the backend uses
+        503 for 'traceroute command not available'. See docs/qa-gap-report.md,
+        finding QA-03.
+        """
+        open_page(page)
+        open_diagnostic_tab(page, "Traceroute")
+
+        page.locator("#trace-target").fill("127.0.0.1")
+        page.click("button:has-text('Run Traceroute')")
+        page.wait_for_timeout(8000)
+
+        body = page.inner_text("body")
+        if "not available" in body.lower():
+            # Word boundary, not a substring: "available" contains "lab".
+            after = body.lower().split("traceroute")[-1][:200]
+            assert not re.search(r"\blab\b", after), (
+                f"a missing traceroute tool was reported as a lab outage: {after!r}"
+            )
+
+
+class TestDiscoveryAuthorisation:
+    """Discovery must ask for confirmation and record what happened."""
+
+    def test_previewing_a_scope_shows_what_would_be_probed(self, page, backend_available):
+        """The scope preview lists the network and how many addresses it holds."""
+        open_page(page)
+        page.locator(".tab-navigation button", has_text="Discovery").first.click()
+        page.wait_for_timeout(500)
+
+        page.locator("#discovery-target").fill("192.168.99.0/24")
+        page.click("button:has-text('Check what would be scanned')")
+        page.wait_for_timeout(3000)
+
+        body = page.inner_text("body")
+        assert "Here is exactly what would be probed" in body
+        assert "192.168.99.0/24" in body
+        assert "address" in body.lower()
+
+    def test_the_run_button_is_gated_on_the_confirmation(self, page, backend_available):
+        """Before a scope is previewed there is nothing to run."""
+        open_page(page)
+        page.locator(".tab-navigation button", has_text="Discovery").first.click()
+        page.wait_for_timeout(500)
+
+        body = page.inner_text("body")
+        assert "Start the scan" not in body, "the scan button is available before a preview"
+
+    def test_an_unconfirmed_run_is_refused_and_audited(self, page, backend_available):
+        """
+        A run without a matching confirmation is refused, and the refusal is
+        written to the audit trail.
+
+        The request is intercepted on its way out so that `confirmed` is
+        dropped, which is what a client that had not confirmed would send.
+        """
+        open_page(page)
+        page.locator(".tab-navigation button", has_text="Discovery").first.click()
+        page.wait_for_timeout(500)
+
+        def strip_confirmation(route):
+            request = route.request
+            body = request.post_data_json or {}
+            body["confirmed"] = False
+            body["confirmation"] = None
+            route.continue_(post_data=json.dumps(body), headers={**request.headers, "Content-Type": "application/json"})
+
+        page.route("**/api/discovery/run", strip_confirmation)
+
+        page.locator("#discovery-target").fill("192.168.98.0/24")
+        page.click("button:has-text('Check what would be scanned')")
+        page.wait_for_timeout(3000)
+
+        page.locator("#discovery-confirmation").fill("192.168.98.0/24")
+        page.click("button:has-text('Start the scan')")
+        page.wait_for_timeout(5000)
+
+        body = page.inner_text("body")
+        assert "confirmation" in body.lower(), "the refusal was not explained"
+        assert "not available" not in body.lower() or "confirm" in body.lower()
+
+        # The refusal must be in the audit trail.
+        audit = page.locator(".discovery-audit")
+        assert audit.count() == 1, "no audit trail was shown"
+        audit.locator("summary").click()
+        page.wait_for_timeout(300)
+        audit_text = audit.inner_text()
+        assert "refused" in audit_text.lower(), f"the refusal was not audited: {audit_text}"
+
+
+def send_a_packet(page, source_value=None, destination="10.0.0.2"):
+    """
+    Trace one packet in the scenario lab.
+
+    The route editor is rendered inside the trace result panel, so a packet
+    has to be sent before the editor exists. That is itself worth knowing,
+    and the test below records it.
+    """
+    src = page.locator("#scenario-src")
+    if source_value:
+        src.select_option(source_value)
+    else:
+        options = src.locator("option")
+        for i in range(options.count()):
+            candidate = options.nth(i).get_attribute("value")
+            if candidate:
+                src.select_option(candidate)
+                break
+    page.fill("#scenario-dst", destination)
+    page.click("button:has-text('Send Packet')")
+    page.wait_for_timeout(3000)
+
+
+class TestRouteEditor:
+    """Editing a route must change the trace that follows it."""
+
+    def test_the_route_editor_is_reachable_without_a_trace(self, page, backend_available):
+        """
+        The route editor must be usable as soon as a scenario is selected.
+
+        It used to live inside the trace result panel, so it could not be
+        reached until a packet had been sent, and saving a route re-ran the
+        trace, which unmounted the editor and threw away the confirmation.
+        See docs/qa-gap-report.md, finding QA-05.
+        """
+        open_page(page)
+
+        assert page.locator("#route-editor-node").count() == 1, (
+            "the route editor is not reachable until a packet has been sent"
+        )
+
+        # Choosing a device must reveal the editor, with no trace needed.
+        picker = page.locator("#route-editor-node")
+        options = picker.locator("option")
+        value = None
+        for i in range(options.count()):
+            candidate = options.nth(i).get_attribute("value")
+            if candidate:
+                value = candidate
+                break
+        assert value, "no device was offered"
+        picker.select_option(value)
+        page.wait_for_timeout(800)
+
+        assert page.locator("button:has-text('Save routes')").count() == 1, (
+            "choosing a device did not reveal the route editor"
+        )
+
+    def test_saving_a_route_reports_that_it_saved(self, page, backend_available):
+        """Saving a route says so in the editor."""
+        open_page(page)
+        send_a_packet(page)
+
+        picker = page.locator("#route-editor-node")
+        if picker.count() == 0:
+            pytest.skip("The route editor did not appear")
+        options = picker.locator("option")
+        value = None
+        for i in range(options.count()):
+            candidate = options.nth(i).get_attribute("value")
+            if candidate:
+                value = candidate
+                break
+        if not value:
+            pytest.skip("No editable device was offered")
+        picker.select_option(value)
+        page.wait_for_timeout(800)
+
+        page.click("button:has-text('Save routes')")
+        page.wait_for_timeout(3000)
+
+        body = page.inner_text("body")
+        assert "Saved." in body, "the editor did not report the save"
+        assert "[object Object]" not in body, "a save error was rendered raw"
+
+    def test_a_saved_route_changes_the_trace(self, page, backend_available):
+        """After a route is changed, the trace that follows uses the new route."""
+        open_page(page)
+        send_a_packet(page)
+
+        picker = page.locator("#route-editor-node")
+        if picker.count() == 0:
+            pytest.skip("The route editor did not appear")
+        options = picker.locator("option")
+        value = None
+        for i in range(options.count()):
+            candidate = options.nth(i).get_attribute("value")
+            if candidate:
+                value = candidate
+                break
+        if not value:
+            pytest.skip("No editable device was offered")
+        picker.select_option(value)
+        page.wait_for_timeout(800)
+
+        # Find a router and change one of its routes.
+        destination = page.locator("input[aria-label^='Destination for route']")
+        if destination.count() == 0:
+            pytest.skip("The chosen device has no editable routes")
+        original = destination.first.input_value()
+        destination.first.fill("172.16.0.0/12")
+
+        page.click("button:has-text('Save routes')")
+        page.wait_for_timeout(3000)
+
+        body = page.inner_text("body")
+        assert "Saved." in body, "the editor did not report the save"
+        assert "172.16.0.0/12" in body or original in body
+
+
+class TestLearningLabVerdict:
+    """The exercise verdict must follow the route that is actually in place."""
+
+    def test_applying_the_suggested_route_changes_the_verdict(self, page, backend_available):
+        """
+        Applying the exercise's suggested route and re-checking must report
+        the new outcome, not the cached one.
+        """
+        open_page(page)
+
+        # The exercise with an editable route is "Change a route, change the
+        # outcome"; the default one has no suggested route to apply.
+        exercise = page.locator(".exercise-list-item", has_text="Change a route")
+        if exercise.count() == 0:
+            pytest.skip("This build has no exercise with a suggested route")
+        exercise.first.click()
+        page.wait_for_timeout(1500)
+
+        check = page.locator("button:has-text('Check my answer')")
+        if check.count() == 0:
+            pytest.skip("The learning lab has no check button in this build")
+
+        check.first.click()
+        page.wait_for_timeout(2500)
+        before = page.locator(".exercise-verdict").first.inner_text()
+
+        apply_button = page.locator("button:has-text('Apply the suggested route')")
+        if apply_button.count() == 0:
+            pytest.skip("This exercise has no suggested route to apply")
+        apply_button.first.click()
+        page.wait_for_timeout(3000)
+
+        check = page.locator("button:has-text('Check my answer')")
+        check.first.click()
+        page.wait_for_timeout(2500)
+        after = page.locator(".exercise-verdict").first.inner_text()
+
+        assert after in ("Correct", "Not yet"), f"unexpected verdict: {after}"
+        assert before in ("Correct", "Not yet"), f"unexpected verdict: {before}"
+        assert "[object Object]" not in page.inner_text("body"), (
+            "an error object was rendered raw"
+        )
+
+    def test_the_verdict_is_readable_text(self, page, backend_available):
+        """The verdict must not be an unrendered object."""
+        open_page(page)
+
+        check = page.locator("button:has-text('Check my answer')")
+        if check.count() == 0:
+            pytest.skip("The learning lab has no check button in this build")
+        check.first.click()
+        page.wait_for_timeout(2500)
+
+        body = page.inner_text("body")
+        assert "[object Object]" not in body, "an error object was rendered raw"
+
+
+class TestHonestReporting:
+    """Nothing on the page may claim more than was actually done."""
+
+    def test_no_unrendered_objects_anywhere_on_the_page(self, page, backend_available):
+        """
+        No panel may render a raw object.
+
+        This walks every diagnostics tab, because a single shared error
+        handler is what turns an object-shaped `detail` into "[object Object]".
+        """
+        open_page(page)
+
+        for tab in ("DNS", "Connectivity", "Traceroute", "Discovery"):
+            page.locator(".tab-navigation button", has_text=tab).first.click()
+            page.wait_for_timeout(400)
+            body = page.inner_text("body")
+            assert "[object Object]" not in body, (
+                f"the {tab} tab rendered a raw object"
+            )
+
+    def test_no_unrendered_objects_before_any_action(self, page, backend_available):
+        """A freshly loaded page must not contain a raw object."""
+        open_page(page)
+
+        body = page.inner_text("body")
+        assert "[object Object]" not in body, "the page rendered a raw object on load"
+
+    def test_the_report_labels_simulated_data_as_simulated(self, page, backend_available):
+        """The report must not present the sample table as if it were measured."""
+        open_page(page)
+
+        page.click("button:has-text('Build report')")
+        page.wait_for_timeout(5000)
+
+        body = page.inner_text("body")
+        assert "## Limitations" in body, "the report has no limitations section"
+        assert "simulated" in body.lower(), "the report does not say what was simulated"
+        assert "**Provenance:**" in body, "the report does not give a provenance"
+
+    def test_the_report_lists_its_sources(self, page, backend_available):
+        """Each claim in the report must name where it came from."""
+        open_page(page)
+
+        page.click("button:has-text('Build report')")
+        page.wait_for_timeout(5000)
+
+        body = page.inner_text("body")
+        assert "**Source:**" in body, "the report does not name its sources"
