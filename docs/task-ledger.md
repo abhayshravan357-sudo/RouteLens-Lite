@@ -389,24 +389,75 @@
 
 ---
 
-## Phase 7: Scenario Frontend — **PENDING**
+## Phase 7: Scenario Frontend — ✅ **COMPLETE**
 
 ### TASK-701: Scenario Picker + Trace UI
 - **Owner**: JourneyUI
-- **Status**: ⏳ **Pending**
-- **Files**: `frontend/src/components/ScenarioPicker.tsx`, `frontend/src/components/ScenarioJourney.tsx`, `frontend/src/api/routing.ts`, `frontend/src/types/routing.ts`
-- **Depends On**: TASK-601
+- **Status**: ✅ **Done**
+- **Files**: `frontend/src/components/ScenarioJourney.tsx`, `frontend/src/components/ScenarioJourney.css`, `frontend/src/api/routing.ts`, `frontend/src/types/routing.ts`
+- **Acceptance Criteria**: ✅ Met
+  - Scenario picker loads the network list from `/api/scenarios`
+  - Source device and destination IP selection
+  - Step forward, step back, start and replay controls
+  - Each hop shows the selected route, prefix length, next hop, interface, metric and source
+  - Routes that matched but lost are listed, so the choice is explainable
+  - Loading, empty and error states handled
+- **Verification**: ✅ Verified live through the Vite proxy
 
 ### TASK-702: Provenance Badges + Compare-with-Lab Panel
 - **Owner**: JourneyUI
-- **Status**: ⏳ **Pending**
-- **Files**: `frontend/src/components/ProvenanceBadge.tsx`, `frontend/src/components/ComparePanel.tsx`
-- **Depends On**: TASK-601, TASK-701
+- **Status**: ✅ **Done**
+- **Files**: `frontend/src/components/ProvenanceBadge.tsx`, `frontend/src/components/ComparePanel.tsx`, `frontend/src/components/ComparePanel.css`
+- **Acceptance Criteria**: ✅ Met
+  - Provenance badge on every result, with an explanation of each label
+  - Prediction and reality shown side by side
+  - When the lab is unavailable, no agreement verdict is invented
+  - A disagreement is called out as worth investigating
+- **Verification**: ✅ Verified live; `agree: null` with an honest reason when the lab is unprivileged
 
 ### TASK-703: Evidence-Based Topology Map
 - **Owner**: JourneyUI
+- **Status**: ✅ **Done**
+- **Files**: `backend/app/topology.py`, `backend/tests/test_topology.py`, `frontend/src/components/TopologyGraph.tsx`, `frontend/src/components/TopologyGraph.css`
+- **Acceptance Criteria**: ✅ Met
+  - Observed host data and simulated scenario data are never merged
+  - Interfaces, routes and neighbours are observed; links between them are inferred
+  - Scenario devices and links are simulated
+  - Every node and edge carries its own provenance
+  - No devices or links invented to fill gaps
+- **Verification**: ✅ 8 tests pass; verified live against real host data
+
+### TASK-704: Route Editing That Changes the Simulation
+- **Owner**: RouteCore + JourneyUI
+- **Status**: ✅ **Done**
+- **Files**: `backend/app/scenario_routes.py`, `backend/tests/test_scenario_api.py`, `frontend/src/components/RouteEditor.tsx`, `frontend/src/components/RouteEditor.css`, `frontend/src/App.tsx`
+- **Acceptance Criteria**: ✅ Met
+  - Routes can be listed, changed, added and removed
+  - A saved edit is kept in a workspace, not written into the shared scenario
+  - The next trace uses the edited routes
+  - The shared scenario is unchanged
+  - Invalid edits are rejected with a clear message
+- **Verification**: ✅ Verified live: the router switched from `10.0.0.0/24 (connected)` to `10.0.0.2/32 (static, metric 5)` after the edit
+
+---
+
+## Phase 8: Learning Lab — **PENDING**
+
+### TASK-801: Guided Exercises
+- **Owner**: JourneyUI + RouteCore
 - **Status**: ⏳ **Pending**
-- **Depends On**: TASK-701, TASK-702
+- **Notes**: Exercises must be driven by the same engine, and must be verified rather than merely opened.
+- **Depends On**: TASK-701, TASK-704
+
+---
+
+## Phase 9: Authorized Host Discovery — **PENDING**
+
+### TASK-901: Scoped Discovery
+- **Owner**: Backend
+- **Status**: ⏳ **Pending**
+- **Notes**: Explicit target scope, confirmation, rate limits, cancellation and audit records before any active scanning.
+- **Depends On**: TASK-602 (security groundwork is in place)
 
 ---
 
