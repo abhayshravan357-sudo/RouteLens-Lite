@@ -6,7 +6,7 @@ Unit and integration tests for the virtual router lab adapter and API.
 
 import pytest
 from httpx import AsyncClient, ASGITransport
-from unittest.mock import AsyncMock, patch, MagicMock
+from unittest.mock import AsyncMock, patch, MagicMock, Mock
 from ipaddress import IPv4Address, IPv4Network
 
 from app.lab_adapter import (
@@ -19,10 +19,25 @@ from app.lab_adapter import (
     ToolMissingError,
     LabOperationResult,
 )
+from app.lab_builder import (
+    build_commands,
+    run_all,
+    run_teardown,
+    probe,
+    teardown_commands,
+    PFX,
+)
 from app.packet_lab import PacketLab, LabState, LabStatus, SimulateRequest, SimulateResponse
 from app.packet_lab_routes import (
     SimulateRequestModel,
     LabStatusResponse,
+)
+from app.scenarios_data import (
+    CLIENT_ROUTER_SERVER,
+    TWO_ROUTERS,
+    DUAL_STACK,
+    IPV6_ONLY,
+    LOOP,
 )
 from app.main import app
 
@@ -512,6 +527,264 @@ class TestPacketLab:
         error = lab._validate_request(request)
         assert error is not None
         assert "Packet length out of range" in error
+
+
+class TestLabBuilder:
+    """Tests for the LabBuilder command generation and execution."""
+
+    def test_build_commands_order_phases(self):
+        """Test that build_commands produces commands in the correct phase order for all scenarios."""
+        scenarios = [
+            ("CLIENT_ROUTER_SERVER", CLIENT_ROUTER_SERVER),
+            ("TWO_ROUTERS", TWO_ROUTERS),
+            ("DUAL_STACK", DUAL_STACK),
+            ("IPV6_ONLY", IPV6_ONLY),
+            ("LOOP", LOOP),
+        ]
+
+        for name, sc in scenarios:
+            cmds = build_commands(sc)
+            assert len(cmds) > 0, f"{name}: no commands generated"
+
+            # Phase 1: namespace creation (ip netns add) + loopback up
+            ns_add_idx = [i for i, cmd in enumerate(cmds) if cmd[0] == "ip" and cmd[1] == "netns" and cmd[2] == "add"]
+            ns_lo_idx = [i for i, cmd in enumerate(cmds) if cmd[0] == "ip" and "-n" in cmd and "link" in cmd and "lo" in cmd and "up" in cmd]
+
+            assert len(ns_add_idx) == len(sc.nodes), f"{name}: namespace count mismatch"
+            assert len(ns_lo_idx) == len(sc.nodes), f"{name}: loopback up count mismatch"
+
+            # All namespace adds must come before any veth operations
+            first_veth_idx = next((i for i, cmd in enumerate(cmds) if cmd[0] == "ip" and cmd[1] == "link" and "add" in cmd and "veth" in cmd), len(cmds))
+            assert max(ns_add_idx) < first_veth_idx, f"{name}: namespace not created before veth"
+
+            # Phase 2: veth pairs (create -> move -> rename)
+            veth_create_idx = [i for i, cmd in enumerate(cmds) if cmd[0] == "ip" and cmd[1] == "link" and "add" in cmd and "veth" in cmd]
+            veth_move_idx = [i for i, cmd in enumerate(cmds) if cmd[0] == "ip" and cmd[1] == "link" and "set" in cmd and "netns" in cmd]
+            veth_rename_idx = [i for i, cmd in enumerate(cmds) if cmd[0] == "ip" and "-n" in cmd and "link" in cmd and "set" in cmd and "name" in cmd]
+
+            assert len(veth_create_idx) == len(sc.links), f"{name}: veth create count mismatch"
+            assert len(veth_move_idx) == 2 * len(sc.links), f"{name}: veth move count mismatch"
+            assert len(veth_rename_idx) == 2 * len(sc.links), f"{name}: veth rename count mismatch"
+
+            # Order: create -> move -> rename for each veth pair
+            for i in range(len(sc.links)):
+                assert veth_create_idx[i] < veth_move_idx[2*i], f"{name}: veth {i} move before create"
+                assert veth_create_idx[i] < veth_move_idx[2*i+1], f"{name}: veth {i} move before create"
+                assert veth_move_idx[2*i] < veth_rename_idx[2*i], f"{name}: veth {i} rename before move (a)"
+                assert veth_move_idx[2*i+1] < veth_rename_idx[2*i+1], f"{name}: veth {i} rename before move (b)"
+
+            # Phase 3: addresses and link up
+            addr_add_idx = [i for i, cmd in enumerate(cmds) if cmd[0] == "ip" and "-n" in cmd and "addr" in cmd and "add" in cmd]
+            link_up_idx = [i for i, cmd in enumerate(cmds) if cmd[0] == "ip" and "-n" in cmd and "link" in cmd and "set" in cmd and "up" in cmd and "lo" not in cmd]
+
+            total_ifaces = sum(len(n.ifaces) for n in sc.nodes)
+            assert len(addr_add_idx) == total_ifaces, f"{name}: addr add count mismatch"
+            assert len(link_up_idx) == total_ifaces, f"{name}: link up count mismatch"
+
+            # Addresses before link up for each interface
+            # (they're grouped by node, so check each node's interfaces)
+            for node in sc.nodes:
+                node_ns = f"rl_{node.id}"
+                node_addrs = [i for i, cmd in enumerate(cmds) if cmd[0] == "ip" and "-n" in cmd and node_ns in cmd and "addr" in cmd and "add" in cmd]
+                node_ups = [i for i, cmd in enumerate(cmds) if cmd[0] == "ip" and "-n" in cmd and node_ns in cmd and "link" in cmd and "set" in cmd and "up" in cmd and "lo" not in cmd]
+                assert len(node_addrs) == len(node.ifaces), f"{name}: {node.id} addr count mismatch"
+                assert len(node_ups) == len(node.ifaces), f"{name}: {node.id} up count mismatch"
+                for a_idx, u_idx in zip(sorted(node_addrs), sorted(node_ups)):
+                    assert a_idx < u_idx, f"{name}: {node.id} link up before addr add"
+
+            # Phase 4: IP forwarding (routers only)
+            forwarding_idx = [i for i, cmd in enumerate(cmds) if "sysctl" in cmd and ("ip_forward" in " ".join(cmd) or "forwarding" in " ".join(cmd))]
+            router_count = sum(1 for n in sc.nodes if n.kind == "router")
+            assert len(forwarding_idx) == 2 * router_count, f"{name}: forwarding count mismatch (IPv4 + IPv6 per router)"
+
+            # Phase 5: static routes
+            route_add_idx = [i for i, cmd in enumerate(cmds) if cmd[0] == "ip" and "-n" in cmd and "route" in cmd and "add" in cmd]
+            total_routes = sum(len(n.routes) for n in sc.nodes)
+            assert len(route_add_idx) == total_routes, f"{name}: route add count mismatch"
+
+            # All routes after all link ups
+            assert max(link_up_idx) < min(route_add_idx) if route_add_idx else True, f"{name}: routes before links up"
+
+    def test_build_commands_names_prefixed(self):
+        """Test that all namespace and veth names use the PFX prefix."""
+        for name, sc in [
+            ("CLIENT_ROUTER_SERVER", CLIENT_ROUTER_SERVER),
+            ("TWO_ROUTERS", TWO_ROUTERS),
+            ("DUAL_STACK", DUAL_STACK),
+            ("IPV6_ONLY", IPV6_ONLY),
+            ("LOOP", LOOP),
+        ]:
+            cmds = build_commands(sc)
+            for cmd in cmds:
+                cmd_str = " ".join(cmd)
+                # Check namespace names
+                if "netns" in cmd_str:
+                    # Extract namespace arguments
+                    for i, arg in enumerate(cmd):
+                        if arg.startswith("rl_") and ":" not in arg and "@" not in arg:
+                            assert arg.startswith(PFX), f"{name}: namespace {arg} missing PFX prefix"
+                # Check veth temp names
+                for arg in cmd:
+                    if arg.startswith("rlv") and ("type" in cmd or "peer" in cmd or "netns" in cmd or "name" in cmd):
+                        assert arg.startswith(PFX), f"{name}: veth {arg} missing PFX prefix"
+
+    def test_hosts_never_get_ip_forward(self):
+        """Test that only routers get IP forwarding enabled, never hosts."""
+        for name, sc in [
+            ("CLIENT_ROUTER_SERVER", CLIENT_ROUTER_SERVER),
+            ("TWO_ROUTERS", TWO_ROUTERS),
+            ("DUAL_STACK", DUAL_STACK),
+            ("IPV6_ONLY", IPV6_ONLY),
+            ("LOOP", LOOP),
+        ]:
+            cmds = build_commands(sc)
+            forwarding_cmds = [cmd for cmd in cmds if "sysctl" in cmd and "ip_forward" in " ".join(cmd)]
+            forwarding_ns = set()
+            for cmd in forwarding_cmds:
+                # Extract namespace from: ip netns exec rl_xxx sysctl ...
+                try:
+                    exec_idx = cmd.index("exec")
+                    ns_name = cmd[exec_idx + 1]
+                    forwarding_ns.add(ns_name)
+                except ValueError:
+                    pass
+
+            router_ids = [n.id for n in sc.nodes if n.kind == "router"]
+            expected_ns = {f"rl_{rid}" for rid in router_ids}
+            assert forwarding_ns == expected_ns, f"{name}: forwarding on {forwarding_ns}, expected {expected_ns}"
+
+            # Verify no host gets forwarding
+            host_ids = [n.id for n in sc.nodes if n.kind == "host"]
+            for hid in host_ids:
+                assert f"rl_{hid}" not in forwarding_ns, f"{name}: host {hid} got forwarding"
+
+    def test_route_validation_rejects_bad_via(self):
+        """Test that build_commands rejects routes where via is not in interface subnet."""
+        # Create a scenario with valid link but invalid route (via not in subnet)
+        from app.scenario import Scenario, Node, Iface, Link, Route
+
+        # Link is valid (same subnet), but route via is in a different subnet
+        bad_scenario = Scenario(
+            id="bad-route",
+            title="Bad route test",
+            nodes=[
+                Node(id="router", kind="router", ifaces=[Iface(name="eth0", cidr="10.0.0.1/24")]),
+                Node(id="server", kind="host", ifaces=[Iface(name="eth0", cidr="10.0.0.2/24")]),
+            ],
+            links=[Link(a="router:eth0", b="server:eth0")],
+        )
+        # Manually add a route with via in wrong subnet (192.168.1.1 not in 10.0.0.0/24)
+        bad_scenario.nodes[0].routes.append(
+            Route(prefix="0.0.0.0/0", dev="eth0", via="192.168.1.1", metric=10)
+        )
+
+        with pytest.raises(ValueError, match="not reachable"):
+            build_commands(bad_scenario)
+
+    def test_run_all_reports_failed_command_index(self):
+        """Test that run_all reports the index of the failed command."""
+        # Create a command list where the 2nd command fails
+        commands = [
+            ["true"],  # succeeds
+            ["false"],  # fails (exit code 1)
+            ["true"],  # would not run if stop_on_error=True
+        ]
+
+        # Mock _guard to return None (simulate root)
+        with patch("app.lab_builder._guard", return_value=None):
+            result = run_all(commands, dry_run=False, stop_on_error=True)
+
+        assert result["status"] == "failed"
+        assert "failed_at" in result
+        assert result["failed_at"] == 1  # index of 'false'
+        assert "error" in result
+        assert result["log"][1]["index"] == 1
+        assert result["log"][1]["rc"] == 1
+
+    def test_run_all_continues_without_stop_on_error(self):
+        """Test that run_all continues past failures when stop_on_error=False."""
+        commands = [
+            ["true"],
+            ["false"],
+            ["true"],
+        ]
+
+        with patch("app.lab_builder._guard", return_value=None):
+            result = run_all(commands, dry_run=False, stop_on_error=False)
+
+        # When stop_on_error=False, run_all completes all commands and returns "ok"
+        # even if some commands failed (the log contains the failure details)
+        assert result["status"] == "ok"
+        assert len(result["log"]) == 3
+        assert result["log"][0]["rc"] == 0
+        assert result["log"][1]["rc"] == 1
+        assert result["log"][2]["rc"] == 0
+
+    def test_teardown_twice_is_safe(self):
+        """Test that running teardown twice is safe (idempotent)."""
+        cmds = teardown_commands(CLIENT_ROUTER_SERVER)
+
+        # First run - namespaces don't exist, should be treated as success
+        result1 = run_teardown(cmds)
+        assert result1["status"] in ("ok", "unavailable")  # unavailable if not root
+
+        # Second run - should also succeed
+        result2 = run_teardown(cmds)
+        assert result2["status"] in ("ok", "unavailable")
+
+    def test_dry_run_executes_nothing(self):
+        """Test that dry_run=True executes nothing and returns command list."""
+        commands = [["echo", "hello"], ["echo", "world"]]
+
+        result = run_all(commands, dry_run=True)
+
+        assert result["status"] == "dry_run"
+        assert "commands" in result
+        assert len(result["commands"]) == 2
+        assert result["commands"][0] == "echo hello"
+        assert result["commands"][1] == "echo world"
+
+    def test_probe_distinguishes_failures(self):
+        """Test that probe distinguishes timeout, missing binary, permission denied, unreachable."""
+        # Test each failure mode separately with fresh mocks
+        # Test timeout
+        with patch("subprocess.run") as mock_run, patch("app.lab_builder._guard", return_value=None):
+            from subprocess import TimeoutExpired
+            mock_run.side_effect = TimeoutExpired("ping", 5)
+            result = probe("rl_client", "10.0.0.1")
+            assert result["status"] == "timeout"
+
+        # Test missing ping binary
+        with patch("subprocess.run") as mock_run, patch("app.lab_builder._guard", return_value=None):
+            mock_run.side_effect = FileNotFoundError("ping not found")
+            result = probe("rl_client", "10.0.0.1")
+            assert result["status"] == "missing_binary"
+
+        # Test permission denied
+        with patch("subprocess.run") as mock_run, patch("app.lab_builder._guard", return_value=None):
+            mock_run.side_effect = PermissionError("permission denied")
+            result = probe("rl_client", "10.0.0.1")
+            assert result["status"] == "permission_denied"
+
+        # Test unreachable (ping runs but fails)
+        with patch("subprocess.run") as mock_run, patch("app.lab_builder._guard", return_value=None):
+            mock_result = Mock()
+            mock_result.returncode = 1
+            mock_result.stdout = ""
+            mock_result.stderr = "connect: Network is unreachable"
+            mock_run.return_value = mock_result
+            result = probe("rl_client", "10.0.0.1")
+            assert result["status"] == "unreachable"
+
+        # Test delivered (success)
+        with patch("subprocess.run") as mock_run, patch("app.lab_builder._guard", return_value=None):
+            mock_result = Mock()
+            mock_result.returncode = 0
+            mock_result.stdout = "64 bytes from 10.0.0.1"
+            mock_result.stderr = ""
+            mock_run.return_value = mock_result
+            result = probe("rl_client", "10.0.0.1")
+            assert result["status"] == "delivered"
 
 
 class TestPacketLabRoutes:
