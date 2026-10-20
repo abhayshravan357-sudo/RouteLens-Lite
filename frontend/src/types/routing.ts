@@ -17,6 +17,7 @@ export interface RouteLookupResult {
   route: RoutingEntry | null;
   explanation: string;
   error: string | null;
+  transmitted: boolean;
 }
 
 /**

@@ -82,6 +82,7 @@ function App() {
         route: null,
         explanation: '',
         error: error instanceof Error ? error.message : 'Unknown error',
+        transmitted: false,
       });
     } finally {
       setLookupLoading(false);
