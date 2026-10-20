@@ -1,22 +1,61 @@
 /**
  * TopologyGraph
  *
- * Interactive SVG-based network topology graph.
- * Nodes are laid out automatically; edges show relationships.
- * Click a node to highlight it and its connections.
- * Click an edge to see its details.
+ * The network as a spatial map, and the same network as a list.
+ *
+ * The graph is for exploring relationships: zoom, pan, click a node to see
+ * what it is connected to. The list is for reading: every node and every
+ * relationship, in a table, reachable by keyboard, with the same provenance
+ * shown. Neither replaces the other.
+ *
+ * Two rules hold in both views:
+ *
+ *   - A relationship is drawn only when the backend reported one. Nothing
+ *     is connected to fill a gap.
+ *   - A node keeps its provenance. A simulated node never looks observed.
  */
 
-import { useState, useEffect, useRef, useMemo } from 'react';
-import type { TopologyGraph, TopologyNode, TopologyEdge, TopologyProvenance } from '../types/routing';
+import { lazy, Suspense, useCallback, useMemo, useState } from 'react';
+import type {
+  TopologyGraph as TopologyGraphData,
+  TopologyNode,
+  TopologyEdge,
+  TopologyProvenance,
+} from '../types/routing';
 import ProvenanceBadge from './ProvenanceBadge';
 import './TopologyGraph.css';
 
+/**
+ * The graph renderer is a large dependency and is only needed once a reader
+ * asks for the graph. It is fetched on demand, so the list view — and the
+ * first paint of the page — do not pay for it.
+ */
+const TopologyCanvas = lazy(() => import('./TopologyCanvas'));
+
 interface TopologyGraphProps {
-  graph: TopologyGraph | null;
+  graph: TopologyGraphData | null;
   loading: boolean;
   error: string | null;
+  /**
+   * The device names the traced packet actually visited, in order.
+   *
+   * These are scenario device names. The topology records scenario devices
+   * with a `sim:` prefix, so a name is matched only when that exact node
+   * exists. A name with no matching node is ignored: the path is never
+   * guessed at, and an observed device is never marked as if the packet
+   * had travelled through it.
+   */
+  pathNodeNames?: string[];
 }
+
+type ViewMode = 'graph' | 'list';
+
+const PROVENANCE_ORDER: TopologyProvenance[] = [
+  'observed',
+  'inferred',
+  'simulated',
+  'unknown',
+];
 
 const KIND_LABELS: Record<TopologyNode['kind'], string> = {
   interface: 'Interface',
@@ -27,189 +66,126 @@ const KIND_LABELS: Record<TopologyNode['kind'], string> = {
   unknown: 'Unknown',
 };
 
-const PROVENANCE_ORDER: TopologyProvenance[] = [
-  'observed',
-  'inferred',
-  'simulated',
-  'unknown',
-];
-
-const PROVENANCE_COLORS: Record<TopologyProvenance, { node: string; edge: string }> = {
-  observed: { node: '#16a34a', edge: '#16a34a' },
-  inferred: { node: '#d97706', edge: '#d97706' },
-  simulated: { node: '#7c3aed', edge: '#7c3aed' },
-  unknown: { node: '#64748b', edge: '#64748b' },
-};
-
-const NODE_RADIUS = 28;
-
-function computeLayout(
-  nodes: TopologyNode[],
-  width: number,
-  height: number
-): Map<string, { x: number; y: number }> {
-  if (nodes.length === 0) return new Map();
-
-  const positions = new Map<string, { x: number; y: number }>();
-
-  // Simple circular layout by kind, then by provenance
-  const nodesByKind = new Map<TopologyNode['kind'], TopologyNode[]>();
-  for (const node of nodes) {
-    const arr = nodesByKind.get(node.kind) || [];
-    arr.push(node);
-    nodesByKind.set(node.kind, arr);
-  }
-
-  const kinds = ['interface', 'gateway', 'neighbor', 'router', 'host', 'unknown'] as TopologyNode['kind'][];
-  let angleOffset = -Math.PI / 2; // Start at top
-  const centerX = width / 2;
-  const centerY = height / 2;
-  const maxRadius = Math.min(width, height) / 2 - 80;
-
-  for (const kind of kinds) {
-    const kindNodes = nodesByKind.get(kind) || [];
-    if (kindNodes.length === 0) continue;
-
-    // Sort by provenance priority
-    kindNodes.sort((a, b) => PROVENANCE_ORDER.indexOf(a.provenance) - PROVENANCE_ORDER.indexOf(b.provenance));
-
-    const ringRadius = maxRadius * (0.25 + 0.6 * (kinds.indexOf(kind) / (kinds.length - 1 || 1)));
-    const angleStep = (2 * Math.PI) / Math.max(kindNodes.length, 1);
-
-    for (let i = 0; i < kindNodes.length; i++) {
-      const angle = angleOffset + i * angleStep;
-      positions.set(kindNodes[i].id, {
-        x: centerX + ringRadius * Math.cos(angle),
-        y: centerY + ringRadius * Math.sin(angle),
-      });
-    }
-  }
-
-  // For single node, center it
-  if (nodes.length === 1) {
-    positions.set(nodes[0].id, { x: centerX, y: centerY });
-  }
-
-  return positions;
-}
-
-function getEdgePath(
-  source: { x: number; y: number },
-  target: { x: number; y: number },
-  curvature = 0.3
-): string {
-  const dx = target.x - source.x;
-  const dy = target.y - source.y;
-  const distance = Math.sqrt(dx * dx + dy * dy);
-
-  if (distance === 0) return '';
-
-  // Perpendicular vector for curve
-  const mx = -dy / distance;
-  const my = dx / distance;
-
-  // Control point offset
-  const offset = Math.min(distance * curvature, 50);
-  const cx = (source.x + target.x) / 2 + mx * offset;
-  const cy = (source.y + target.y) / 2 + my * offset;
-
-  return `M ${source.x} ${source.y} Q ${cx} ${cy} ${target.x} ${target.y}`;
-}
-
 export default function TopologyGraphPanel({
   graph,
   loading,
   error,
+  pathNodeNames = [],
 }: TopologyGraphProps) {
-  const [selectedNode, setSelectedNode] = useState<TopologyNode | null>(null);
-  const [selectedEdge, setSelectedEdge] = useState<TopologyEdge | null>(null);
-  const [highlightedNodes, setHighlightedNodes] = useState<Set<string>>(new Set());
-  const [highlightedEdges, setHighlightedEdges] = useState<Set<string>>(new Set());
-  const [svgSize, setSvgSize] = useState({ width: 600, height: 450 });
-  const svgRef = useRef<SVGSVGElement>(null);
+  const [mode, setMode] = useState<ViewMode>('graph');
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [selectedEdgeKey, setSelectedEdgeKey] = useState<string | null>(null);
 
-  const layout = useMemo(() => {
-    if (!graph || graph.nodes.length === 0) return new Map();
-    return computeLayout(graph.nodes, svgSize.width, svgSize.height);
-  }, [graph, svgSize]);
+  /**
+   * The traced path, matched to the topology.
+   *
+   * Only a device that is present in the graph is marked. The result is
+   * empty when the backend reported a path through devices the topology
+   * does not contain, and then nothing is highlighted.
+   */
+  const path = useMemo(() => {
+    if (!graph || pathNodeNames.length === 0) {
+      return { nodeIds: new Set<string>(), edgeKeys: new Set<string>(), matched: 0 };
+    }
 
-  // Update highlight when selection changes
-  useEffect(() => {
-    if (selectedNode) {
-      const nodeIds = new Set<string>([selectedNode.id]);
-      const edgeIds = new Set<string>();
+    const nodeIds = new Set<string>();
+    const ordered: string[] = [];
+    for (const name of pathNodeNames) {
+      const candidate = `sim:${name}`;
+      if (graph.nodes.some((node) => node.id === candidate)) {
+        nodeIds.add(candidate);
+        ordered.push(candidate);
+      }
+    }
 
-      graph?.edges.forEach((edge, i) => {
-        if (edge.source === selectedNode.id || edge.target === selectedNode.id) {
-          nodeIds.add(edge.source);
-          nodeIds.add(edge.target);
-          edgeIds.add(`${edge.source}-${edge.target}-${i}`);
+    // The relationships between consecutive devices on the path. Only
+    // relationships the backend reported are used.
+    const edgeKeys = new Set<string>();
+    for (let i = 0; i < ordered.length - 1; i++) {
+      const from = ordered[i];
+      const to = ordered[i + 1];
+      graph.edges.forEach((edge, index) => {
+        if (edge.source === from && edge.target === to) {
+          edgeKeys.add(`${edge.source}-${edge.target}-${index}`);
         }
       });
-
-      setHighlightedNodes(nodeIds);
-      setHighlightedEdges(edgeIds);
-    } else {
-      setHighlightedNodes(new Set());
-      setHighlightedEdges(new Set());
     }
-  }, [selectedNode, graph]);
 
-  // Update highlight when edge selected
-  useEffect(() => {
-    if (selectedEdge) {
-      const edgeIds = new Set<string>([`${selectedEdge.source}-${selectedEdge.target}-${graph?.edges.indexOf(selectedEdge) ?? 0}`]);
-      const nodeIds = new Set<string>([selectedEdge.source, selectedEdge.target]);
-      setHighlightedEdges(edgeIds);
-      setHighlightedNodes(nodeIds);
+    return { nodeIds, edgeKeys, matched: nodeIds.size };
+  }, [graph, pathNodeNames]);
+
+  /** The node the reader is looking at, and the edges that touch it. */
+  const selection = useMemo(() => {
+    if (!graph) return { node: null, edges: [] as TopologyEdge[], nodeIds: new Set<string>() };
+
+    if (selectedNodeId) {
+      const node = graph.nodes.find((n) => n.id === selectedNodeId) ?? null;
+      const edges = graph.edges.filter(
+        (e) => e.source === selectedNodeId || e.target === selectedNodeId
+      );
+      const nodeIds = new Set<string>([selectedNodeId]);
+      for (const edge of edges) {
+        nodeIds.add(edge.source);
+        nodeIds.add(edge.target);
+      }
+      return { node, edges, nodeIds };
     }
-  }, [selectedEdge, graph]);
 
-  const handleNodeClick = (node: TopologyNode, e: React.MouseEvent) => {
-    e.stopPropagation();
-    setSelectedNode(selectedNode?.id === node.id ? null : node);
-    setSelectedEdge(null);
-  };
+    if (selectedEdgeKey) {
+      const edge = graph.edges.find(
+        (e, i) => `${e.source}-${e.target}-${i}` === selectedEdgeKey
+      );
+      if (!edge) return { node: null, edges: [], nodeIds: new Set<string>() };
+      return {
+        node: null,
+        edges: [edge],
+        nodeIds: new Set([edge.source, edge.target]),
+      };
+    }
 
-  const handleEdgeClick = (edge: TopologyEdge, _index: number, e: React.MouseEvent) => {
-    e.stopPropagation();
-    setSelectedEdge(selectedEdge?.source === edge.source && selectedEdge.target === edge.target ? null : edge);
-    setSelectedNode(null);
-  };
+    return { node: null, edges: [], nodeIds: new Set<string>() };
+  }, [graph, selectedNodeId, selectedEdgeKey]);
 
-  const handleBackgroundClick = () => {
-    setSelectedNode(null);
-    setSelectedEdge(null);
-  };
+  /** The edge keys belonging to the current selection, for the renderer. */
+  const highlightedEdgeKeys = useMemo(() => {
+    const keys = new Set<string>();
+    if (!graph) return keys;
+    graph.edges.forEach((edge, index) => {
+      if (selection.edges.includes(edge)) {
+        keys.add(`${edge.source}-${edge.target}-${index}`);
+      }
+    });
+    return keys;
+  }, [graph, selection.edges]);
 
-  const getNodeStyle = (node: TopologyNode) => {
-    const isHighlighted = highlightedNodes.has(node.id);
-    const isSelected = selectedNode?.id === node.id;
-    const isDimmed = selectedNode && !isHighlighted;
-    const prov = PROVENANCE_COLORS[node.provenance];
+  const handleNodeSelect = useCallback((nodeId: string) => {
+    setSelectedEdgeKey(null);
+    setSelectedNodeId((current) => (current === nodeId ? null : nodeId));
+  }, []);
 
-    return {
-      fill: isDimmed ? '#e0e0e0' : prov.node,
-      stroke: isSelected ? '#2563eb' : (isDimmed ? '#999' : prov.node),
-      strokeWidth: isSelected ? 3 : (isDimmed ? 1 : 2),
-      opacity: isDimmed ? 0.4 : 1,
-    };
-  };
+  const handleEdgeSelect = useCallback((edgeKey: string) => {
+    setSelectedNodeId(null);
+    setSelectedEdgeKey((current) => (current === edgeKey ? null : edgeKey));
+  }, []);
 
-  const getEdgeStyle = (edge: TopologyEdge, _index: number) => {
-    const isHighlighted = highlightedEdges.has(`${edge.source}-${edge.target}-${_index}`);
-    const isSelected = selectedEdge?.source === edge.source && selectedEdge.target === edge.target;
-    const isDimmed = selectedNode && !isHighlighted;
-    const prov = PROVENANCE_COLORS[edge.provenance];
+  const handlePaneClick = useCallback(() => {
+    setSelectedNodeId(null);
+    setSelectedEdgeKey(null);
+  }, []);
 
-    return {
-      stroke: isDimmed ? '#e0e0e0' : prov.edge,
-      strokeWidth: isSelected ? 3 : (isDimmed ? 1 : 2),
-      strokeDasharray: edge.provenance === 'inferred' ? '8 4' : edge.provenance === 'simulated' ? '4 4' : 'none',
-      opacity: isDimmed ? 0.3 : 1,
-      markerEnd: `url(#arrowhead-${edge.provenance})`,
-    };
-  };
+  const selectedEdge = useMemo(() => {
+    if (!selectedEdgeKey || !graph) return null;
+    const index = graph.edges.findIndex(
+      (e, i) => `${e.source}-${e.target}-${i}` === selectedEdgeKey
+    );
+    return index === -1 ? null : graph.edges[index];
+  }, [selectedEdgeKey, graph]);
+
+  const nodeById = useMemo(() => {
+    const map = new Map<string, TopologyNode>();
+    for (const node of graph?.nodes ?? []) map.set(node.id, node);
+    return map;
+  }, [graph]);
 
   if (loading) {
     return (
@@ -229,16 +205,14 @@ export default function TopologyGraphPanel({
     );
   }
 
-  if (!graph) {
-    return null;
-  }
+  if (!graph) return null;
 
   const observed = graph.nodes.filter((n) => n.provenance === 'observed').length;
   const simulated = graph.nodes.filter((n) => n.provenance === 'simulated').length;
   const inferredEdges = graph.edges.filter((e) => e.provenance === 'inferred').length;
 
   return (
-    <div className="topology-graph" onClick={handleBackgroundClick}>
+    <div className="topology-graph">
       <div className="topology-header">
         <div>
           <h3>Network Topology</h3>
@@ -248,6 +222,11 @@ export default function TopologyGraphPanel({
           {PROVENANCE_ORDER.map((p) => (
             <ProvenanceBadge key={p} provenance={p} size="small" />
           ))}
+          {path.matched > 0 && (
+            <span className="topology-path-legend">
+              traced path
+            </span>
+          )}
         </div>
       </div>
 
@@ -259,7 +238,8 @@ export default function TopologyGraphPanel({
           <strong>{simulated}</strong> simulated node{simulated === 1 ? '' : 's'}
         </span>
         <span>
-          <strong>{inferredEdges}</strong> inferred relationship{inferredEdges === 1 ? '' : 's'}
+          <strong>{inferredEdges}</strong> inferred relationship
+          {inferredEdges === 1 ? '' : 's'}
         </span>
         <span className="topology-timestamp">
           Read at {new Date(graph.observed_at).toLocaleTimeString()}
@@ -270,236 +250,286 @@ export default function TopologyGraphPanel({
         <div className="topology-empty" role="status">
           <p>Nothing was observed.</p>
           <p className="topology-empty-hint">
-            No interfaces, routes, or neighbors could be read, and no scenario is loaded.
+            No interfaces, routes, or neighbours could be read, and no scenario
+            is loaded.
           </p>
         </div>
       ) : (
         <>
-          <svg
-            ref={svgRef}
-            className="topology-svg"
-            width={svgSize.width}
-            height={svgSize.height}
-            viewBox={`0 0 ${svgSize.width} ${svgSize.height}`}
-            onLoad={(e) => {
-              const target = e.target as SVGSVGElement;
-              const rect = target.getBoundingClientRect();
-              if (rect.width !== svgSize.width || rect.height !== svgSize.height) {
-                setSvgSize({ width: rect.width, height: rect.height });
+          {/* List | Graph switch */}
+          <div className="topology-switch" role="group" aria-label="View mode">
+            <button
+              type="button"
+              className={`view-chip ${mode === 'graph' ? 'active' : ''}`}
+              onClick={() => setMode('graph')}
+              aria-pressed={mode === 'graph'}
+            >
+              Graph
+            </button>
+            <button
+              type="button"
+              className={`view-chip ${mode === 'list' ? 'active' : ''}`}
+              onClick={() => setMode('list')}
+              aria-pressed={mode === 'list'}
+            >
+              List
+            </button>
+          </div>
+
+          {mode === 'graph' ? (
+            <Suspense
+              fallback={
+                <div className="topology-canvas topology-canvas-loading">
+                  <span className="spinner" aria-hidden="true" />
+                  Loading the graph renderer…
+                </div>
               }
-            }}
-            role="img"
-            aria-label="Network topology graph showing devices and their relationships"
-          >
-            <defs>
-              {PROVENANCE_ORDER.map((p) => {
-                const color = PROVENANCE_COLORS[p].edge;
-                return (
-                  <marker
-                    key={`arrowhead-${p}`}
-                    id={`arrowhead-${p}`}
-                    markerWidth={10}
-                    markerHeight={7}
-                    refX={9}
-                    refY={3.5}
-                    orient="auto"
-                    markerUnits="strokeWidth"
-                  >
-                    <path d="M0,0 L10,3.5 L0,7 Z" fill={color} />
-                  </marker>
-                );
-              })}
-            </defs>
+            >
+              <TopologyCanvas
+                graph={graph}
+                selectedNodeId={selectedNodeId}
+                selectedEdgeKey={selectedEdgeKey}
+                highlightedIds={selection.nodeIds}
+                highlightedEdgeKeys={highlightedEdgeKeys}
+                pathNodeIds={path.nodeIds}
+                pathEdgeKeys={path.edgeKeys}
+                onNodeSelect={handleNodeSelect}
+                onEdgeSelect={handleEdgeSelect}
+                onPaneClick={handlePaneClick}
+              />
+            </Suspense>
+          ) : (
+            <div className="topology-list">
+              <h4 className="topology-list-heading">
+                Nodes ({graph.nodes.length})
+              </h4>
+              <div className="table-container">
+                <table className="topology-node-table">
+                  <caption className="visually-hidden">
+                    Every device in the topology, with its provenance
+                  </caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">Device</th>
+                      <th scope="col">Kind</th>
+                      <th scope="col">Addresses</th>
+                      <th scope="col">Provenance</th>
+                      <th scope="col">Links</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {graph.nodes.map((node) => {
+                      const links = graph.edges.filter(
+                        (e) => e.source === node.id || e.target === node.id
+                      ).length;
+                      const onPath = path.nodeIds.has(node.id);
+                      return (
+                        <tr
+                          key={node.id}
+                          className={
+                            selectedNodeId === node.id ? 'selected' : undefined
+                          }
+                        >
+                          <td>
+                            <button
+                              type="button"
+                              className="topology-node-button"
+                              onClick={() => {
+                                setSelectedEdgeKey(null);
+                                setSelectedNodeId((current) =>
+                                  current === node.id ? null : node.id
+                                );
+                              }}
+                              aria-pressed={selectedNodeId === node.id}
+                            >
+                              {node.label}
+                            </button>
+                            {onPath && (
+                              <span className="list-path-flag">on path</span>
+                            )}
+                          </td>
+                          <td>{KIND_LABELS[node.kind]}</td>
+                          <td className="mono topology-list-addresses">
+                            {node.addresses.length > 0
+                              ? node.addresses.join(', ')
+                              : '—'}
+                          </td>
+                          <td>
+                            <ProvenanceBadge
+                              provenance={node.provenance}
+                              size="small"
+                            />
+                          </td>
+                          <td className="mono">
+                            {links > 0 ? links : 'none'}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
 
-            {/* Edges */}
-            <g className="topology-edges-layer">
-              {graph.edges.map((edge, index) => {
-                const sourcePos = layout.get(edge.source);
-                const targetPos = layout.get(edge.target);
-                if (!sourcePos || !targetPos) return null;
+              <h4 className="topology-list-heading">
+                Relationships ({graph.edges.length})
+              </h4>
+              {graph.edges.length === 0 ? (
+                <p className="topology-empty-hint">
+                  No relationships were reported. Nothing is connected to fill
+                  the gap.
+                </p>
+              ) : (
+                <div className="table-container">
+                  <table className="topology-edge-table">
+                    <caption className="visually-hidden">
+                      Every relationship in the topology
+                    </caption>
+                    <thead>
+                      <tr>
+                        <th scope="col">From</th>
+                        <th scope="col">To</th>
+                        <th scope="col">Relationship</th>
+                        <th scope="col">Provenance</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {graph.edges.map((edge, index) => {
+                        const key = `${edge.source}-${edge.target}-${index}`;
+                        return (
+                          <tr
+                            key={key}
+                            className={
+                              selectedEdgeKey === key ? 'selected' : undefined
+                            }
+                          >
+                            <td className="mono">
+                              {nodeById.get(edge.source)?.label ?? edge.source}
+                            </td>
+                            <td className="mono">
+                              {nodeById.get(edge.target)?.label ?? edge.target}
+                            </td>
+                            <td>
+                              <button
+                                type="button"
+                                className="topology-edge-button"
+                                onClick={() => {
+                                  setSelectedNodeId(null);
+                                  setSelectedEdgeKey((current) =>
+                                    current === key ? null : key
+                                  );
+                                }}
+                                aria-pressed={selectedEdgeKey === key}
+                              >
+                                {edge.label}
+                              </button>
+                            </td>
+                            <td>
+                              <ProvenanceBadge
+                                provenance={edge.provenance}
+                                size="small"
+                              />
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
 
-                const path = getEdgePath(sourcePos, targetPos);
-                const style = getEdgeStyle(edge, index);
-
-                return (
-                  <g key={index} onClick={(e) => handleEdgeClick(edge, index, e)} className="topology-edge-group">
-                    <path
-                      d={path}
-                      fill="none"
-                      style={style as React.CSSProperties}
-                      className="topology-edge-path"
-                      aria-label={`${edge.kind} from ${edge.source} to ${edge.target}, ${edge.provenance}`}
-                    />
-                    <title>{edge.label}: {edge.detail || 'No details'}</title>
-                  </g>
-                );
-              })}
-            </g>
-
-            {/* Nodes */}
-            <g className="topology-nodes-layer">
-              {graph.nodes.map((node) => {
-                const pos = layout.get(node.id);
-                if (!pos) return null;
-
-                const style = getNodeStyle(node);
-                const isSelected = selectedNode?.id === node.id;
-                const isHighlighted = highlightedNodes.has(node.id);
-
-                return (
-                  <g
-                    key={node.id}
-                    onClick={(e) => handleNodeClick(node, e)}
-                    className={`topology-node-group ${isSelected ? 'selected' : ''} ${isHighlighted ? 'highlighted' : ''}`}
-                    role="button"
-                    tabIndex={0}
-                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleNodeClick(node, e as any); }}
-                    aria-label={`${KIND_LABELS[node.kind]} ${node.label}, ${node.provenance}, ${node.addresses.join(', ') || 'no addresses'}`}
-                    aria-pressed={isSelected}
-                    aria-expanded={isSelected}
-                  >
-                    <circle
-                      cx={pos.x}
-                      cy={pos.y}
-                      r={NODE_RADIUS}
-                      style={style as React.CSSProperties}
-                      className="topology-node-circle"
-                    />
-                    <text
-                      x={pos.x}
-                      y={pos.y + 4}
-                      textAnchor="middle"
-                      dominantBaseline="middle"
-                      className="topology-node-icon"
-                      fontSize={NODE_RADIUS * 0.7}
-                      fill="white"
-                      aria-hidden="true"
-                    >
-                      {node.provenance === 'observed' ? '●' : node.provenance === 'inferred' ? '◐' : node.provenance === 'simulated' ? '◇' : '○'}
-                    </text>
-                    <text
-                      x={pos.x}
-                      y={pos.y + NODE_RADIUS + 16}
-                      textAnchor="middle"
-                      className="topology-node-label"
-                      fontSize={11}
-                      fill={selectedNode && !highlightedNodes.has(node.id) ? '#999' : 'var(--color-text)'}
-                      fontWeight={isSelected ? 600 : 400}
-                    >
-                      {node.label}
-                    </text>
-                    {node.addresses.length > 0 && (
-                      <text
-                        x={pos.x}
-                        y={pos.y + NODE_RADIUS + 30}
-                        textAnchor="middle"
-                        className="topology-node-address"
-                        fontSize={9}
-                        fill="var(--color-text-muted)"
-                        fontFamily="var(--font-mono)"
-                      >
-                        {node.addresses[0]}
-                      </text>
-                    )}
-                    <ProvenanceBadge
-                      provenance={node.provenance}
-                      size="small"
-                    />
-                  </g>
-                );
-              })}
-            </g>
-          </svg>
-
-          {/* Selection Details Panel */}
-          {(selectedNode || selectedEdge) && (
+          {/* Selection details */}
+          {selection.node && (
             <div className="topology-details-panel">
-              {selectedNode && (
-                <div className="topology-detail">
-                  <h4>
-                    {KIND_LABELS[selectedNode.kind]}: {selectedNode.label}
-                    <ProvenanceBadge provenance={selectedNode.provenance} size="small" />
-                  </h4>
-                  {selectedNode.addresses.length > 0 && (
-                    <p className="topology-addresses">
-                      Addresses: {selectedNode.addresses.join(', ')}
-                    </p>
-                  )}
-                  {selectedNode.detail && (
-                    <p className="topology-node-note">{selectedNode.detail}</p>
-                  )}
-                  <h5>Connections</h5>
-                  <ul className="topology-connection-list">
-                    {graph.edges
-                      .filter((e) => e.source === selectedNode.id || e.target === selectedNode.id)
-                      .map((e, i) => (
-                        <li key={i}>
-                          {e.source === selectedNode.id ? '→' : '←'} {e.target}
-                          <span className="mono"> ({e.kind})</span>
-                          <ProvenanceBadge provenance={e.provenance} size="small" />
-                          {e.detail && <span className="edge-detail"> — {e.detail}</span>}
-                        </li>
-                      ))}
-                    {graph.edges.filter((e) => e.source === selectedNode.id || e.target === selectedNode.id).length === 0 && (
-                      <li className="no-connections">No evidence of connection to other nodes.</li>
-                    )}
-                  </ul>
-                </div>
-              )}
-
-              {selectedEdge && (
-                <div className="topology-detail">
-                  <h4>Relationship: {selectedEdge.label}</h4>
+              <div className="topology-detail">
+                <h4>
+                  {KIND_LABELS[selection.node.kind]}: {selection.node.label}
+                  <ProvenanceBadge
+                    provenance={selection.node.provenance}
+                    size="small"
+                  />
+                </h4>
+                {selection.node.addresses.length > 0 && (
                   <p className="topology-addresses">
-                    <span className="mono">{selectedEdge.source}</span> → <span className="mono">{selectedEdge.target}</span>
+                    Addresses: {selection.node.addresses.join(', ')}
                   </p>
-                  <p>
-                    <ProvenanceBadge provenance={selectedEdge.provenance} size="medium" showDescription />
-                  </p>
-                  <p className="topology-node-note">{selectedEdge.detail || 'No additional details available.'}</p>
-                </div>
-              )}
-
+                )}
+                {selection.node.detail && (
+                  <p className="topology-node-note">{selection.node.detail}</p>
+                )}
+                <h5>Connections</h5>
+                <ul className="topology-connection-list">
+                  {selection.edges.map((edge, i) => (
+                    <li key={i}>
+                      {edge.source === selection.node?.id ? '→' : '←'}{' '}
+                      {nodeById.get(
+                        edge.source === selection.node?.id
+                          ? edge.target
+                          : edge.source
+                      )?.label ?? 'unknown'}
+                      <span className="mono"> ({edge.kind})</span>
+                      <ProvenanceBadge
+                        provenance={edge.provenance}
+                        size="small"
+                      />
+                      {edge.detail && (
+                        <span className="edge-detail"> — {edge.detail}</span>
+                      )}
+                    </li>
+                  ))}
+                  {selection.edges.length === 0 && (
+                    <li className="no-connections">
+                      No evidence of connection to other nodes.
+                    </li>
+                  )}
+                </ul>
+              </div>
               <button
                 type="button"
                 className="btn btn-secondary btn-sm"
-                onClick={() => { setSelectedNode(null); setSelectedEdge(null); }}
+                onClick={handlePaneClick}
+              >
+                Clear Selection
+              </button>
+            </div>
+          )}
+
+          {selectedEdge && (
+            <div className="topology-details-panel">
+              <div className="topology-detail">
+                <h4>Relationship: {selectedEdge.label}</h4>
+                <p className="topology-addresses">
+                  <span className="mono">
+                    {nodeById.get(selectedEdge.source)?.label ?? selectedEdge.source}
+                  </span>{' '}
+                  →{' '}
+                  <span className="mono">
+                    {nodeById.get(selectedEdge.target)?.label ?? selectedEdge.target}
+                  </span>
+                </p>
+                <p>
+                  <ProvenanceBadge
+                    provenance={selectedEdge.provenance}
+                    size="medium"
+                    showDescription
+                  />
+                </p>
+                <p className="topology-node-note">
+                  {selectedEdge.detail ||
+                    'No additional details available.'}
+                </p>
+              </div>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={handlePaneClick}
               >
                 Clear Selection
               </button>
             </div>
           )}
         </>
-      )}
-
-      {graph.edges.length > 0 && (
-        <details className="topology-edges">
-          <summary>
-            All {graph.edges.length} relationship{graph.edges.length === 1 ? '' : 's'}
-          </summary>
-          <table className="topology-edge-table">
-            <thead>
-              <tr>
-                <th scope="col">From</th>
-                <th scope="col">To</th>
-                <th scope="col">Kind</th>
-                <th scope="col">Provenance</th>
-              </tr>
-            </thead>
-            <tbody>
-              {graph.edges.map((edge: TopologyEdge, i) => (
-                <tr key={i}>
-                  <td className="mono">{edge.source}</td>
-                  <td className="mono">{edge.target}</td>
-                  <td>{edge.kind}</td>
-                  <td>
-                    <ProvenanceBadge provenance={edge.provenance} size="small" />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </details>
       )}
     </div>
   );

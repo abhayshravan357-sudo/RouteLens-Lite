@@ -123,6 +123,32 @@ export interface NetworkNeighbor {
   mac_address: string | null;
   state: string;
   is_router: boolean;
+  /**
+   * A reverse DNS name for the address, when one could be looked up.
+   *
+   * The address itself is OBSERVED — the kernel reported it. The name is
+   * INFERRED — it came from a reverse DNS query, not from the kernel. The
+   * two are kept apart, which is what `name_provenance` records.
+   */
+  hostname?: string | null;
+  /** "inferred" when a name was found, "not_looked_up" or "unknown" otherwise. */
+  name_provenance?: string;
+  name_error?: string | null;
+}
+
+/**
+ * How the reverse name lookup went.
+ * Backend: NameLookupSummary
+ */
+export interface NameLookupSummary {
+  attempted: number;
+  found: number;
+  no_name: number;
+  skipped: number;
+  cap: number;
+  timeout_seconds: number;
+  max_concurrency: number;
+  cap_reached: boolean;
 }
 
 export interface CollectionResult<T> {
@@ -132,6 +158,14 @@ export interface CollectionResult<T> {
   error: string | null;
   command: string;
   duration_ms: number;
+  /**
+   * Which address family this was read from: "ipv4", "ipv6", or "both".
+   * The kernel keeps the IPv4 and IPv6 routing tables and neighbour caches
+   * apart, so this says which one was read.
+   */
+  ip_version?: string;
+  /** Present when the result came from a collection that looked up names. */
+  name_lookup?: NameLookupSummary | null;
 }
 
 export type InterfacesResult = CollectionResult<NetworkInterface[]>;
@@ -141,6 +175,10 @@ export type AllNetworkResult = {
   interfaces: InterfacesResult;
   routes: RoutesResult;
   neighbors: NeighborsResult;
+  /** The IPv6 routing table. The kernel keeps it apart from the IPv4 one. */
+  routes_ipv6?: RoutesResult;
+  /** The IPv6 neighbour cache. */
+  neighbors_ipv6?: NeighborsResult;
 };
 
 /**
@@ -542,6 +580,69 @@ export interface DiscoveryAuditEntry {
  * Backend contract: POST /api/pcap/analyze
  */
 
+/**
+ * Real routing table analysis - matching the FastAPI backend Pydantic models
+ * exactly.
+ * Backend source: backend/app/route_analysis.py
+ *
+ * This analyses the routing table the running kernel actually holds, rather
+ * than the teaching sample the RouteCore engine works on. The table itself
+ * is OBSERVED; the conclusion drawn from it is INFERRED.
+ */
+
+export interface RouteCandidate {
+  destination: string;
+  prefix_length: number;
+  next_hop: string | null;
+  interface: string;
+  metric: number;
+  next_hop_type: string;
+  selected: boolean;
+  outcome: string;
+  explanation: string;
+}
+
+export interface ShadowFinding {
+  less_specific_destination: string;
+  more_specific_destinations: string[];
+  captured_prefixes: string[];
+  explanation: string;
+}
+
+export interface SkippedRoute {
+  destination: string;
+  reason: string;
+}
+
+export interface DestinationAnalysis {
+  destination: string;
+  matched: boolean;
+  selected: RoutingEntry | null;
+  candidates: RouteCandidate[];
+  beaten: RouteCandidate[];
+  explanation: string;
+  is_default_route: boolean;
+  shadowed_by: ShadowFinding | null;
+  provenance: string;
+  limitations: string[];
+}
+
+export interface RouteAnalysisReport {
+  collected_at: string;
+  command: string;
+  /** Present only when the backend supports per-family analysis. */
+  ip_version?: string;
+  routes_in_table: number;
+  routes_analysed: number;
+  routes_skipped: SkippedRoute[];
+  default_routes: string[];
+  table_provenance: string;
+  analysis_provenance: string;
+  analyses: DestinationAnalysis[];
+  shadow_findings: ShadowFinding[];
+  limitations: string[];
+}
+
 export interface PcapAnalyzeRequest {
   filename: string;
   data_base64: string;
@@ -573,6 +674,56 @@ export interface PcapConversation {
   bytes: number;
 }
 
+/**
+ * Per-packet detail as the backend parses it.
+ * Backend schema: PcapPacketDetailResponse
+ */
+export interface PcapPacketDetail {
+  index: number;
+  timestamp: string;
+  src_mac: string | null;
+  dst_mac: string | null;
+  ethertype: string | null;
+  src_ip: string | null;
+  dst_ip: string | null;
+  protocol: string | null;
+  src_port: number | null;
+  dst_port: number | null;
+  tcp_flags: string[];
+  tcp_flags_value: number | null;
+  icmp_type: number | null;
+  icmp_type_name: string | null;
+  icmp_code: number | null;
+  icmp_code_name: string | null;
+  dns_query_name: string | null;
+  dns_answers: string[];
+  dns_is_response: boolean | null;
+  dns_response_code: string | null;
+  arp_operation: number | null;
+  arp_operation_name: string | null;
+  arp_sender_mac: string | null;
+  arp_sender_ip: string | null;
+  arp_target_mac: string | null;
+  arp_target_ip: string | null;
+  handshake_stage: string | null;
+  provenance: Record<string, unknown>;
+  notes: string[];
+  parsed: boolean;
+}
+
+/**
+ * A reconstructed handshake, as the backend sees it in the capture.
+ * Backend schema: PcapHandshakeResponse
+ */
+export interface PcapHandshake {
+  client: string;
+  server: string;
+  stages: string[];
+  complete: boolean;
+  provenance: string;
+  explanation: string;
+}
+
 export interface PcapAnalysisResult {
   filename: string;
   size_bytes: number;
@@ -584,4 +735,8 @@ export interface PcapAnalysisResult {
   hosts: PcapHost[];
   conversations: PcapConversation[];
   limitations: string[];
+  /** Per-packet detail. Present on backends that parse beyond the summary. */
+  packets?: PcapPacketDetail[];
+  /** Reconstructed handshakes. Present on backends that parse beyond the summary. */
+  handshakes?: PcapHandshake[];
 }

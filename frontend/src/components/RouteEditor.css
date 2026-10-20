@@ -41,10 +41,10 @@
 .route-editor-saved {
   padding: 10px 14px;
   margin-bottom: 12px;
-  background: #dcfce7;
-  border: 1px solid #86efac;
+  background: var(--success-soft);
+  border: 1px solid var(--success-border);
   border-radius: var(--radius-md);
-  color: #166534;
+  color: var(--success-text);
   font-size: 0.8125rem;
 }
 
@@ -83,7 +83,7 @@
 .route-editor-table input:focus {
   outline: none;
   border-color: var(--color-primary);
-  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+  box-shadow: 0 0 0 2px rgba(99, 179, 255, 0.22);
 }
 
 .route-editor-empty {
@@ -103,8 +103,8 @@
 }
 
 .route-editor-remove:hover {
-  background: #fee2e2;
-  color: #991b1b;
+  background: var(--error-soft);
+  color: var(--error-text);
 }
 
 @media (max-width: 768px) {

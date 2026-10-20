@@ -354,6 +354,7 @@ export default function ScenarioJourney({
             graph={topology}
             loading={topologyLoading}
             error={topologyError}
+            pathNodeNames={trace ? trace.hops.map((hop) => hop.node) : []}
           />
 
           {activeScenario && (

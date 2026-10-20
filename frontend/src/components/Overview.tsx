@@ -259,8 +259,8 @@ export default function Overview({
           <h3>How did the last packet go?</h3>
           {!lastOutcome ? (
             <p className="overview-muted">
-              No packet has been traced yet. Pick a network in the Scenario Lab
-              below and send one.
+              No packet has been traced yet. Open <strong>Packet Journey</strong>{' '}
+              and send one.
             </p>
           ) : (
             <>
@@ -292,19 +292,20 @@ export default function Overview({
         </section>
 
         {/* 5. What can I try next? */}
-        <section className="overview-card">
+        <section className="overview-card overview-card-wide">
           <h3>What can I try next?</h3>
           <ul className="overview-next">
             {lookupResult?.route ? (
               <li>
                 You looked up <code>{lookupResult.route.destination}</code>. Trace
-                that same address in the Scenario Lab to watch a router make
-                that decision step by step.
+                that same address in <strong>Packet Journey</strong> to watch a
+                router make that decision step by step.
               </li>
             ) : (
               <li>
-                Look up an address in the Route Lookup above, then trace it in
-                the Scenario Lab to see which route wins and why.
+                Look up an address in <strong>Routing Analyzer</strong>, then
+                trace it in <strong>Packet Journey</strong> to see which route
+                wins and why.
               </li>
             )}
             {failed && (
@@ -316,8 +317,8 @@ export default function Overview({
             )}
             {host.neighbors.length === 0 && (
               <li>
-                No neighbours are visible. Check the Neighbours tab; a
-                silent network is a normal result, not an error.
+                No neighbours are visible. Check <strong>Network Diagnostics</strong>;
+                a silent network is a normal result, not an error.
               </li>
             )}
             {host.routes.length > 0 && host.routes.length < 3 && (

@@ -71,7 +71,7 @@
 .scenario-field select:focus {
   outline: none;
   border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+  box-shadow: 0 0 0 3px rgba(99, 179, 255, 0.22);
 }
 
 .scenario-result {
@@ -87,13 +87,13 @@
 }
 
 .scenario-status.success {
-  background: #dcfce7;
-  border-color: #86efac;
+  background: var(--success-soft);
+  border-color: var(--success-border);
 }
 
 .scenario-status.failure {
-  background: #fef3c7;
-  border-color: #fcd34d;
+  background: var(--warning-soft);
+  border-color: var(--warning-border);
 }
 
 .status-heading {
@@ -109,11 +109,11 @@
 }
 
 .scenario-status.success .status-text {
-  color: #166534;
+  color: var(--success-text);
 }
 
 .scenario-status.failure .status-text {
-  color: #92400e;
+  color: var(--warning-text);
 }
 
 .status-explanation {
@@ -201,18 +201,18 @@
 }
 
 .hop-entry-action.forward {
-  background: #dbeafe;
-  color: #1e40af;
+  background: var(--blue-soft);
+  color: var(--primary-strong);
 }
 
 .hop-entry-action.delivered {
-  background: #dcfce7;
-  color: #166534;
+  background: var(--success-soft);
+  color: var(--success-text);
 }
 
 .hop-entry-action.dropped {
-  background: #fee2e2;
-  color: #991b1b;
+  background: var(--error-soft);
+  color: var(--error-text);
 }
 
 .hop-detail {
@@ -248,8 +248,8 @@
 }
 
 .node-kind.router {
-  background: #ede9fe;
-  color: #5b21b6;
+  background: var(--violet-soft);
+  color: var(--violet-text);
 }
 
 .hop-detail-explanation {
@@ -328,8 +328,8 @@
   letter-spacing: 0.04em;
   padding: 1px 6px;
   border-radius: var(--radius-sm);
-  background: #dcfce7;
-  color: #166534;
+  background: var(--success-soft);
+  color: var(--success-text);
 }
 
 .hop-next {
@@ -358,23 +358,23 @@
 }
 
 .provenance-observed {
-  background: #dcfce7;
-  color: #166534;
+  background: var(--success-soft);
+  color: var(--success-text);
 }
 
 .provenance-inferred {
-  background: #fef3c7;
-  color: #92400e;
+  background: var(--warning-soft);
+  color: var(--warning-text);
 }
 
 .provenance-simulated {
-  background: #ede9fe;
-  color: #5b21b6;
+  background: var(--violet-soft);
+  color: var(--violet-text);
 }
 
 .provenance-unknown {
-  background: #f1f5f9;
-  color: #475569;
+  background: var(--surface-muted);
+  color: var(--text-faint);
 }
 
 .provenance-icon {

@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import type { RoutingEntry } from '../types/routing';
+import './Visualization.css';
 
 interface VisualizationProps {
   routes: RoutingEntry[];
@@ -68,7 +69,7 @@ export default function Visualization({ routes, selectedRoute, destination }: Vi
   return (
     <div className="visualization">
       <h3 className="visualization-title">
-        Decision Flow for <code style={{ fontFamily: 'var(--font-mono)' }}>{destination}</code>
+        Decision Flow for <code>{destination}</code>
       </h3>
       <div className="route-flow" role="list" aria-label="Route selection steps">
         {matchingRoutes.map((route, index) => {
@@ -89,24 +90,20 @@ export default function Visualization({ routes, selectedRoute, destination }: Vi
                 <span className="flow-step-network">{route.destination}</span>
                 <div className="flow-step-meta">
                   <span className="flow-step-meta-item">
-                    <span className="flow-step-meta-label">Next hop:</span>
-                    <span style={{ fontFamily: 'var(--font-mono)' }}>
-                      {route.next_hop || 'direct'}
-                    </span>
+                    <span className="flow-step-meta-label">Next hop</span>
+                    <span className="mono">{route.next_hop || 'direct'}</span>
                   </span>
                   <span className="flow-step-meta-item">
-                    <span className="flow-step-meta-label">Interface:</span>
-                    <span style={{ fontFamily: 'var(--font-mono)' }}>{route.interface}</span>
+                    <span className="flow-step-meta-label">Interface</span>
+                    <span className="mono">{route.interface}</span>
                   </span>
                   <span className="flow-step-meta-item">
-                    <span className="flow-step-meta-label">Metric:</span>
-                    <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--color-primary)' }}>
-                      {route.metric}
-                    </span>
+                    <span className="flow-step-meta-label">Metric</span>
+                    <span className="mono flow-step-metric">{route.metric}</span>
                   </span>
                   <span className="flow-step-meta-item">
-                    <span className="flow-step-meta-label">Type:</span>
-                    <span style={{ textTransform: 'capitalize' }}>{route.next_hop_type}</span>
+                    <span className="flow-step-meta-label">Type</span>
+                    <span className="flow-step-type">{route.next_hop_type}</span>
                   </span>
                 </div>
               </div>
@@ -117,9 +114,9 @@ export default function Visualization({ routes, selectedRoute, destination }: Vi
           );
         })}
       </div>
-      <div className="explanation" style={{ marginTop: '16px' }}>
+      <div className="explanation">
         <strong>Algorithm:</strong> Routes are evaluated in order:
-        <ol style={{ margin: '8px 0 0 20px', padding: 0 }}>
+        <ol>
           <li>Filter routes that contain the destination IP</li>
           <li>Select the route with the longest prefix (most specific)</li>
           <li>If tied, choose the lowest metric</li>

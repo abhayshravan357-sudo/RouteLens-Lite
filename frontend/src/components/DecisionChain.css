@@ -1,0 +1,144 @@
+/* Decision chain — the route lookup drawn as a signal path */
+
+.decision-chain {
+  padding: var(--space-4) var(--space-5) var(--space-5);
+  background: var(--surface-inset);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+}
+
+.decision-chain-eyebrow {
+  margin-bottom: var(--space-4);
+}
+
+.decision-chain-track {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  align-items: stretch;
+  /* The gap is the connector's length: the line and its travelling dot are
+     drawn across exactly this space. */
+  gap: var(--space-6);
+  flex-wrap: wrap;
+}
+
+/* Each node is a lit station on the path. */
+.chain-node {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  padding: var(--space-3) var(--space-4);
+  min-width: 0;
+  background: var(--color-panel);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+/* The connector between stations. */
+.chain-node:not(.last)::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  right: calc(var(--space-6) * -1);
+  width: var(--space-6);
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    rgba(242, 251, 255, 0.45),
+    rgba(242, 251, 255, 0.12)
+  );
+}
+
+.chain-node:not(.last)::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  right: calc(var(--space-6) * -1 - 2px);
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  transform: translateY(-50%);
+  background: rgba(242, 251, 255, 0.5);
+  box-shadow: 0 0 8px rgba(190, 235, 255, 0.7);
+  z-index: 1;
+}
+
+.chain-node-label {
+  font-family: var(--font-mono);
+  font-size: 0.5625rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.chain-node-value {
+  font-family: var(--font-mono);
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The winning prefix is the station the whole path points at. */
+.chain-node.terminal {
+  background: var(--surface-subtle);
+  border-color: rgba(242, 251, 255, 0.35);
+  box-shadow: var(--shine-bloom-soft);
+}
+
+.chain-node.terminal .chain-node-value {
+  color: var(--shining);
+  text-shadow: 0 0 14px rgba(190, 235, 255, 0.6);
+}
+
+.chain-node.failed {
+  background: var(--error-soft);
+  border-color: var(--error-border);
+  box-shadow: none;
+}
+
+.chain-node.failed .chain-node-value {
+  color: var(--error-text);
+  text-shadow: none;
+}
+
+/* --- Responsive: stack into a vertical path --- */
+
+@media (max-width: 900px) {
+  .decision-chain-track {
+    flex-direction: column;
+    gap: var(--space-6);
+  }
+
+  .chain-node {
+    width: 100%;
+  }
+
+  .chain-node:not(.last)::after {
+    top: auto;
+    bottom: calc(var(--space-6) * -1);
+    left: var(--space-4);
+    right: auto;
+    width: 1px;
+    height: var(--space-6);
+    background: linear-gradient(
+      180deg,
+      rgba(242, 251, 255, 0.45),
+      rgba(242, 251, 255, 0.12)
+    );
+  }
+
+  .chain-node:not(.last)::before {
+    top: auto;
+    bottom: calc(var(--space-6) * -1 - 2px);
+    left: calc(var(--space-4) - 2px);
+    right: auto;
+    transform: none;
+  }
+}
