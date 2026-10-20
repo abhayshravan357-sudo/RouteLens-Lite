@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 
 from app.routing import RouteLookupResult, RoutingEntry, SAMPLE_ROUTES, PacketJourneyRequest, PacketJourneyResponse
 from app.routing_logic import lookup_route, trace_packet_path
+from app.routing_table import get_routing_table, InvalidRouteError, IndexOutOfRangeError
 from app.packet_lab_routes import router as packet_lab_router
 from app.scenario_routes import router as scenario_router, exercise_router
 from app.discovery_routes import router as discovery_router
@@ -92,7 +93,8 @@ async def route_lookup(
     Returns:
         RouteLookupResult with the matched route and explanation
     """
-    result = lookup_route(destination, SAMPLE_ROUTES)
+    routing_table = get_routing_table()
+    result = lookup_route(destination, routing_table.get_routes())
 
     if result.error:
         # Return 400 for invalid input
@@ -111,12 +113,100 @@ async def route_lookup(
 @app.get("/routes", tags=["Routing"])
 async def list_routes():
     """
-    List all sample routing table entries.
+    List all routing table entries (live table).
 
     Returns:
         List of routing entries
     """
-    return SAMPLE_ROUTES
+    routing_table = get_routing_table()
+    return routing_table.get_routes()
+
+
+@app.post("/routes", response_model=RoutingEntry, status_code=201, tags=["Routing"])
+async def add_route(route: RoutingEntry):
+    """
+    Add a new route to the routing table.
+
+    Args:
+        route: The routing entry to add
+
+    Returns:
+        The added routing entry
+
+    Raises:
+        HTTPException: 400 if the route is invalid
+    """
+    routing_table = get_routing_table()
+    try:
+        return routing_table.add_route(route)
+    except InvalidRouteError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.put("/routes/{index}", response_model=RoutingEntry, tags=["Routing"])
+async def update_route(index: int, route: RoutingEntry):
+    """
+    Update a route at the given index.
+
+    Args:
+        index: The index of the route to update
+        route: The new routing entry data
+
+    Returns:
+        The updated routing entry
+
+    Raises:
+        HTTPException: 400 if the route is invalid, 404 if index out of range
+    """
+    routing_table = get_routing_table()
+    try:
+        return routing_table.update_route(index, route)
+    except InvalidRouteError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except IndexOutOfRangeError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@app.delete("/routes/{index}", status_code=204, tags=["Routing"])
+async def delete_route(index: int):
+    """
+    Delete a route at the given index.
+
+    Args:
+        index: The index of the route to delete
+
+    Raises:
+        HTTPException: 404 if index out of range
+    """
+    routing_table = get_routing_table()
+    try:
+        routing_table.delete_route(index)
+    except IndexOutOfRangeError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@app.post("/routes/reset", tags=["Routing"])
+async def reset_routes():
+    """
+    Reset the routing table to the original sample routes.
+
+    Returns:
+        The restored routing table
+    """
+    routing_table = get_routing_table()
+    return routing_table.reset_routes()
+
+
+@app.get("/routes/summary", tags=["Routing"])
+async def routes_summary():
+    """
+    Get a summary of the current routing table.
+
+    Returns:
+        Dictionary with counts and statistics
+    """
+    routing_table = get_routing_table()
+    return routing_table.get_summary()
 
 
 @app.post("/packet-journey", tags=["Packet Journey"])
@@ -142,10 +232,11 @@ async def trace_packet_journey(request: PacketJourneyRequest):
         raise HTTPException(status_code=400, detail=f"Invalid IP address: {e}")
 
     # Trace the packet path through the routing table
+    routing_table = get_routing_table()
     hops = trace_packet_path(
         source_ip=request.source_ip,
         destination_ip=request.destination_ip,
-        routes=SAMPLE_ROUTES,
+        routes=routing_table.get_routes(),
     )
 
     # Convert hops to response format
