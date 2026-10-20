@@ -21,6 +21,13 @@ import type {
   TracerouteResponse,
   PacketJourneyRequest,
   PacketJourneyResponse,
+  Scenario,
+  ScenarioSummary,
+  ScenarioTrace,
+  ScenarioTraceRequest,
+  ScenarioRoute,
+  LabRunResult,
+  ScenarioCompare,
 } from '../types/routing';
 
 const API_BASE = '';
@@ -57,15 +64,22 @@ export class LabUnavailableError extends Error {
 async function fetchWithTimeout<T>(
   endpoint: string,
   timeoutMs = DEFAULT_TIMEOUT,
-  options: RequestInit = {}
+  options: RequestInit & { params?: Record<string, string> } = {}
 ): Promise<T> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
+  const { params, ...init } = options;
+  let url = `${API_BASE}${endpoint}`;
+  if (params) {
+    const query = new URLSearchParams(params).toString();
+    if (query) url += `?${query}`;
+  }
+
   try {
-    const response = await fetch(`${API_BASE}${endpoint}`, {
+    const response = await fetch(url, {
       signal: controller.signal,
-      ...options,
+      ...init,
     });
 
     clearTimeout(timeoutId);
@@ -195,6 +209,83 @@ export async function tracePacketJourney(request: PacketJourneyRequest): Promise
   return fetchWithTimeout<PacketJourneyResponse>(
     '/packet-journey',
     DIAGNOSTICS_TIMEOUT,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    }
+  );
+}
+
+// Scenario engine API
+export async function fetchScenarios(): Promise<ScenarioSummary[]> {
+  return fetchWithTimeout<ScenarioSummary[]>('/api/scenarios', 10000);
+}
+
+export async function fetchScenario(scenarioId: string): Promise<Scenario> {
+  return fetchWithTimeout<Scenario>(`/api/scenarios/${encodeURIComponent(scenarioId)}`, 10000);
+}
+
+export async function traceScenario(
+  scenarioId: string,
+  request: ScenarioTraceRequest
+): Promise<ScenarioTrace> {
+  return fetchWithTimeout<ScenarioTrace>(
+    `/api/scenarios/${encodeURIComponent(scenarioId)}/trace`,
+    15000,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    }
+  );
+}
+
+export async function updateScenarioRoutes(
+  scenarioId: string,
+  nodeId: string,
+  routes: Partial<ScenarioRoute>[]
+): Promise<Scenario> {
+  return fetchWithTimeout<Scenario>(
+    `/api/scenarios/${encodeURIComponent(scenarioId)}/nodes/${encodeURIComponent(nodeId)}/routes`,
+    10000,
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ routes }),
+    }
+  );
+}
+
+export async function applyScenarioLab(
+  scenarioId: string,
+  dryRun = true
+): Promise<LabRunResult> {
+  return fetchWithTimeout<LabRunResult>(
+    `/api/scenarios/${encodeURIComponent(scenarioId)}/lab/apply`,
+    60000,
+    { method: 'POST', params: { dry_run: String(dryRun) } }
+  );
+}
+
+export async function teardownScenarioLab(
+  scenarioId: string,
+  dryRun = true
+): Promise<LabRunResult> {
+  return fetchWithTimeout<LabRunResult>(
+    `/api/scenarios/${encodeURIComponent(scenarioId)}/lab/teardown`,
+    60000,
+    { method: 'POST', params: { dry_run: String(dryRun) } }
+  );
+}
+
+export async function compareScenarioWithLab(
+  scenarioId: string,
+  request: ScenarioTraceRequest
+): Promise<ScenarioCompare> {
+  return fetchWithTimeout<ScenarioCompare>(
+    `/api/scenarios/${encodeURIComponent(scenarioId)}/compare`,
+    30000,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

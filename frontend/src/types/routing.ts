@@ -297,3 +297,99 @@ export type LabState =
   | 'error'
   | 'timeout'
   | 'unavailable';
+/**
+ * Scenario engine types - matching backend/app/scenario.py exactly.
+ */
+
+export type ScenarioNodeKind = 'host' | 'router';
+
+export type TraceStatus =
+  | 'delivered'
+  | 'no_route'
+  | 'unresolved_next_hop'
+  | 'not_forwarding'
+  | 'loop'
+  | 'max_hops';
+
+export type HopAction = 'forward' | 'delivered' | 'dropped';
+
+export interface ScenarioIface {
+  name: string;
+  cidr: string;
+}
+
+export interface ScenarioRoute {
+  prefix: string;
+  dev: string;
+  via: string | null;
+  metric: number;
+  source: 'connected' | 'static';
+}
+
+export interface ScenarioNode {
+  id: string;
+  kind: ScenarioNodeKind;
+  ifaces: ScenarioIface[];
+  routes: ScenarioRoute[];
+}
+
+export interface ScenarioLink {
+  a: string;
+  b: string;
+}
+
+export interface ScenarioSummary {
+  id: string;
+  title: string;
+}
+
+export interface Scenario {
+  id: string;
+  title: string;
+  nodes: ScenarioNode[];
+  links: ScenarioLink[];
+}
+
+export interface TraceHop {
+  node: string;
+  action: HopAction;
+  matched: ScenarioRoute | null;
+  candidates: ScenarioRoute[];
+  explanation: string;
+  next_node: string | null;
+  hop_number: number;
+}
+
+export interface ScenarioTrace {
+  status: TraceStatus;
+  hops: TraceHop[];
+  provenance: 'simulated';
+}
+
+export interface ScenarioTraceRequest {
+  src: string;
+  dst: string;
+}
+
+export interface LabRunResult {
+  status: 'dry_run' | 'ok' | 'failed' | 'unavailable';
+  log?: { cmd: string; rc: number; stdout?: string; stderr?: string }[];
+  commands?: string[];
+  reason?: string;
+  failed_at?: string[];
+}
+
+export interface LabProbeResult {
+  status: 'delivered' | 'failed' | 'timeout' | 'unavailable' | 'error';
+  rc?: number;
+  output?: string;
+  reason?: string;
+  provenance?: 'lab';
+}
+
+export interface ScenarioCompare {
+  simulated: ScenarioTrace;
+  lab: LabProbeResult;
+  agree: boolean | null;
+  note: string;
+}

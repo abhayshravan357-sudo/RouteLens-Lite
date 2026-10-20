@@ -5,17 +5,30 @@ import {
   lookupRoute,
   checkLabStatus,
   tracePacketJourney,
+  fetchScenarios,
+  fetchScenario,
+  traceScenario,
   ApiError,
   TimeoutError,
   LabUnavailableError,
 } from './api/routing';
-import type { RoutingEntry, RouteLookupResult, LabState, PacketJourneyRequest, PacketJourneyResponse } from './types/routing';
+import type {
+  RoutingEntry,
+  RouteLookupResult,
+  LabState,
+  PacketJourneyRequest,
+  PacketJourneyResponse,
+  Scenario,
+  ScenarioSummary,
+  ScenarioTrace,
+} from './types/routing';
 import RoutingTable from './components/RoutingTable';
 import LookupForm from './components/LookupForm';
 import ResultDisplay from './components/ResultDisplay';
 import Visualization from './components/Visualization';
 import PacketJourney from './components/PacketJourney';
 import NetworkDiagnostics from './components/NetworkDiagnostics';
+import ScenarioJourney from './components/ScenarioJourney';
 import './index.css';
 
 function App() {
@@ -28,6 +41,13 @@ function App() {
   const [labState, setLabState] = useState<LabState>('idle');
   const [labError, setLabError] = useState<string | null>(null);
   const [simulationResponse, setSimulationResponse] = useState<PacketJourneyResponse | null>(null);
+
+  // Scenario engine state
+  const [scenarios, setScenarios] = useState<ScenarioSummary[]>([]);
+  const [selectedScenario, setSelectedScenario] = useState<Scenario | null>(null);
+  const [scenarioTrace, setScenarioTrace] = useState<ScenarioTrace | null>(null);
+  const [scenarioLoading, setScenarioLoading] = useState(false);
+  const [scenarioError, setScenarioError] = useState<string | null>(null);
 
   // Check backend health on mount
   useEffect(() => {
@@ -84,6 +104,51 @@ function App() {
 
     loadRoutes();
   }, [backendConnected]);
+
+  // Load the scenario list once the backend is reachable
+  useEffect(() => {
+    if (!backendConnected) return;
+
+    const loadScenarios = async () => {
+      try {
+        const list = await fetchScenarios();
+        setScenarios(list);
+        if (list.length > 0) {
+          const first = await fetchScenario(list[0].id);
+          setSelectedScenario(first);
+        }
+      } catch (error) {
+        setScenarioError(
+          error instanceof Error ? error.message : 'Could not load scenarios'
+        );
+      }
+    };
+
+    loadScenarios();
+  }, [backendConnected]);
+
+  // Trace a packet through the selected scenario
+  const handleScenarioTrace = async (src: string, dst: string) => {
+    if (!selectedScenario) return;
+
+    setScenarioLoading(true);
+    setScenarioError(null);
+    setScenarioTrace(null);
+    try {
+      const result = await traceScenario(selectedScenario.id, { src, dst });
+      setScenarioTrace(result);
+    } catch (error) {
+      if (error instanceof TimeoutError) {
+        setScenarioError('The trace request timed out.');
+      } else if (error instanceof ApiError) {
+        setScenarioError(error.message);
+      } else {
+        setScenarioError(error instanceof Error ? error.message : 'Trace failed');
+      }
+    } finally {
+      setScenarioLoading(false);
+    }
+  };
 
   // Handle route lookup
   const handleLookup = async (destination: string) => {
@@ -266,6 +331,56 @@ function App() {
                   simulationResponse={simulationResponse}
                   onSimulate={handleSimulatePacket}
                   disabled={labState !== 'idle' && labState !== 'completed' && labState !== 'error' && labState !== 'timeout' && labState !== 'unavailable'}
+                />
+              </div>
+            </div>
+          </section>
+        )}
+
+        {/* Scenario Packet Journey - the multi-router teaching tool */}
+        {backendConnected && (
+          <section className="section">
+            <div className="card">
+              <div className="card-header">
+                <h2>Scenario Lab</h2>
+              </div>
+              <div className="card-body">
+                {scenarios.length > 1 && (
+                  <div className="scenario-picker">
+                    <label htmlFor="scenario-select">Choose a network:</label>
+                    <select
+                      id="scenario-select"
+                      value={selectedScenario?.id ?? ''}
+                      onChange={async (e) => {
+                        setScenarioTrace(null);
+                        setScenarioError(null);
+                        try {
+                          const next = await fetchScenario(e.target.value);
+                          setSelectedScenario(next);
+                        } catch (err) {
+                          setScenarioError(
+                            err instanceof Error ? err.message : 'Could not load scenario'
+                          );
+                        }
+                      }}
+                    >
+                      {scenarios.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.title}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+                {selectedScenario && (
+                  <p className="scenario-description">{selectedScenario.title}</p>
+                )}
+                <ScenarioJourney
+                  scenario={selectedScenario}
+                  trace={scenarioTrace}
+                  loading={scenarioLoading}
+                  error={scenarioError}
+                  onTrace={handleScenarioTrace}
                 />
               </div>
             </div>

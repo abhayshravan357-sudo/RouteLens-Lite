@@ -986,3 +986,40 @@ body {
     width: 100%;
   }
 }
+/* Scenario picker */
+.scenario-picker {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.scenario-picker label {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.scenario-picker select {
+  padding: 8px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: 0.9375rem;
+  font-family: var(--font-sans);
+  background: var(--color-surface);
+  color: var(--color-text);
+  min-width: 280px;
+}
+
+.scenario-picker select:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+}
+
+.scenario-description {
+  margin: 0 0 16px 0;
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+}

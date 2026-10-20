@@ -1,0 +1,404 @@
+/* Scenario Journey and Provenance Badge styles */
+
+.scenario-journey {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.scenario-journey-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.scenario-journey-header h2 {
+  margin: 0 0 4px 0;
+  font-size: 1.375rem;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.scenario-subtitle {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+  line-height: 1.6;
+}
+
+.scenario-form {
+  padding: 20px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+}
+
+.scenario-form-fields {
+  display: flex;
+  align-items: flex-end;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.scenario-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 200px;
+  flex: 1;
+}
+
+.scenario-field label {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.scenario-field input,
+.scenario-field select {
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: 0.9375rem;
+  font-family: var(--font-mono);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.scenario-field input:focus,
+.scenario-field select:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+}
+
+.scenario-result {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.scenario-status {
+  padding: 16px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+}
+
+.scenario-status.success {
+  background: #dcfce7;
+  border-color: #86efac;
+}
+
+.scenario-status.failure {
+  background: #fef3c7;
+  border-color: #fcd34d;
+}
+
+.status-heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.status-text {
+  font-size: 1.0625rem;
+  font-weight: 600;
+}
+
+.scenario-status.success .status-text {
+  color: #166534;
+}
+
+.scenario-status.failure .status-text {
+  color: #92400e;
+}
+
+.status-explanation {
+  margin: 8px 0 0 0;
+  font-size: 0.875rem;
+  line-height: 1.6;
+  color: var(--color-text);
+}
+
+.hop-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.hop-position {
+  margin-left: auto;
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+}
+
+.hop-timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.hop-entry-button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  cursor: pointer;
+  text-align: left;
+  font-family: var(--font-sans);
+  font-size: 0.875rem;
+  color: var(--color-text);
+  transition: all var(--transition);
+}
+
+.hop-entry-button:hover {
+  border-color: var(--color-primary);
+  background: var(--color-bg);
+}
+
+.hop-entry.active .hop-entry-button {
+  border-color: var(--color-primary);
+  background: rgba(37, 99, 235, 0.06);
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.12);
+}
+
+.hop-entry.passed .hop-entry-button {
+  opacity: 0.62;
+}
+
+.hop-entry-number {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  min-width: 60px;
+}
+
+.hop-entry-node {
+  font-family: var(--font-mono);
+  font-weight: 500;
+  flex: 1;
+}
+
+.hop-entry-action {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+}
+
+.hop-entry-action.forward {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+.hop-entry-action.delivered {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.hop-entry-action.dropped {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.hop-detail {
+  padding: 20px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+}
+
+.hop-detail-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.hop-detail-header h3 {
+  margin: 0;
+  font-size: 1.0625rem;
+  font-weight: 600;
+}
+
+.node-kind {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--color-bg);
+  color: var(--color-text-muted);
+}
+
+.node-kind.router {
+  background: #ede9fe;
+  color: #5b21b6;
+}
+
+.hop-detail-explanation {
+  margin: 0 0 16px 0;
+  font-size: 0.9375rem;
+  line-height: 1.6;
+  color: var(--color-text);
+}
+
+.hop-detail-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+  margin-bottom: 16px;
+}
+
+.hop-detail-table th,
+.hop-detail-table td {
+  padding: 8px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.hop-detail-table th {
+  font-weight: 500;
+  color: var(--color-text-muted);
+  width: 40%;
+}
+
+.hop-detail-table tr:last-child th,
+.hop-detail-table tr:last-child td {
+  border-bottom: none;
+}
+
+.mono {
+  font-family: var(--font-mono);
+}
+
+.hop-candidates {
+  margin-bottom: 16px;
+}
+
+.hop-candidates h4 {
+  margin: 0 0 8px 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.hop-candidates ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.hop-candidates li {
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.hop-candidates li.winner {
+  color: var(--color-text);
+  font-weight: 500;
+}
+
+.candidate-badge {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  background: #dcfce7;
+  color: #166534;
+}
+
+.hop-next {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+}
+
+/* Provenance badges */
+
+.provenance-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.provenance-small {
+  font-size: 0.6875rem;
+  padding: 2px 8px;
+}
+
+.provenance-observed {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.provenance-inferred {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.provenance-simulated {
+  background: #ede9fe;
+  color: #5b21b6;
+}
+
+.provenance-unknown {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.provenance-icon {
+  font-size: 0.6875em;
+  line-height: 1;
+}
+
+.provenance-description {
+  font-weight: 400;
+  opacity: 0.85;
+}
+
+@media (max-width: 768px) {
+  .scenario-form-fields {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .scenario-field {
+    min-width: 100%;
+  }
+
+  .hop-position {
+    margin-left: 0;
+    width: 100%;
+  }
+}

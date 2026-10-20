@@ -143,6 +143,19 @@ class TestTraceOutcomes:
         assert result.hops[0].matched is not None
         assert result.hops[0].matched.prefix == "0.0.0.0/0"
 
+    def test_hops_are_numbered_from_one(self):
+        """Every hop carries a 1-based number so the UI can step through them."""
+        sc = SCENARIOS["client-router-server"]
+        result = trace(sc, "client", "10.0.0.2")
+        assert [h.hop_number for h in result.hops] == [1, 2, 3]
+
+    def test_failure_hops_are_also_numbered(self):
+        """A failing trace still numbers its hops."""
+        sc = SCENARIOS["loop"]
+        result = trace(sc, "r1", "203.0.113.9")
+        assert result.status == "loop"
+        assert [h.hop_number for h in result.hops] == list(range(1, len(result.hops) + 1))
+
     def test_delivered_three_router_chain(self):
         """client -> r1 -> r2 -> server must traverse three routers."""
         sc = SCENARIOS["two-routers"]

@@ -120,6 +120,7 @@ class Link(BaseModel):
 class Hop(BaseModel):
     """One hop in a packet trace."""
 
+    hop_number: int
     node: str
     action: Literal["forward", "delivered", "dropped"]
     matched: Optional[Route] = None
@@ -244,6 +245,7 @@ def trace(sc: Scenario, src: str, dst_str: str) -> TraceResult:
         if any(i.ip == dst for i in cur.ifaces):
             hops.append(
                 Hop(
+                    hop_number=len(hops) + 1,
                     node=cur.id,
                     action="delivered",
                     explanation=f"{dst} is configured on {cur.id}",
@@ -255,6 +257,7 @@ def trace(sc: Scenario, src: str, dst_str: str) -> TraceResult:
         if cur.id in seen:
             hops.append(
                 Hop(
+                    hop_number=len(hops) + 1,
                     node=cur.id,
                     action="dropped",
                     explanation=(
@@ -270,6 +273,7 @@ def trace(sc: Scenario, src: str, dst_str: str) -> TraceResult:
         if hops and cur.kind == "host":
             hops.append(
                 Hop(
+                    hop_number=len(hops) + 1,
                     node=cur.id,
                     action="dropped",
                     explanation=(
@@ -285,6 +289,7 @@ def trace(sc: Scenario, src: str, dst_str: str) -> TraceResult:
         if best is None:
             hops.append(
                 Hop(
+                    hop_number=len(hops) + 1,
                     node=cur.id,
                     action="dropped",
                     explanation=(
@@ -301,6 +306,7 @@ def trace(sc: Scenario, src: str, dst_str: str) -> TraceResult:
         if peer is None or peer[1].ip != target:
             hops.append(
                 Hop(
+                    hop_number=len(hops) + 1,
                     node=cur.id,
                     action="dropped",
                     matched=best,
@@ -323,6 +329,7 @@ def trace(sc: Scenario, src: str, dst_str: str) -> TraceResult:
 
         hops.append(
             Hop(
+                hop_number=len(hops) + 1,
                 node=cur.id,
                 action="forward",
                 matched=best,
@@ -335,6 +342,7 @@ def trace(sc: Scenario, src: str, dst_str: str) -> TraceResult:
 
     hops.append(
         Hop(
+            hop_number=len(hops) + 1,
             node=cur.id,
             action="dropped",
             explanation=(
