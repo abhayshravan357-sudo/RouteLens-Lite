@@ -11,6 +11,7 @@
 import { useState } from 'react';
 import type { Scenario, ScenarioTrace, TraceHop, TraceStatus } from '../types/routing';
 import ProvenanceBadge from './ProvenanceBadge';
+import ComparePanel from './ComparePanel';
 import './ScenarioJourney.css';
 
 interface ScenarioJourneyProps {
@@ -287,6 +288,14 @@ export default function ScenarioJourney({
                 </div>
               )}
             </>
+          )}
+
+          {trace && (
+            <ComparePanel
+              scenarioId={scenario?.id ?? null}
+              src={source.trim()}
+              dst={destination.trim()}
+            />
           )}
         </div>
       )}
