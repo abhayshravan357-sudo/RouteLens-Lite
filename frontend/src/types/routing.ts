@@ -219,44 +219,6 @@ export interface TracerouteResponse {
   error: string | null;
 }
 
-export interface TracerouteHopResponse {
-  ttl: number;
-  address: string | null;
-  hostname: string | null;
-  rtt_ms: number | null;
-  error: string | null;
-}
-
-export interface TracerouteRequest {
-  target: string;
-  max_hops: number;
-  timeout_per_hop: number;
-  probes_per_hop: number;
-  overall_timeout: number;
-}
-
-export interface TracerouteResponse {
-  target: string;
-  hops: TracerouteHopResponse[];
-  max_hops: number;
-  timeout_per_hop: number;
-  probes_per_hop: number;
-  completed: boolean;
-  total_time_ms: number;
-  error: string | null;
-}
-
-export interface TracerouteResponse {
-  target: string;
-  hops: TracerouteHopResponse[];
-  max_hops: number;
-  timeout_per_hop: number;
-  probes_per_hop: number;
-  completed: boolean;
-  total_time_ms: number;
-  error: string | null;
-}
-
 export interface PacketJourneyRequest {
   source_ip: string;
   destination_ip: string;

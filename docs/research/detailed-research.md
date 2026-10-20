@@ -1,9 +1,12 @@
-# RouteLens Research Index
+# Detailed Research: DNS, Traceroute & Connectivity
 
 **Project**: RouteLens Lite - IPv4 Routing Table Analyzer  
+**Covers**: RQ-001 (DNS Resolution), RQ-002 (Traceroute), RQ-006 (Connectivity Checks)  
 **Last Updated**: 2026-10-20  
 **Python Version**: 3.12.3  
-**Environment**: Linux 6.18.7 (Ubuntu/Debian-based)
+**Environment**: Linux 6.18.7 (Ubuntu/Debian-based)  
+
+See the central index at [../research-index.md](../research-index.md) for the summary tables and decision records.
 
 ---
 
@@ -253,131 +256,6 @@ asyncio.run(test())
 1. **Set `ping_group_range`**: `echo '0 1000' | sudo tee /proc/sys/net/ipv4/ping_group_range` (allows GID 1000 ICMP dgram)
 2. **Set CAP_NET_RAW on python**: `sudo setcap cap_net_raw+ep /usr/bin/python3.12`
 3. **Run with sudo**: Configure sudoers for passwordless `traceroute` command
-
----
-
-## Testing Commands Reference
-
-### DNS Resolution Tests
-```bash
-# Test asyncio.getaddrinfo
-cd backend && source .venv/bin/activate && python3 -c "
-import asyncio, socket
-async def t():
-    loop = asyncio.get_event_loop()
-    r = await loop.getaddrinfo('google.com', 80, family=socket.AF_UNSPEC)
-    print(f'{len(r)} results, IPv4: {sum(1 for x in r if x[0]==2)}, IPv6: {sum(1 for x in r if x[0]==10)}')
-asyncio.run(t())
-"
-
-# Test aiodns
-cd backend && source .venv/bin/activate && python3 -c "
-import asyncio, aiodns
-async def t():
-    resolver = aiodns.DNSResolver()
-    r = await resolver.query_dns('google.com', 'A')
-    print(f'A records: {[x.data.addr for x in r.answer]}')
-    r = await resolver.query_dns('google.com', 'AAAA')
-    print(f'AAAA records: {[x.data.addr for x in r.answer]}')
-asyncio.run(t())
-"
-```
-
-### Traceroute Tests
-```bash
-# Test tracepath (unprivileged)
-tracepath -n -m 10 8.8.8.8
-
-# Test tracepath IPv6
-tracepath -6 -n -m 10 2001:4860:4860::8888
-
-# Check ping_group_range (for ICMP dgram sockets)
-cat /proc/sys/net/ipv4/ping_group_range
-# To enable for current user (gid=1000):
-# echo '1000 1000' | sudo tee /proc/sys/net/ipv4/ping_group_range
-```
-
----
-
-## Limitations & Future Work
-
-### DNS Resolution
-- `asyncio.getaddrinfo()` uses system resolver (getaddrinfo(3)); respects `/etc/resolv.conf`, nsswitch.conf
-- No control over DNS server selection, retry policy, or EDNS0 options
-- For DNS-over-HTTPS/TLS, need external library (aiohttp + dns-python)
-- `aiodns` getaddrinfo() returns "DNS server does not implement requested operation" - limited to query_dns()
-
-### Traceroute
-- `tracepath` MTU discovery only works on first hop in some network configurations
-- No programmatic access to ICMP extensions (RFC 4884) via subprocess
-- Raw socket implementation requires significant code for proper ICMP parsing, checksum validation
-- Consider `paris-traceroute` for load-balanced path detection (not in default repos)
-
----
-
-## Version History
-
-| Date | Author | Changes |
-|------|--------|---------|
-| 2026-10-20 | RouteLens Research Specialist | Initial research for RQ-001, RQ-002 |
-
----
-
-## Appendix: Raw Socket Traceroute Prototype (Privileged)
-
-```python
-# Requires: CAP_NET_RAW or root
-# Linux 3.0+ for ICMP dgram sockets (if ping_group_range configured)
-
-import socket
-import struct
-import asyncio
-
-async def raw_icmp_traceroute(host: str, max_hops: int = 30):
-    """Raw ICMP traceroute - requires privileges."""
-    dest_ip = socket.gethostbyname(host)
-    
-    # Send socket: raw ICMP or UDP with TTL control
-    send_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
-    
-    # Receive socket: raw ICMP for TIME_EXCEEDED and PORT_UNREACH
-    recv_sock = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_ICMP)
-    recv_sock.settimeout(2.0)
-    recv_sock.bind(('', 0))
-    
-    try:
-        for ttl in range(1, max_hops + 1):
-            send_sock.setsockopt(socket.IPPROTO_IP, socket.IP_TTL, struct.pack('I', ttl))
-            
-            # Send probe
-            port = 33434 + ttl
-            send_sock.sendto(b'X' * 40, (dest_ip, port))
-            
-            # Wait for ICMP response
-            try:
-                data, addr = recv_sock.recvfrom(1024)
-                # Parse ICMP header (type, code, ...)
-                icmp_type = data[20]  # IP header is 20 bytes
-                if icmp_type == 11:  # TIME_EXCEEDED
-                    print(f'{ttl}: {addr[0]} (TTL exceeded)')
-                elif icmp_type == 3:  # DEST_UNREACH
-                    print(f'{ttl}: {addr[0]} (Destination reached)')
-                    break
-            except socket.timeout:
-                print(f'{ttl}: *')
-    finally:
-        send_sock.close()
-        recv_sock.close()
-```
-
-**Note**: This prototype is for reference only. Production implementation needs:
-- Proper ICMP header parsing (type, code, checksum, identifier, sequence)
-- Handling of ICMP extensions (RFC 4884)
-- Checksum validation
-- IPv6 support (IPPROTO_ICMPV6)
-- Concurrent probe sending (`-N` equivalent)
-- Adaptive timeout algorithm
-
 ---
 
 ### RQ-006: Async ICMP Ping & TCP Connect for Connectivity Checks
@@ -633,6 +511,123 @@ cat /proc/sys/net/ipv4/ping_group_range
 # Current: 1 0 (disabled)
 # To enable: echo '1000 1000' | sudo tee /proc/sys/net/ipv4/ping_group_range
 ```
+---
+
+## Testing Commands Reference
+
+### DNS Resolution Tests
+```bash
+# Test asyncio.getaddrinfo
+cd backend && source .venv/bin/activate && python3 -c "
+import asyncio, socket
+async def t():
+    loop = asyncio.get_event_loop()
+    r = await loop.getaddrinfo('google.com', 80, family=socket.AF_UNSPEC)
+    print(f'{len(r)} results, IPv4: {sum(1 for x in r if x[0]==2)}, IPv6: {sum(1 for x in r if x[0]==10)}')
+asyncio.run(t())
+"
+
+# Test aiodns
+cd backend && source .venv/bin/activate && python3 -c "
+import asyncio, aiodns
+async def t():
+    resolver = aiodns.DNSResolver()
+    r = await resolver.query_dns('google.com', 'A')
+    print(f'A records: {[x.data.addr for x in r.answer]}')
+    r = await resolver.query_dns('google.com', 'AAAA')
+    print(f'AAAA records: {[x.data.addr for x in r.answer]}')
+asyncio.run(t())
+"
+```
+
+### Traceroute Tests
+```bash
+# Test tracepath (unprivileged)
+tracepath -n -m 10 8.8.8.8
+
+# Test tracepath IPv6
+tracepath -6 -n -m 10 2001:4860:4860::8888
+
+# Check ping_group_range (for ICMP dgram sockets)
+cat /proc/sys/net/ipv4/ping_group_range
+# To enable for current user (gid=1000):
+# echo '1000 1000' | sudo tee /proc/sys/net/ipv4/ping_group_range
+```
+
+### Connectivity Check Tests
+```bash
+# Ping binary must carry CAP_NET_RAW for unprivileged ICMP
+getcap /usr/bin/ping
+# Expected: /usr/bin/ping cap_net_raw=ep
+
+# Confirm the ping subprocess path works without root
+cd backend && source .venv/bin/activate && python3 -c "
+import asyncio
+
+async def test():
+    cmd = ['ping', '-c', '3', '-W', '2', '-i', '0.2', 'google.com']
+    proc = await asyncio.create_subprocess_exec(*cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+    stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=10)
+    print(f'rc={proc.returncode}')
+    print(stdout.decode().strip().splitlines()[-2])
+
+asyncio.run(test())
+"
+
+# Confirm the TCP connect path works without root
+cd backend && source .venv/bin/activate && python3 -c "
+import asyncio, time
+
+async def test():
+    for port in (80, 443, 12345):
+        start = time.time()
+        try:
+            reader, writer = await asyncio.wait_for(asyncio.open_connection('google.com', port), timeout=5)
+            print(f'port {port}: {(time.time()-start)*1000:.1f} ms')
+            writer.close()
+            await writer.wait_closed()
+        except Exception as e:
+            print(f'port {port}: {type(e).__name__}')
+
+asyncio.run(test())
+"
+
+# Confirm raw-socket libraries are rejected without root
+cd backend && source .venv/bin/activate && python3 -c "
+import asyncio, aioping
+async def test():
+    try:
+        await aioping.ping('google.com', timeout=2)
+    except PermissionError as e:
+        print(f'aioping blocked: {e}')
+asyncio.run(test())
+"
+```
+
+---
+
+## Limitations & Future Work
+
+### DNS Resolution
+- `asyncio.getaddrinfo()` uses system resolver (getaddrinfo(3)); respects `/etc/resolv.conf`, nsswitch.conf
+- No control over DNS server selection, retry policy, or EDNS0 options
+- For DNS-over-HTTPS/TLS, need external library (aiohttp + dns-python)
+- `aiodns` getaddrinfo() returns "DNS server does not implement requested operation" - limited to query_dns()
+
+### Traceroute
+- `tracepath` MTU discovery only works on first hop in some network configurations
+- No programmatic access to ICMP extensions (RFC 4884) via subprocess
+- Raw socket implementation requires significant code for proper ICMP parsing, checksum validation
+- Consider `paris-traceroute` for load-balanced path detection (not in default repos)
+
+### Connectivity Checks
+- `ping` subprocess cost: ~0.4 s wall time for 3 packets, of which most is process spawn overhead
+- Aggregated results only — no per-packet callback for live UI updates
+- `ping` output format is locale-dependent; the parser assumes the C/English locale
+- If the host's `/usr/bin/ping` lacks `cap_net_raw`, the subprocess path silently needs root
+- Raw-socket Python libraries (`aioping`, `asyncping3`, `aio_ping`) are unusable unprivileged and
+  all carry a GPL/MIT licence obligation that complicates distribution
+- ICMP echo is frequently blocked by firewalls; the TCP connect path is the more reliable signal
 
 ---
 
@@ -645,3 +640,57 @@ cat /proc/sys/net/ipv4/ping_group_range
 ---
 
 ## Appendix: Raw Socket Traceroute Prototype (Privileged)
+
+```python
+# Requires: CAP_NET_RAW or root
+# Linux 3.0+ for ICMP dgram sockets (if ping_group_range configured)
+
+import socket
+import struct
+import asyncio
+
+async def raw_icmp_traceroute(host: str, max_hops: int = 30):
+    """Raw ICMP traceroute - requires privileges."""
+    dest_ip = socket.gethostbyname(host)
+    
+    # Send socket: raw ICMP or UDP with TTL control
+    send_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+    
+    # Receive socket: raw ICMP for TIME_EXCEEDED and PORT_UNREACH
+    recv_sock = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_ICMP)
+    recv_sock.settimeout(2.0)
+    recv_sock.bind(('', 0))
+    
+    try:
+        for ttl in range(1, max_hops + 1):
+            send_sock.setsockopt(socket.IPPROTO_IP, socket.IP_TTL, struct.pack('I', ttl))
+            
+            # Send probe
+            port = 33434 + ttl
+            send_sock.sendto(b'X' * 40, (dest_ip, port))
+            
+            # Wait for ICMP response
+            try:
+                data, addr = recv_sock.recvfrom(1024)
+                # Parse ICMP header (type, code, ...)
+                icmp_type = data[20]  # IP header is 20 bytes
+                if icmp_type == 11:  # TIME_EXCEEDED
+                    print(f'{ttl}: {addr[0]} (TTL exceeded)')
+                elif icmp_type == 3:  # DEST_UNREACH
+                    print(f'{ttl}: {addr[0]} (Destination reached)')
+                    break
+            except socket.timeout:
+                print(f'{ttl}: *')
+    finally:
+        send_sock.close()
+        recv_sock.close()
+```
+
+**Note**: This prototype is for reference only. Production implementation needs:
+- Proper ICMP header parsing (type, code, checksum, identifier, sequence)
+- Handling of ICMP extensions (RFC 4884)
+- Checksum validation
+- IPv6 support (IPPROTO_ICMPV6)
+- Concurrent probe sending (`-N` equivalent)
+- Adaptive timeout algorithm
+

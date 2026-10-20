@@ -175,26 +175,6 @@ class PacketJourneyResponse(BaseModel):
     error: Optional[str] = None
 
 
-class RouteLookupResult(BaseModel):
-    """
-    Result of a route lookup operation.
-
-    Attributes:
-        matched: Whether a matching route was found
-        route: The selected routing entry (None if no match)
-        explanation: Human-readable explanation of the selection
-        error: Error message if input was invalid (None if successful)
-        transmitted: Always false; this API performs routing decisions only,
-            not actual packet transmission.
-    """
-
-    matched: bool
-    route: Optional[RoutingEntry] = None
-    explanation: str = ""
-    error: Optional[str] = None
-    transmitted: bool = False
-
-
 # Sample routing table entries for testing and demonstration
 SAMPLE_ROUTES = [
     RoutingEntry(
