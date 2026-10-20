@@ -32,6 +32,9 @@ import type {
   ExerciseSummary,
   ExerciseDetail,
   ExerciseState,
+  DiscoveryScopePreview,
+  DiscoveryResult,
+  DiscoveryAuditEntry,
 } from '../types/routing';
 
 const API_BASE = '';
@@ -340,4 +343,64 @@ export async function checkExercise(
       body: JSON.stringify({ scenario_id: scenarioId, workspace: workspace ?? undefined }),
     }
   );
+}
+
+// Authorised discovery API
+export async function previewDiscoveryScope(
+  target: string,
+  maxHosts: number,
+  interval: number,
+  timeout: number
+): Promise<DiscoveryScopePreview> {
+  return fetchWithTimeout<DiscoveryScopePreview>(
+    '/api/discovery/scope',
+    15000,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        target,
+        max_hosts: maxHosts,
+        interval,
+        timeout,
+      }),
+    }
+  );
+}
+
+export async function runDiscovery(
+  target: string,
+  confirmation: string,
+  maxHosts: number,
+  interval: number,
+  timeout: number
+): Promise<DiscoveryResult> {
+  return fetchWithTimeout<DiscoveryResult>(
+    '/api/discovery/run',
+    300000,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        target,
+        max_hosts: maxHosts,
+        interval,
+        timeout,
+        confirmed: true,
+        confirmation,
+      }),
+    }
+  );
+}
+
+export async function cancelDiscovery(scanId: string): Promise<{ cancelled: boolean }> {
+  return fetchWithTimeout<{ cancelled: boolean }>(
+    `/api/discovery/cancel?scan_id=${encodeURIComponent(scanId)}`,
+    10000,
+    { method: 'POST' }
+  );
+}
+
+export async function fetchDiscoveryAudit(): Promise<DiscoveryAuditEntry[]> {
+  return fetchWithTimeout<DiscoveryAuditEntry[]>('/api/discovery/audit', 10000);
 }

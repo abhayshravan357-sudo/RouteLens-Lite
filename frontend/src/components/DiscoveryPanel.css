@@ -1,0 +1,342 @@
+/* Discovery panel */
+
+.discovery-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.discovery-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.discovery-header h3 {
+  margin: 0 0 4px 0;
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+
+.discovery-intro {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+  line-height: 1.6;
+  max-width: 65ch;
+}
+
+.discovery-authorisation {
+  padding: 12px 14px;
+  background: #fef3c7;
+  border: 1px solid #fcd34d;
+  border-radius: var(--radius-md);
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  color: #78350f;
+}
+
+.discovery-form {
+  padding: 16px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.discovery-form-fields {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  width: 100%;
+}
+
+.discovery-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 150px;
+  flex: 1;
+}
+
+.discovery-field-wide {
+  min-width: 260px;
+  flex: 2;
+}
+
+.discovery-field label {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.discovery-field input {
+  padding: 8px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.discovery-field input:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+}
+
+.discovery-suggest {
+  align-self: flex-start;
+  margin-top: 4px;
+  border: none;
+  background: transparent;
+  color: var(--color-primary);
+  font-size: 0.75rem;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+}
+
+.discovery-preview {
+  padding: 16px;
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-md);
+  background: rgba(37, 99, 235, 0.03);
+}
+
+.discovery-preview h4 {
+  margin: 0 0 8px 0;
+  font-size: 0.9375rem;
+  font-weight: 600;
+}
+
+.discovery-preview-text {
+  margin: 0 0 12px 0;
+  font-size: 0.875rem;
+  line-height: 1.7;
+  color: var(--color-text);
+}
+
+.discovery-preview code,
+.discovery-confirm code {
+  font-family: var(--font-mono);
+  background: var(--color-bg);
+  padding: 1px 5px;
+  border-radius: var(--radius-sm);
+}
+
+.discovery-addresses {
+  font-size: 0.8125rem;
+  margin-bottom: 14px;
+}
+
+.discovery-addresses summary {
+  cursor: pointer;
+  color: var(--color-text-muted);
+}
+
+.discovery-addresses ul {
+  margin: 8px 0 0 0;
+  padding-left: 20px;
+  columns: 4;
+  list-style: none;
+}
+
+.discovery-addresses li {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  padding: 1px 0;
+}
+
+.discovery-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--color-border);
+}
+
+.discovery-confirm label {
+  font-size: 0.875rem;
+  color: var(--color-text);
+  line-height: 1.5;
+}
+
+.discovery-confirm input {
+  padding: 8px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+  max-width: 360px;
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.discovery-result {
+  padding: 16px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg);
+}
+
+.discovery-result-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.discovery-status {
+  font-weight: 600;
+  font-size: 0.9375rem;
+  padding: 3px 10px;
+  border-radius: var(--radius-sm);
+}
+
+.discovery-status.completed {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.discovery-status.cancelled {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.discovery-status.failed {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.discovery-message {
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+}
+
+.discovery-result-meta {
+  display: flex;
+  gap: 16px;
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.discovery-hosts {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8125rem;
+  background: var(--color-surface);
+}
+
+.discovery-hosts th,
+.discovery-hosts td {
+  padding: 8px 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.discovery-hosts th {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+}
+
+.discovery-hosts .mono {
+  font-family: var(--font-mono);
+}
+
+.discovery-empty {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+.discovery-audit {
+  font-size: 0.8125rem;
+}
+
+.discovery-audit summary {
+  cursor: pointer;
+  color: var(--color-text-muted);
+  padding: 4px 0;
+}
+
+.discovery-audit-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 8px;
+}
+
+.discovery-audit-table th,
+.discovery-audit-table td {
+  padding: 6px 8px;
+  text-align: left;
+  border-bottom: 1px solid var(--color-border);
+  font-size: 0.75rem;
+}
+
+.discovery-audit-table th {
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+}
+
+.discovery-audit-table .mono {
+  font-family: var(--font-mono);
+}
+
+.audit-outcome {
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 0.625rem;
+  letter-spacing: 0.04em;
+}
+
+.audit-outcome.completed {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.audit-outcome.refused {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.audit-outcome.cancelled {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.audit-outcome.failed {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.audit-reason {
+  color: var(--color-text-muted);
+  max-width: 24ch;
+}
+
+@media (max-width: 768px) {
+  .discovery-addresses ul {
+    columns: 2;
+  }
+
+  .discovery-confirm input {
+    max-width: 100%;
+  }
+}

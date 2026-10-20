@@ -13,9 +13,18 @@ import NetworkInterfaces from './NetworkInterfaces';
 import NetworkRoutes from './NetworkRoutes';
 import NetworkNeighbors from './NetworkNeighbors';
 import ConnectivityPanel from './ConnectivityPanel';
+import DiscoveryPanel from './DiscoveryPanel';
 import './NetworkDiagnostics.css';
 
-type TabType = 'all' | 'interfaces' | 'routes' | 'neighbors' | 'dns' | 'connectivity' | 'traceroute';
+type TabType =
+  | 'all'
+  | 'interfaces'
+  | 'routes'
+  | 'neighbors'
+  | 'dns'
+  | 'connectivity'
+  | 'traceroute'
+  | 'discovery';
 
 export default function NetworkDiagnostics() {
   const [activeTab, setActiveTab] = useState<TabType>('all');
@@ -30,6 +39,7 @@ export default function NetworkDiagnostics() {
     dns: false,
     connectivity: false,
     traceroute: false,
+    discovery: false,
   });
   const [error, setError] = useState<Record<string, string | null>>({
     all: null,
@@ -39,8 +49,14 @@ export default function NetworkDiagnostics() {
     dns: null,
     connectivity: null,
     traceroute: null,
+    discovery: null,
   });
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
+
+  // The host's own IPv4 address, used to suggest a sensible scan scope.
+  const localAddress =
+    interfacesData?.data?.find((i) => i.state === 'UP' && i.ipv4_addresses.length > 0)
+      ?.ipv4_addresses[0] ?? null;
 
   const loadTab = async (tab: string) => {
     setLoading(prev => ({ ...prev, [tab]: true }));
@@ -182,6 +198,14 @@ export default function NetworkDiagnostics() {
         >
           Traceroute
         </button>
+        <button
+          role="tab"
+          aria-selected={activeTab === 'discovery'}
+          onClick={() => handleTabChange('discovery')}
+          className={`tab-button ${activeTab === 'discovery' ? 'active' : ''}`}
+        >
+          Discovery
+        </button>
       </div>
 
       <div className="tab-panels" role="tabpanel">
@@ -299,6 +323,17 @@ export default function NetworkDiagnostics() {
             </div>
             <div style={{ padding: '20px' }}>
               <ConnectivityPanel />
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'discovery' && (
+          <div className="diagnostics-section">
+            <div className="section-header">
+              <h3>Host Discovery</h3>
+            </div>
+            <div style={{ padding: '20px' }}>
+              <DiscoveryPanel localAddress={localAddress} />
             </div>
           </div>
         )}

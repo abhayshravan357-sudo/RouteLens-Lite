@@ -487,3 +487,52 @@ export interface ExerciseState {
     matched_prefix: string | null;
   }[];
 }
+
+/**
+ * Authorised discovery types - matching backend/app/discovery.py.
+ */
+
+export interface DiscoveryScope {
+  network: string;
+  max_hosts: number;
+  interval: number;
+  timeout: number;
+  host_count: number;
+}
+
+export interface DiscoveredHost {
+  ip_address: string;
+  method: string;
+  latency_ms: number | null;
+  mac_address: string | null;
+  responded_at: string;
+}
+
+export interface DiscoveryResult {
+  status: string;
+  hosts: DiscoveredHost[];
+  addresses_probed: number;
+  addresses_total: number;
+  scope: DiscoveryScope;
+  duration_seconds: number;
+  cancelled: boolean;
+  scan_id: string | null;
+  message: string | null;
+}
+
+export interface DiscoveryScopePreview {
+  scope: DiscoveryScope;
+  addresses: string[];
+  requires_confirmation: boolean;
+}
+
+export interface DiscoveryAuditEntry {
+  timestamp: string;
+  target: string;
+  outcome: 'completed' | 'refused' | 'cancelled' | 'failed';
+  hosts_found: number;
+  addresses_probed: number;
+  duration_seconds: number;
+  reason: string | null;
+  confirmed: boolean;
+}
