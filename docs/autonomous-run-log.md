@@ -10,11 +10,11 @@
 
 | Metric | Value |
 |---|---|
-| Backend tests | **290 passed, 1 skipped** |
+| Backend tests | **298 passed, 2 skipped** |
 | Frontend build | ✅ passes |
 | TypeScript | ✅ clean |
 | `git diff --check` | ✅ clean |
-| Commits this run | 11 |
+| Commits this run | 14 |
 | Skipped tests | 1 (root-only simulation-versus-lab) |
 
 ---
@@ -75,6 +75,23 @@
 - `/packet-journey` was missing from the Vite proxy, so the older Packet
   Journey UI could not reach the backend in development. Fixed.
 
+### TASK-903: Overview Dashboard ✅ `af1c420`
+- Answers the five questions a student would otherwise hunt for
+- Real machine facts, real neighbour counts, real last-outcome
+- 4 browser checks
+
+### TASK-904: Exportable Report ✅ `b3b8b33`
+- Every claim records value, provenance, source and collection time
+- Limitations are part of the report, not an afterthought
+- Markdown for a file, JSON for processing
+- 8 backend tests, 3 browser checks
+
+### Browser-level tests ✅ `5801636`
+- 22 checks drive a real Chromium against the running app
+- Found two faults the API tests could not see: invalid DOM nesting in
+  Visualization.tsx, and a missing Vite proxy entry
+- Skip cleanly when Playwright is unavailable
+
 ---
 
 ## Live Verification Performed
@@ -94,6 +111,8 @@
 | Real discovery | ✅ found the real gateway 192.168.0.1 |
 | Full journey through the proxy | ✅ all 8 areas |
 | Lab status | 503 "Lab not ready" — honest, namespaces not visible unprivileged |
+| Browser rendering | ✅ 22 checks in real Chromium, zero console errors |
+| Report export | ✅ evidence, sources, timestamps and limits |
 
 ---
 
@@ -128,10 +147,12 @@
 
 ## Checkpoint
 
-**Resume point**: `integration/baseline-2026-10-20` @ `8b64ee7`, working tree clean.
+**Resume point**: `integration/baseline-2026-10-20` @ `b3b8b33`, working tree clean.
 
-**State**: Phases 0–9 complete. 290 tests pass, build clean, app running and verified
-through the Vite proxy. 28 API endpoints registered. `main` untouched at `03f347b`.
+**State**: Phases 0–9 complete plus the overview and report. 298 tests pass
+(22 of them in a real browser), build clean, app running and verified
+through the Vite proxy. 29 API endpoints registered. `main` untouched at
+`03f347b`.
 
 **Next action**: Obtain authorization for a privileged lab run, or archive the
 duplicate autonomous-engineering worktree.
