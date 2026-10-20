@@ -14,6 +14,7 @@ import NetworkRoutes from './NetworkRoutes';
 import NetworkNeighbors from './NetworkNeighbors';
 import ConnectivityPanel from './ConnectivityPanel';
 import DiscoveryPanel from './DiscoveryPanel';
+import PCAPPanel from './PCAPPanel';
 import './NetworkDiagnostics.css';
 
 type TabType =
@@ -24,7 +25,8 @@ type TabType =
   | 'dns'
   | 'connectivity'
   | 'traceroute'
-  | 'discovery';
+  | 'discovery'
+  | 'capture';
 
 export default function NetworkDiagnostics() {
   const [activeTab, setActiveTab] = useState<TabType>('all');
@@ -40,6 +42,7 @@ export default function NetworkDiagnostics() {
     connectivity: false,
     traceroute: false,
     discovery: false,
+    capture: false,
   });
   const [error, setError] = useState<Record<string, string | null>>({
     all: null,
@@ -50,6 +53,7 @@ export default function NetworkDiagnostics() {
     connectivity: null,
     traceroute: null,
     discovery: null,
+    capture: null,
   });
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
 
@@ -206,6 +210,14 @@ export default function NetworkDiagnostics() {
         >
           Discovery
         </button>
+        <button
+          role="tab"
+          aria-selected={activeTab === 'capture'}
+          onClick={() => handleTabChange('capture')}
+          className={`tab-button ${activeTab === 'capture' ? 'active' : ''}`}
+        >
+          Capture file
+        </button>
       </div>
 
       <div className="tab-panels" role="tabpanel">
@@ -352,6 +364,17 @@ export default function NetworkDiagnostics() {
             </div>
             <div style={{ padding: '20px' }}>
               <ConnectivityPanel />
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'capture' && (
+          <div className="diagnostics-section">
+            <div className="section-header">
+              <h3>Capture File Analysis</h3>
+            </div>
+            <div style={{ padding: '20px' }}>
+              <PCAPPanel />
             </div>
           </div>
         )}

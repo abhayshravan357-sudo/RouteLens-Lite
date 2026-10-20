@@ -12,6 +12,7 @@ export default defineConfig({
       '/lookup': 'http://127.0.0.1:8000',
       '/packet-journey': 'http://127.0.0.1:8000',
       '/api/lab': 'http://127.0.0.1:8000',
+      '/api/pcap': 'http://127.0.0.1:8000',
       '/api/scenarios': 'http://127.0.0.1:8000',
       '/api/exercises': 'http://127.0.0.1:8000',
       '/api/discovery': 'http://127.0.0.1:8000',

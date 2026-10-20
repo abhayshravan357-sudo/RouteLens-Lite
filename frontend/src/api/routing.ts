@@ -35,6 +35,8 @@ import type {
   DiscoveryScopePreview,
   DiscoveryResult,
   DiscoveryAuditEntry,
+  PcapAnalyzeRequest,
+  PcapAnalysisResult,
 } from '../types/routing';
 
 const API_BASE = '';
@@ -419,4 +421,18 @@ export async function fetchReportMarkdown(): Promise<string> {
     );
   }
   return response.text();
+}
+
+// PCAP Analysis API
+export async function analyzeCaptureFile(filename: string, dataBase64: string): Promise<PcapAnalysisResult> {
+  const request: PcapAnalyzeRequest = { filename, data_base64: dataBase64 };
+  return fetchWithTimeout<PcapAnalysisResult>(
+    '/api/pcap/analyze',
+    60000,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    }
+  );
 }
