@@ -1,48 +1,246 @@
 # RouteLens Lite
 
-A simple IPv4 routing table analyzer for a college project.
+RouteLens Lite is a learning tool for computer networks. It answers the
+question "which route would the kernel pick for this address, and why?" — and
+then lets you change the routes, trace a packet hop by hop, and read the
+machine's own network state with the evidence for every claim attached.
 
-## Features
-- Add and view routing table entries
-- Find the best route using longest-prefix matching
-- Display next hop and explain route selection
-- Visualize the selected network route
-- Handle invalid destinations and unreachable routes
+Everything it shows is labelled with where it came from: **observed** for
+something read out of a running system, **inferred** for a conclusion drawn
+from an observation, **simulated** for a path worked out by the routing
+engine, and **measured** for something actually sent and received.
 
-## Technology
-- Backend: Python and FastAPI
-- Frontend: React, TypeScript, and Vite
-- Testing: pytest and frontend build checks
+## What it is not
 
-## Backend Setup
+It is worth being clear about this, because the name invites the wrong idea.
 
-### Prerequisites
-- Python 3.11+
-- pip (Python package manager)
+- **It does not discover physical switches.** It never scans for routers,
+  reads LLDP or CDP, or maps the campus. The topology map is built from the
+  scenarios you model and from the one machine it runs on.
+- **It does not measure the network it is connected to.** The diagnostics tab
+  reads *this* machine's interfaces, routing table, neighbour cache and
+  resolver. A traceroute run from here describes the path from here. It is
+  not a measurement of the network's behaviour under load.
+- **A route decision is not a measurement.** When RouteLens says a packet
+  would be forwarded via a gateway, that is the routing engine reasoning over
+  a table. Nothing was sent. Only the virtual packet lab sends real packets,
+  and only inside network namespaces it creates.
 
-### Installation
+## What it does
+
+- **Routing table analysis with longest-prefix matching** — type an address
+  and see which route wins, which candidates it beat, and why each one lost.
+- **An editable routing table** — add, change or remove routes and watch the
+  lookup answer differently straight away.
+- **A packet journey traced hop by hop** through a modelled scenario, with
+  each hop's routing decision shown in full.
+- **An isolated virtual packet lab** that sends real packets between network
+  namespaces, with the capture checked afterwards.
+- **Network diagnostics read from the host** — interfaces, routing table,
+  neighbour cache, DNS resolution, connectivity checks and traceroute.
+- **A capture file importer** that reads a PCAP or PCAPNG and extracts ports,
+  TCP flags, three-way handshakes, DNS names, ICMP types and ARP addresses.
+- **An evidence-based topology map** of the scenario and the machine.
+- **A learning lab** whose exercises are marked by the routing engine, not by
+  a hand-written answer key.
+- **Authorised host discovery** with a confirmation step and an audit trail of
+  what was asked for and what was refused.
+- **An exportable report** listing every claim with its source, its time, and
+  what could not be established.
+
+## Setup
+
+You need **Python 3.11 or newer** (CI uses 3.12) and **Node.js 18 or newer**
+(CI uses 20).
+
+### Backend
+
 ```bash
 cd backend
-python -m venv .venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+python3 -m venv .venv
+source .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-### Running the Backend
-```bash
-# From the backend directory with virtual environment activated
-uvicorn app.main:app --reload --port 8000
-```
-The API will be available at http://localhost:8000
-Health check: http://localhost:8000/health
-Interactive API docs: http://localhost:8000/docs
+### Frontend
 
-### Running Tests
 ```bash
-# From the backend directory with virtual environment activated
-pytest
+cd frontend
+npm ci
 ```
-Or for more verbose output:
+
+`npm ci` installs exactly what `package-lock.json` pins. Use `npm install`
+instead if you are changing dependencies on purpose.
+
+### The virtual packet lab (optional)
+
+Everything above works without root. The **virtual lab** is the one feature
+that needs it, because it creates real network namespaces:
+
+- **root** (network namespaces need `CAP_SYS_ADMIN`)
+- the **`ip`** command from `iproute2`
+- the **`ping`** command
+
+Without those, the lab reports itself as unavailable and the reason:
+
+> needs root: network namespaces require CAP_SYS_ADMIN. Run the backend with
+> sudo only for lab use.
+
+Everything else — the routing analysis, the scenario lab, the diagnostics, the
+capture importer, the exercises and the report — works without root. Only run
+the backend under `sudo` when you actually want the lab.
+
+## Running it
+
+Two processes, in two terminals.
+
+**Backend** (from `backend/`, with the virtual environment activated):
+
 ```bash
-pytest -v
+python -m uvicorn app.main:app --port 8000
 ```
+
+**Frontend** (from `frontend/`):
+
+```bash
+npm run dev
+```
+
+Then open **<http://localhost:5173>**.
+
+If 5173 is already taken, Vite quietly moves to the next free port and prints
+it — open the URL it shows rather than assuming 5173.
+
+The Vite dev server proxies the API to the backend, so the browser only ever
+talks to one origin. The backend also serves its own interactive API docs at
+<http://localhost:8000/docs>.
+
+If you need the backend on another port, set `ROUTELENS_BACKEND_URL` when you
+start the frontend:
+
+```bash
+ROUTELENS_BACKEND_URL=http://127.0.0.1:8010 npm run dev
+```
+
+## Testing
+
+**Backend** — the whole suite:
+
+```bash
+cd backend
+source .venv/bin/activate
+python -m pytest -q
+```
+
+```
+539 passed, 2 skipped, 1 warning in 26.29s
+```
+
+**Frontend** — type check and production build:
+
+```bash
+cd frontend
+npx tsc --noEmit
+npm run build
+```
+
+**Browser checks** — these drive a real Chromium against a running backend and
+frontend. They need Playwright:
+
+```bash
+cd backend
+source .venv/bin/activate
+pip install playwright
+python -m playwright install chromium
+```
+
+With the backend on port 8000 and the frontend on port 5173, as above:
+
+```bash
+cd backend
+ROUTELENS_URL=http://127.0.0.1:5173 \
+ROUTELENS_HEALTH=http://127.0.0.1:8000/health \
+python -m pytest tests/test_e2e_browser.py -q -p no:cacheprovider
+```
+
+```
+61 passed, 3 xfailed, 0 failed
+```
+
+The three `xfail` checks are for features that exist in the API but have no
+screen yet; they are there so the gap is visible and so they start failing
+the day a screen appears.
+
+These checks **skip cleanly** if Playwright or the backend is not there, so an
+ordinary `pytest` run is never blocked by them.
+
+**Everything at once:**
+
+```bash
+bash scripts/routelens-check.sh
+```
+
+That runs the git whitespace check, the backend suite, the type check and the
+build, and writes a report under `.routelens/reports/`. It expects a normal
+clone, so run it from the top of the repository rather than from inside a git
+worktree.
+
+## How to use it
+
+A sensible first ten minutes:
+
+1. Open the app. The overview answers what the app can see and what it cannot.
+2. In **Route Lookup**, enter `192.168.1.50`. Read the explanation: it says
+   which prefix won and which one lost, and why.
+3. Now edit the table. Add a `203.0.113.0/24` route, then look up
+   `203.0.113.9` again and watch the answer change. Remove it and watch it go
+   back. This is the same routing engine the exercises use.
+4. Open the **Scenario Lab**, pick *Client → Router → Server*, and send a
+   packet. Every hop shows the route it picked and the routes it beat.
+5. Open the **Learning Lab** and do an exercise. When you get it wrong, the
+   feedback says which hop went the wrong way, not just that you were wrong.
+6. Open the **Network Diagnostics** tab and look at the interfaces, routes
+   and neighbours of the machine you are sitting at.
+7. Finally, build the **report** and read its limitations section. It tells
+   you what was measured, what was inferred, and what could not be established.
+
+## Limitations
+
+The project tries not to claim more than it does, and these are the real ones:
+
+- **The routing decision is inferred, not observed.** It is what the kernel's
+  table implies, not a packet that was sent. Only the virtual lab sends real
+  packets, and only inside namespaces it creates.
+- **Only the main routing table is read.** The kernel keeps local and
+  broadcast routes in separate tables, so an address this host owns may have
+  no entry of its own in what you see.
+- **The capture importer summarises rather than itemises.** It parses ports,
+  flags, handshakes, DNS names and ARP out of a PCAP, but the panel currently
+  shows the summary, the hosts and the conversations — the per-packet detail
+  is in the API response, not yet on the screen.
+- **The real-table analysis is not on the screen yet.** The endpoint that
+  explains the host's own routing table works and is covered by tests, but
+  the page does not yet show it.
+- **Fragments, VLAN tags and DNS over TCP are not decoded.** The importer says
+  so in its own limitations rather than guessing.
+- **The scenario lab is a model.** Its routes are the ones you gave it, not
+  a reading of any real network.
+- **Discovery needs authorisation.** It asks for the scope to be confirmed
+  and records both confirmations and refusals in an audit trail.
+
+## Further reading
+
+- [`docs/qa-gap-report.md`](docs/qa-gap-report.md) — what the independent
+  review found, with severities and the files that should change.
+- [`docs/e2e-test-plan.md`](docs/e2e-test-plan.md) — the end-to-end scenarios
+  and what each needs.
+- [`docs/packet-lab-api-contract.md`](docs/packet-lab-api-contract.md) — the
+  contract the virtual lab's API keeps.
+- [`docs/real-network-audit.md`](docs/real-network-audit.md) — what was
+  actually read from a real machine, and what was not.
+
+## Technology
+
+- **Backend**: Python, FastAPI, pytest
+- **Frontend**: React, TypeScript, Vite
+- **Browser checks**: Playwright
