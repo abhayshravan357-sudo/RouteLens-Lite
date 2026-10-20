@@ -14,7 +14,7 @@
 | Frontend build | ✅ passes |
 | TypeScript | ✅ clean |
 | `git diff --check` | ✅ clean |
-| Commits this run | 9 |
+| Commits this run | 11 |
 | Skipped tests | 1 (root-only simulation-versus-lab) |
 
 ---
@@ -71,6 +71,10 @@
 - 24 tests pass
 - Verified live: found the real gateway at 192.168.0.1
 
+### Fixes
+- `/packet-journey` was missing from the Vite proxy, so the older Packet
+  Journey UI could not reach the backend in development. Fixed.
+
 ---
 
 ## Live Verification Performed
@@ -88,6 +92,8 @@
 | Learning Lab exercises | ✅ 7 exercises, checked via the proxy |
 | Discovery guards | ✅ 403 without confirmation, 400 on a wide scope |
 | Real discovery | ✅ found the real gateway 192.168.0.1 |
+| Full journey through the proxy | ✅ all 8 areas |
+| Lab status | 503 "Lab not ready" — honest, namespaces not visible unprivileged |
 
 ---
 
@@ -122,10 +128,10 @@
 
 ## Checkpoint
 
-**Resume point**: `integration/baseline-2026-10-20` @ `930cb53`, working tree clean.
+**Resume point**: `integration/baseline-2026-10-20` @ `8b64ee7`, working tree clean.
 
 **State**: Phases 0–9 complete. 290 tests pass, build clean, app running and verified
-through the Vite proxy.
+through the Vite proxy. 28 API endpoints registered. `main` untouched at `03f347b`.
 
 **Next action**: Obtain authorization for a privileged lab run, or archive the
 duplicate autonomous-engineering worktree.
