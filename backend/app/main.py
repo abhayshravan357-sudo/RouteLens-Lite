@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.routing import RouteLookupResult, RoutingEntry, SAMPLE_ROUTES
 from app.routing_logic import lookup_route
+from app.packet_lab_routes import router as packet_lab_router
 
 app = FastAPI(
     title="RouteLens Lite API",
@@ -26,6 +27,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(packet_lab_router)
 
 
 @app.get("/health", tags=["Health"])
