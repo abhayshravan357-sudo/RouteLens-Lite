@@ -64,20 +64,30 @@ def _route(gateway="192.168.1.1", interface="eth0"):
 
 
 class _FakeCollector:
-    """A collector whose three calls return fixed results."""
+    """A collector whose three calls return fixed results.
 
-    def __init__(self, interfaces, routes, neighbors):
+    The signatures match the real collector, which takes the address
+    family so it can read both tables.
+    """
+
+    def __init__(self, interfaces, routes, neighbors, routes_ipv6=None, neighbors_ipv6=None):
         self._interfaces = interfaces
         self._routes = routes
         self._neighbors = neighbors
+        self._routes_ipv6 = routes_ipv6 or []
+        self._neighbors_ipv6 = neighbors_ipv6 or []
 
     async def collect_interfaces(self):
         return _collection(self._interfaces)
 
-    async def collect_routes(self):
+    async def collect_routes(self, ip_version="ipv4"):
+        if ip_version == "ipv6":
+            return _collection(self._routes_ipv6)
         return _collection(self._routes)
 
-    async def collect_neighbors(self):
+    async def collect_neighbors(self, ip_version="ipv4"):
+        if ip_version == "ipv6":
+            return _collection(self._neighbors_ipv6)
         return _collection(self._neighbors)
 
 
@@ -204,3 +214,39 @@ class TestBuildTopology:
 
         assert graph.observed_at
         assert graph.observed_at.endswith("Z")
+
+    @pytest.mark.asyncio
+    async def test_a_connected_route_contributes_no_gateway_node(self):
+        """A route with no next hop is directly connected, not a gateway.
+
+        The IPv4 table has one of these too, and it correctly adds
+        nothing. The IPv6 table must behave the same way.
+        """
+        fake = _FakeCollector(
+            interfaces=[],
+            routes=[],
+            neighbors=[],
+            routes_ipv6=[_route(gateway=None, interface="wlp2s0")],
+        )
+
+        with patch("app.topology.get_network_collector", return_value=fake):
+            graph = await build_topology(None)
+
+        assert [n for n in graph.nodes if n.kind == "gateway"] == []
+
+    @pytest.mark.asyncio
+    async def test_ipv6_gateways_appear_alongside_ipv4_ones(self):
+        """Both families' gateways are shown, and stay distinct."""
+        fake = _FakeCollector(
+            interfaces=[],
+            routes=[_route(gateway="192.168.0.1", interface="wlp2s0")],
+            neighbors=[],
+            routes_ipv6=[_route(gateway="fe80::1", interface="wlp2s0")],
+        )
+
+        with patch("app.topology.get_network_collector", return_value=fake):
+            graph = await build_topology(None)
+
+        gateway_ids = {n.id for n in graph.nodes if n.kind == "gateway"}
+        assert "gateway:192.168.0.1" in gateway_ids
+        assert "gateway:fe80::1" in gateway_ids

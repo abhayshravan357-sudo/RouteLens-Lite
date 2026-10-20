@@ -112,41 +112,46 @@ async def build_topology(scenario: Optional[Scenario]) -> TopologyGraph:
             )
 
     # --- Observed: the real host's neighbours -----------------------------
-    neighbors_result = await collector.collect_neighbors()
-    if neighbors_result.success and neighbors_result.data:
-        for neighbor in neighbors_result.data:
-            node_id = f"neighbor:{neighbor.ip_address}"
-            host_data_found = True
-            add_node(
-                TopologyNode(
-                    id=node_id,
-                    kind="neighbor",
-                    label=neighbor.ip_address,
-                    provenance=Provenance.OBSERVED,
-                    addresses=[neighbor.ip_address],
-                    detail=(
-                        f"{neighbor.state} on {neighbor.interface}"
-                        + (f", mac {neighbor.mac_address}" if neighbor.mac_address else "")
-                        + (" (router)" if neighbor.is_router else "")
-                    ),
+    # Both families are read. The IPv6 neighbour table is usually empty, and
+    # saying so is better than pretending the host has no IPv6 neighbours.
+    for family in ("ipv4", "ipv6"):
+        neighbors_result = await collector.collect_neighbors(ip_version=family)
+        if neighbors_result.success and neighbors_result.data:
+            for neighbor in neighbors_result.data:
+                node_id = f"neighbor:{neighbor.ip_address}"
+                host_data_found = True
+                add_node(
+                    TopologyNode(
+                        id=node_id,
+                        kind="neighbor",
+                        label=neighbor.ip_address,
+                        provenance=Provenance.OBSERVED,
+                        addresses=[neighbor.ip_address],
+                        detail=(
+                            f"{neighbor.state} on {neighbor.interface}"
+                            + (f", mac {neighbor.mac_address}" if neighbor.mac_address else "")
+                            + (" (router)" if neighbor.is_router else "")
+                        ),
+                    )
                 )
-            )
-            # A neighbour entry is a device answering on the link: the link
-            # itself is inferred, the neighbour record is observed.
-            edges.append(
-                TopologyEdge(
-                    source=f"iface:{neighbor.interface}",
-                    target=node_id,
-                    kind="neighbor",
-                    provenance=Provenance.INFERRED,
-                    label="answers on",
-                    detail="The neighbour cache says a device answered here; the link itself was not measured.",
+                # A neighbour entry is a device answering on the link: the link
+                # itself is inferred, the neighbour record is observed.
+                edges.append(
+                    TopologyEdge(
+                        source=f"iface:{neighbor.interface}",
+                        target=node_id,
+                        kind="neighbor",
+                        provenance=Provenance.INFERRED,
+                        label="answers on",
+                        detail="The neighbour cache says a device answered here; the link itself was not measured.",
+                    )
                 )
-            )
 
     # --- Observed: the real host's routes ---------------------------------
-    routes_result = await collector.collect_routes()
-    if routes_result.success and routes_result.data:
+    for family in ("ipv4", "ipv6"):
+        routes_result = await collector.collect_routes(ip_version=family)
+        if not (routes_result.success and routes_result.data):
+            continue
         for route in routes_result.data:
             if not route.gateway:
                 continue
