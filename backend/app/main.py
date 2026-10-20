@@ -313,8 +313,8 @@ async def analyse_main_table(destination: Optional[str] = None):
         "limitations": [
             "This is the table the Route Lookup works against, not the "
             "host's kernel routing table.",
-            "The table is modelled and lives in the backend's memory only. "
-            "Restarting the backend puts the original table back.",
+            "The table is modelled. Edits are persisted to disk and survive "
+            "a restart of the backend.",
             "No packet was transmitted. The explanation is what the table "
             "would do, not something that happened.",
         ],
