@@ -2,6 +2,7 @@
 RouteLens Lite - Mutable Routing Table Service
 
 Provides a thread-safe, authoritative routing table that can be modified at runtime.
+Now with durable persistence so edits survive a restart.
 """
 
 import threading
@@ -9,6 +10,12 @@ from copy import deepcopy
 from typing import Optional
 
 from app.routing import RoutingEntry, NextHopType, Provenance, SAMPLE_ROUTES
+from app.routing_table_persistence import (
+    RoutingTablePersistence,
+    get_persistence,
+    PersistenceReport,
+    PersistenceState,
+)
 
 
 class RoutingTableError(Exception):
@@ -35,22 +42,37 @@ class RoutingTable:
 
     Holds the authoritative routing table in memory with support for
     atomic bulk operations and individual route CRUD.
+    Now with durable persistence so edits survive a restart.
     """
 
-    def __init__(self):
+    def __init__(self, persistence: Optional[RoutingTablePersistence] = None):
         self._lock = threading.RLock()
         self._original_routes = deepcopy(SAMPLE_ROUTES)
-        self._routes = deepcopy(SAMPLE_ROUTES)
+        self._persistence = persistence or get_persistence()
+
+        # Load from persistence on startup
+        self._routes, self._load_report = self._persistence.load()
 
     def get_routes(self) -> list[RoutingEntry]:
         """Get a copy of the current routing table."""
         with self._lock:
             return deepcopy(self._routes)
 
+    def get_load_report(self) -> PersistenceReport:
+        """Get the report from the last load operation."""
+        with self._lock:
+            return self._load_report
+
     def reset_routes(self) -> list[RoutingEntry]:
-        """Reset the routing table to the original sample routes."""
+        """
+        Reset the routing table to the original sample routes.
+
+        Also clears the persisted file so the next load returns the sample table.
+        """
         with self._lock:
             self._routes = deepcopy(self._original_routes)
+            # Clear persisted file so it doesn't get reloaded
+            self._persistence.reset_to_sample()
             return deepcopy(self._routes)
 
     def _validate_route(self, route: RoutingEntry) -> None:
@@ -87,6 +109,11 @@ class RoutingTable:
                 f"Gateway route {route.destination} requires a next_hop address"
             )
 
+    def _save(self) -> PersistenceReport:
+        """Save the current table to persistence."""
+        with self._lock:
+            return self._persistence.save(self._routes)
+
     def add_route(self, route: RoutingEntry) -> RoutingEntry:
         """
         Add a route to the table.
@@ -103,7 +130,8 @@ class RoutingTable:
         self._validate_route(route)
         with self._lock:
             self._routes.append(deepcopy(route))
-            return deepcopy(route)
+        self._save()
+        return deepcopy(route)
 
     def update_route(self, index: int, route: RoutingEntry) -> RoutingEntry:
         """
@@ -125,7 +153,8 @@ class RoutingTable:
             if index < 0 or index >= len(self._routes):
                 raise IndexOutOfRangeError(f"Route index {index} out of range (0-{len(self._routes) - 1})")
             self._routes[index] = deepcopy(route)
-            return deepcopy(route)
+        self._save()
+        return deepcopy(route)
 
     def delete_route(self, index: int) -> None:
         """
@@ -141,6 +170,7 @@ class RoutingTable:
             if index < 0 or index >= len(self._routes):
                 raise IndexOutOfRangeError(f"Route index {index} out of range (0-{len(self._routes) - 1})")
             self._routes.pop(index)
+        self._save()
 
     def replace_routes(self, routes: list[RoutingEntry]) -> list[RoutingEntry]:
         """
@@ -167,19 +197,20 @@ class RoutingTable:
 
         with self._lock:
             self._routes = deepcopy(routes)
-            return deepcopy(self._routes)
+        self._save()
+        return deepcopy(self._routes)
 
     def get_summary(self) -> dict:
         """
         Get a summary of the current routing table.
 
         Returns:
-            Dictionary with counts and statistics
+            Dictionary with counts, statistics, and persistence state
         """
         with self._lock:
             routes = self._routes
             if not routes:
-                return {
+                summary = {
                     "total_routes": 0,
                     "longest_prefix": None,
                     "lowest_metric": None,
@@ -187,32 +218,45 @@ class RoutingTable:
                     "ipv4_count": 0,
                     "ipv6_count": 0,
                 }
+            else:
+                # Find longest prefix
+                longest_prefix_route = max(routes, key=lambda r: r.get_network().prefixlen)
+                longest_prefix = f"{longest_prefix_route.destination} (/{longest_prefix_route.get_network().prefixlen})"
 
-            # Find longest prefix
-            longest_prefix_route = max(routes, key=lambda r: r.get_network().prefixlen)
-            longest_prefix = f"{longest_prefix_route.destination} (/{longest_prefix_route.get_network().prefixlen})"
+                # Find lowest metric
+                lowest_metric_route = min(routes, key=lambda r: r.metric)
+                lowest_metric = lowest_metric_route.metric
 
-            # Find lowest metric
-            lowest_metric_route = min(routes, key=lambda r: r.metric)
-            lowest_metric = lowest_metric_route.metric
+                # Count default routes
+                default_route_count = sum(
+                    1 for r in routes
+                    if r.destination in ("0.0.0.0/0", "::/0")
+                )
 
-            # Count default routes
-            default_route_count = sum(
-                1 for r in routes
-                if r.destination in ("0.0.0.0/0", "::/0")
-            )
+                ipv4_count = sum(1 for r in routes if r.get_ip_version().value == "ipv4")
+                ipv6_count = sum(1 for r in routes if r.get_ip_version().value == "ipv6")
 
-            ipv4_count = sum(1 for r in routes if r.get_ip_version().value == "ipv4")
-            ipv6_count = sum(1 for r in routes if r.get_ip_version().value == "ipv6")
+                summary = {
+                    "total_routes": len(routes),
+                    "longest_prefix": longest_prefix,
+                    "lowest_metric": lowest_metric,
+                    "default_route_count": default_route_count,
+                    "ipv4_count": ipv4_count,
+                    "ipv6_count": ipv6_count,
+                }
 
-            return {
-                "total_routes": len(routes),
-                "longest_prefix": longest_prefix,
-                "lowest_metric": lowest_metric,
-                "default_route_count": default_route_count,
-                "ipv4_count": ipv4_count,
-                "ipv6_count": ipv6_count,
+            # Add persistence state
+            summary["persistence"] = {
+                "state": self._load_report.state.value,
+                "message": self._load_report.message,
+                "loaded_at": self._load_report.loaded_at,
+                "file_path": self._load_report.file_path,
+                "backup_path": self._load_report.backup_path,
             }
+            if self._load_report.error:
+                summary["persistence"]["error"] = self._load_report.error
+
+            return summary
 
 
 # Global singleton instance
