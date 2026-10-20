@@ -336,13 +336,14 @@ async def get_routes():
 
 
 @app.get("/network/routes/analysis", response_model=RouteAnalysisReport, tags=["Network"])
-async def get_routes_analysis(destination: Optional[str] = None):
+async def get_routes_analysis(destination: Optional[str] = None, ip_version: str = "ipv4"):
     """
     Analyse the real routing table and explain what it would do.
 
-    Reads the host's routing table with `ip -j route show`, converts it into
-    the same model the routing engine uses, and then explains, for a
-    destination, which route would win and which candidates it beat.
+    Reads the host's routing table with `ip -j route show` (or `ip -j -6
+    route show` for IPv6), converts it into the same model the routing
+    engine uses, and then explains, for a destination, which route would
+    win and which candidates it beat.
 
     Two different claims are kept apart here:
     - The routing table is OBSERVED. It was read from the kernel.
@@ -354,18 +355,53 @@ async def get_routes_analysis(destination: Optional[str] = None):
         destination: Optional destination address to explain. When omitted, a
             set of interesting destinations is chosen: this host's own
             addresses, the default route's gateway, and a public address.
+        ip_version: Which routing table to read, "ipv4" or "ipv6". The kernel
+            keeps the two separately. When a destination is given, its own
+            family decides, because an IPv6 destination says nothing about
+            the IPv4 table.
 
     Returns:
         RouteAnalysisReport with the analysis, the candidates each route beat,
         any shadowing found, and the limits of the analysis.
 
     Errors:
-        - 400: The destination is not a valid IP address
+        - 400: The destination is not a valid IP address, or the family is
+          neither ipv4 nor ipv6
         - 500: The routing table could not be read
     """
     collector = get_network_collector()
 
-    routes_result = await collector.collect_routes()
+    if ip_version not in ("ipv4", "ipv6"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported address family: {ip_version}. Use 'ipv4' or 'ipv6'.",
+        )
+
+    destination_family = None
+    if destination is not None:
+        destination = destination.strip()
+        if not destination:
+            destination = None
+        else:
+            try:
+                IPv4Address(destination)
+                destination_family = "ipv4"
+            except ValueError:
+                try:
+                    IPv6Address(destination)
+                    destination_family = "ipv6"
+                except ValueError:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Invalid destination address: {destination}",
+                    )
+
+    # An IPv6 destination is answered from the IPv6 table, and an IPv4 one
+    # from the IPv4 table. Only when no destination is given does the
+    # requested family stand on its own.
+    family = destination_family or ip_version
+
+    routes_result = await collector.collect_routes(family)
     if not routes_result.success:
         raise HTTPException(
             status_code=500,
@@ -375,29 +411,13 @@ async def get_routes_analysis(destination: Optional[str] = None):
     interfaces_result = await collector.collect_interfaces()
     interfaces = interfaces_result.data if interfaces_result.success else []
 
-    if destination is not None:
-        destination = destination.strip()
-        if not destination:
-            destination = None
-        else:
-            try:
-                IPv4Address(destination)
-            except ValueError:
-                try:
-                    IPv6Address(destination)
-                except ValueError:
-                    raise HTTPException(
-                        status_code=400,
-                        detail=f"Invalid destination address: {destination}",
-                    )
-
     report = analyse_table(
         routes=list(routes_result.data or []),
         interfaces=list(interfaces or []),
         destinations=[destination] if destination else None,
         collected_at=routes_result.timestamp,
         command=routes_result.command,
-        ip_version="ipv4",
+        ip_version=family,
     )
 
     return report

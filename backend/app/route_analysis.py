@@ -96,6 +96,7 @@ class RouteAnalysisReport(BaseModel):
 
     collected_at: str
     command: str
+    ip_version: str = "ipv4"
     routes_in_table: int = 0
     routes_analysed: int = 0
     routes_skipped: list[SkippedRoute] = Field(default_factory=list)
@@ -524,6 +525,10 @@ def choose_interesting_destinations(
     the machine's own addresses, the gateway the default route points at, and
     a public address so the default route can be seen doing its job.
 
+    Only addresses of the family in this table are chosen. Listing an IPv4
+    address against an IPv6 table would report "no route" for every one of
+    them, which is noise rather than information.
+
     Args:
         entries: The table in teaching-model form.
         interfaces: The host's interfaces, used for its own addresses.
@@ -534,26 +539,28 @@ def choose_interesting_destinations(
     destinations: list[str] = []
     seen: set[str] = set()
 
-    def add(value: Optional[str]) -> None:
-        if value and value not in seen:
+    families = {e.get_ip_version().value for e in entries}
+
+    def add(value: Optional[str], family: str) -> None:
+        if value and family in families and value not in seen:
             seen.add(value)
             destinations.append(value)
 
     for interface in interfaces or []:
         for address in interface.ipv4_addresses:
-            add(address)
+            add(address, "ipv4")
         for address in interface.ipv6_addresses:
-            add(address)
+            add(address, "ipv6")
 
     for entry in entries:
         if _is_default(entry) and entry.next_hop:
-            add(entry.next_hop)
+            add(entry.next_hop, entry.get_ip_version().value)
 
-    # One public address per family, so the default route is exercised.
-    if any(e.get_ip_version().value == "ipv4" for e in entries):
-        add(PUBLIC_IPV4)
-    if any(e.get_ip_version().value == "ipv6" for e in entries):
-        add(PUBLIC_IPV6)
+    # One public address per family present, so the default route is exercised.
+    if "ipv4" in families:
+        add(PUBLIC_IPV4, "ipv4")
+    if "ipv6" in families:
+        add(PUBLIC_IPV6, "ipv6")
 
     return destinations
 
@@ -635,6 +642,7 @@ def analyse_table(
     return RouteAnalysisReport(
         collected_at=collected_at,
         command=command,
+        ip_version=ip_version,
         routes_in_table=len(routes),
         routes_analysed=len(entries),
         routes_skipped=skipped,
