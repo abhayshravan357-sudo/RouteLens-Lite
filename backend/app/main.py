@@ -20,6 +20,7 @@ from app.routing_logic import lookup_route, trace_packet_path
 from app.routing_table import get_routing_table, InvalidRouteError, IndexOutOfRangeError
 from app.packet_lab_routes import router as packet_lab_router
 from app.scenario_routes import router as scenario_router, exercise_router
+from app.exercises import host_exercise_router
 from app.discovery_routes import router as discovery_router
 from app.report_routes import router as report_router
 from app.pcap_routes import router as pcap_router
@@ -95,6 +96,7 @@ app.add_middleware(
 app.include_router(packet_lab_router, prefix="/api/lab")
 app.include_router(scenario_router)
 app.include_router(exercise_router)
+app.include_router(host_exercise_router)
 app.include_router(discovery_router)
 app.include_router(report_router)
 app.include_router(pcap_router, prefix="/api/pcap")
