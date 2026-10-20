@@ -51,23 +51,36 @@ class RoutingEntry(BaseModel):
     destination: str = Field(..., description="Destination network in CIDR notation (e.g., 192.168.1.0/24 or 2001:db8::/32)")
     next_hop: Optional[str] = Field(None, description="Next hop gateway IP address")
     interface: str = Field(..., description="Network interface name (e.g., eth0)")
-    metric: int = Field(..., ge=0, description="Non-negative integer metric (lower is better)")
+    metric: int = Field(..., description="Non-negative integer metric (lower is better)")
     next_hop_type: NextHopType = Field(NextHopType.GATEWAY, description="Type of next hop: gateway or direct")
     provenance: Provenance = Field(Provenance.UNKNOWN, description="How this route was determined")
 
     @field_validator("destination")
     @classmethod
     def validate_destination(cls, v: str) -> str:
-        """Validate that destination is a valid IPv4 or IPv6 CIDR network."""
+        """Validate the destination and store it in network form.
+
+        A prefix length is required. Without one, "192.168.1.7" would be
+        read as a /32 covering exactly one address, and the table would
+        show a bare address where every other row shows a network.
+
+        The stored value is the network, so "192.168.1.5/24" is kept as
+        "192.168.1.0/24" and the table never shows host bits that do
+        not apply.
+        """
+        if "/" not in v:
+            raise ValueError(
+                f"Destination must include a prefix length, for example "
+                f"192.168.1.0/24. {v} would be read as {v}/32."
+            )
         try:
-            # Try IPv4 first
-            IPv4Network(v, strict=False)
+            network = IPv4Network(v, strict=False)
         except ValueError:
             try:
-                IPv6Network(v, strict=False)
+                network = IPv6Network(v, strict=False)
             except ValueError as e:
                 raise ValueError(f"Invalid CIDR notation: {v}") from e
-        return v
+        return str(network)
 
     @field_validator("next_hop")
     @classmethod

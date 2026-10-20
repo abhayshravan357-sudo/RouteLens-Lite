@@ -5,11 +5,14 @@ This module creates the FastAPI application instance and defines the API routes.
 It's designed to be beginner-friendly with clear structure and comments.
 """
 
+import re
 import socket
 from ipaddress import IPv4Address, IPv6Address
 from typing import Optional
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from app.routing import RouteLookupResult, RoutingEntry, SAMPLE_ROUTES, PacketJourneyRequest, PacketJourneyResponse
@@ -21,7 +24,7 @@ from app.discovery_routes import router as discovery_router
 from app.report_routes import router as report_router
 from app.pcap_routes import router as pcap_router
 from app.network_collector import get_network_collector
-from app.route_analysis import analyse_table, RouteAnalysisReport
+from app.route_analysis import analyse_destination, analyse_table, RouteAnalysisReport
 from app.security import (
     TargetValidationError,
     diagnostic_limiter,
@@ -36,6 +39,38 @@ app = FastAPI(
     description="A simple IPv4 routing table analyzer for a college project",
     version="0.1.0",
 )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """
+    Turn a validation failure into a sentence a student can act on.
+
+    Pydantic's own answer is machine-shaped: a list of objects with a
+    "Value error, " prefix on every message, where the interesting part
+    is the sentence the app actually wrote. The field name is kept,
+    because "which field" is part of the answer.
+    """
+    messages = []
+    for error in exc.errors():
+        message = error.get("msg", "")
+        # Pydantic wraps a custom validator's message in "Value error, ".
+        message = re.sub(r"^Value error,\s*", "", message)
+
+        location = error.get("loc") or ()
+        # The last location element is the field name.
+        field = str(location[-1]) if location else None
+
+        if message == "Field required" and field:
+            message = f"{field.capitalize()} is required."
+
+        if field and message and not message.lower().startswith(field.lower()):
+            message = f"{field}: {message}"
+
+        messages.append(message)
+
+    detail = " · ".join(messages) if messages else "The request could not be understood."
+    return JSONResponse(status_code=422, content={"detail": detail})
 
 # CORS middleware allows the frontend (running on a different port) to call this API.
 #
@@ -212,6 +247,78 @@ async def routes_summary():
     """
     routing_table = get_routing_table()
     return routing_table.get_summary()
+
+
+@app.get("/routes/analysis", tags=["Routing"])
+async def analyse_main_table(destination: Optional[str] = None):
+    """
+    Explain what the editable routing table would do.
+
+    This is the table the Route Lookup works against, not the host's
+    kernel table. The same analysis machinery that explains the kernel's
+    table is used here, so both are described in the same words.
+
+    Two claims are kept apart:
+    - The table is what the student built. It is MODELLED.
+    - The explanation is INFERRED from it.
+
+    Args:
+        destination: Optional destination address to explain. When omitted,
+            the table's own destinations are explained.
+
+    Returns:
+        A report with the analysis for each destination, the candidates
+        each route beat, any shadowing found, and the limits of the answer.
+
+    Errors:
+        - 400: The destination is not a valid IP address
+    """
+    routing_table = get_routing_table()
+    entries = routing_table.get_routes()
+
+    if destination is not None:
+        destination = destination.strip()
+        if not destination:
+            destination = None
+        else:
+            try:
+                IPv4Address(destination)
+            except ValueError:
+                try:
+                    IPv6Address(destination)
+                except ValueError:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Invalid destination address: {destination}",
+                    )
+
+    if destination:
+        targets = [destination]
+    else:
+        # Explain each distinct destination the table covers, so the
+        # student can see what every row is for.
+        targets = []
+        for entry in entries:
+            for candidate in (entry.destination,):
+                if candidate not in targets:
+                    targets.append(candidate)
+
+    analyses = [analyse_destination(target, entries).model_dump() for target in targets]
+
+    return {
+        "table_provenance": "simulated",
+        "analysis_provenance": "inferred",
+        "table_size": len(entries),
+        "analyses": analyses,
+        "limitations": [
+            "This is the table the Route Lookup works against, not the "
+            "host's kernel routing table.",
+            "The table is modelled and lives in the backend's memory only. "
+            "Restarting the backend puts the original table back.",
+            "No packet was transmitted. The explanation is what the table "
+            "would do, not something that happened.",
+        ],
+    }
 
 
 @app.post("/packet-journey", tags=["Packet Journey"])

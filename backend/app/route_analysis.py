@@ -406,7 +406,7 @@ def analyse_destination(
         destination: The destination address to look up.
         entries: The table in teaching-model form.
         limitations: Extra limitations to carry into the result.
-        local_addresses: Addresses this host owns. The main table alone would
+        local_addresses: Addresses this host owns. The kernel's main table alone would
             forward traffic to one of these to the default gateway, but the
             kernel delivers it locally using the separate local table. Saying
             so is more honest than implying the address leaves the machine.
@@ -423,7 +423,7 @@ def analyse_destination(
             destination=destination,
             matched=False,
             explanation=(
-                f"No route in the main table matches {destination}. The main table "
+                f"No route in the kernel's main table matches {destination}. The kernel's main table "
                 f"is the one the kernel uses to decide what to forward, so traffic "
                 f"to this address would not be forwarded by this host. Addresses the "
                 f"kernel delivers locally, such as loopback, live in the separate "
@@ -489,7 +489,7 @@ def analyse_destination(
     if destination in owned:
         if is_default:
             parts.append(
-                f"Note: {destination} is an address of this host. The main table "
+                f"Note: {destination} is an address of this host. The kernel's main table "
                 f"alone would forward it to the default gateway, but the kernel "
                 f"delivers it locally using the separate local table, which is not "
                 f"part of this analysis."
@@ -497,7 +497,7 @@ def analyse_destination(
         else:
             parts.append(
                 f"Note: {destination} is an address of this host. The kernel "
-                f"delivers it locally; the route shown is the main table's entry "
+                f"delivers it locally; the route shown is the kernel's main table's entry "
                 f"for the connected network, and the separate local table is not "
                 f"part of this analysis."
             )
@@ -594,7 +594,7 @@ def analyse_table(
         "it would do is inferred from that table.",
         "No packet was transmitted. This is a routing decision, not an observation "
         "of traffic.",
-        "Only the main routing table was read. The kernel keeps local and "
+        "Only the kernel's main routing table was read. The kernel keeps local and "
         "broadcast routes in separate tables, so an address this host owns may "
         "have no entry of its own here, even though the kernel delivers it "
         "locally.",

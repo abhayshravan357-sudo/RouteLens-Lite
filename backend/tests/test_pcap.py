@@ -404,12 +404,15 @@ class TestPcapEndpoint:
             "/api/pcap/analyze",
             json={"filename": "test.pcap", "data_base64": "not valid base64!!!"}
         )
-        
+
         assert response.status_code == 422
         detail = response.json()["detail"]
-        # Pydantic validation errors are a list of error objects
-        assert isinstance(detail, list)
-        assert any("Invalid base64" in str(err.get("msg", "")) for err in detail)
+        # A validation failure is reported as a sentence, not a list of
+        # Pydantic error objects, so a student reads the message the app
+        # actually wrote.
+        assert isinstance(detail, str)
+        assert "Invalid base64" in detail
+        assert "Value error" not in detail
 
     def test_reject_empty_body(self, client):
         """Test rejection of empty request body."""
