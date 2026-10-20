@@ -19,11 +19,21 @@ class TestPcapParser:
     def parser(self):
         return PcapParser()
 
-    def _build_pcap_global_header(self, magic=0xd4c3b2a1):
-        """Build a PCAP global header (little-endian by default)."""
+    def _build_pcap_global_header(self, endian="<", nanoseconds=False):
+        """Build a PCAP global header in the given byte order.
+
+        A real capture file writes the magic number in the file's own byte
+        order, and writes everything else in that order too. The magic
+        *value* is always 0xa1b2c3d4; packing it little-endian puts the
+        bytes on disk as d4 c3 b2 a1, which is what a little-endian
+        capture starts with. Building the magic in one order and the rest
+        in another produces a file no tool would ever write, and it hides
+        byte-order bugs.
+        """
+        magic = 0xA1B23C4D if nanoseconds else 0xA1B2C3D4
         return struct.pack(
-            "<IHHIIII",
-            magic,      # magic
+            f"{endian}IHHIIII",
+            magic,      # magic, in the file's own byte order
             2,          # version_major
             4,          # version_minor
             0,          # thiszone
@@ -33,7 +43,7 @@ class TestPcapParser:
         )
 
     def _build_packet_header(self, ts_sec=0, ts_usec=0, incl_len=0, orig_len=0, endian="<"):
-        """Build a PCAP packet header."""
+        """Build a PCAP packet header in the given byte order."""
         return struct.pack(f"{endian}IIII", ts_sec, ts_usec, incl_len, orig_len)
 
     def _build_ethernet_frame(self, src_mac, dst_mac, ethertype, payload):
@@ -77,6 +87,64 @@ class TestPcapParser:
         assert result.error is None
         assert result.summary.total_packets == 0
         assert result.summary.total_bytes == 0
+
+    def test_parses_a_real_little_endian_file(self, parser):
+        """A file as tcpdump writes on x86 must parse.
+
+        The magic bytes of a little-endian capture are d4 c3 b2 a1, and
+        everything after them is little-endian too. Reading the magic as
+        a little-endian integer gives 0xa1b2c3d4, which is the *value*
+        used by a big-endian file, so deriving the byte order from that
+        value rather than from the raw bytes swaps every real file.
+        """
+        frame = self._build_ethernet_frame(
+            b"\x00\x11\x22\x33\x44\x55",
+            b"\x66\x77\x88\x99\xaa\xbb",
+            0x0800,
+            self._build_ipv4_packet("10.0.0.1", "10.0.0.2", 1, b"\x08\x00\x00\x00"),
+        )
+        pcap = self._build_pcap_global_header(endian="<")
+        pcap += self._build_packet_header(1000, 0, len(frame), len(frame), endian="<")
+        pcap += frame
+
+        result = parser.parse(pcap, "real-le.pcap")
+        assert result.parsed is True, result.error
+        assert result.summary.total_packets == 1
+        assert result.summary.total_bytes == len(frame)
+        assert "icmp" in result.summary.protocols
+
+    def test_parses_a_real_big_endian_file(self, parser):
+        """A big-endian capture must parse too."""
+        frame = self._build_ethernet_frame(
+            b"\x00\x11\x22\x33\x44\x55",
+            b"\x66\x77\x88\x99\xaa\xbb",
+            0x0800,
+            self._build_ipv4_packet("10.0.0.1", "10.0.0.2", 1, b"\x08\x00\x00\x00"),
+        )
+        pcap = self._build_pcap_global_header(endian=">")
+        pcap += self._build_packet_header(1000, 0, len(frame), len(frame), endian=">")
+        pcap += frame
+
+        result = parser.parse(pcap, "real-be.pcap")
+        assert result.parsed is True, result.error
+        assert result.summary.total_packets == 1
+        assert "icmp" in result.summary.protocols
+
+    def test_parses_a_nanosecond_resolution_file(self, parser):
+        """The nanosecond magic variants must parse as well."""
+        frame = self._build_ethernet_frame(
+            b"\x00\x11\x22\x33\x44\x55",
+            b"\x66\x77\x88\x99\xaa\xbb",
+            0x0800,
+            self._build_ipv4_packet("10.0.0.1", "10.0.0.2", 1, b"\x08\x00\x00\x00"),
+        )
+        pcap = self._build_pcap_global_header(endian="<", nanoseconds=True)
+        pcap += self._build_packet_header(1000, 0, len(frame), len(frame), endian="<")
+        pcap += frame
+
+        result = parser.parse(pcap, "ns.pcap")
+        assert result.parsed is True, result.error
+        assert result.summary.total_packets == 1
 
     def test_parse_pcapng_detected(self, parser):
         """Test that PCAPNG is detected but not parsed."""
@@ -247,9 +315,9 @@ class TestPcapEndpoint:
         
         packets_data: list of (timestamp_sec, raw_ethernet_frame_bytes)
         """
-        global_hdr = struct.pack("<IHHIIII", 0xd4c3b2a1, 2, 4, 0, 0, 65535, 1)
+        global_hdr = struct.pack("<IHHIIII", 0xA1B2C3D4, 2, 4, 0, 0, 65535, 1)
         parts = [global_hdr]
-        
+
         for ts_sec, frame in packets_data:
             pkt_hdr = struct.pack("<IIII", ts_sec, 0, len(frame), len(frame))
             parts.append(pkt_hdr)
@@ -315,7 +383,7 @@ class TestPcapEndpoint:
 
     def test_analyze_truncated_pcap(self, client):
         """Test that truncated PCAP gives clear error."""
-        global_hdr = struct.pack("<IHHIIII", 0xd4c3b2a1, 2, 4, 0, 0, 65535, 1)
+        global_hdr = struct.pack("<IHHIIII", 0xA1B2C3D4, 2, 4, 0, 0, 65535, 1)
         pkt_hdr = struct.pack("<IIII", 1000, 0, 100, 100)
         pcap = global_hdr + pkt_hdr + b"short"  # Only 5 bytes, claims 100
         b64 = base64.b64encode(pcap).decode()
@@ -351,7 +419,7 @@ class TestPcapEndpoint:
     def test_reject_missing_filename(self, client):
         """Test rejection of missing filename."""
         frame = self._build_icmp_frame("10.0.0.1", "10.0.0.2")
-        global_hdr = struct.pack("<IHHIIII", 0xd4c3b2a1, 2, 4, 0, 0, 65535, 1)
+        global_hdr = struct.pack("<IHHIIII", 0xA1B2C3D4, 2, 4, 0, 0, 65535, 1)
         pkt_hdr = struct.pack("<IIII", 1000, 0, len(frame), len(frame))
         pcap = global_hdr + pkt_hdr + frame
         b64 = base64.b64encode(pcap).decode()

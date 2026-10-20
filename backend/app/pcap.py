@@ -70,16 +70,20 @@ class PcapAnalysisResult:
     limitations: list[str] = field(default_factory=list)
 
 
-# PCAP magic numbers
-PCAP_MAGIC_BE = 0xa1b2c3d4      # Big-endian, microseconds
-PCAP_MAGIC_LE = 0xd4c3b2a1      # Little-endian, microseconds
-PCAP_MAGIC_BE_NS = 0xa1b23c4d   # Big-endian, nanoseconds
-PCAP_MAGIC_LE_NS = 0x4d3cb2a1   # Little-endian, nanoseconds
-PCAPNG_MAGIC = 0x0a0d0d0a       # PCAPNG format
+# PCAP magic numbers, as the raw bytes they appear as in the file.
+#
+# The first four bytes of a capture file are a magic number whose bytes
+# are written in the file's own byte order. A file written on a
+# little-endian machine therefore starts with d4 c3 b2 a1, even though
+# reading those four bytes as a big-endian number gives 0xa1b2c3d4. That
+# is why these are compared as bytes and not as unpacked integers.
+PCAP_MAGIC_BE_BYTES = b"\xa1\xb2\xc3\xd4"     # Big-endian, microseconds
+PCAP_MAGIC_LE_BYTES = b"\xd4\xc3\xb2\xa1"     # Little-endian, microseconds
+PCAP_MAGIC_BE_NS_BYTES = b"\xa1\xb2\x3c\x4d"  # Big-endian, nanoseconds
+PCAP_MAGIC_LE_NS_BYTES = b"\x4d\x3c\xb2\xa1"  # Little-endian, nanoseconds
+PCAPNG_MAGIC_BYTES = b"\x0a\x0d\x0d\x0a"      # PCAPNG format
 
-PCAP_GLOBAL_HEADER_FMT = "<IHHIIII"
 PCAP_GLOBAL_HEADER_SIZE = 24
-PCAP_PACKET_HEADER_FMT = "<IIII"
 PCAP_PACKET_HEADER_SIZE = 16
 
 # Link types
@@ -146,8 +150,8 @@ class PcapParser:
             )
 
         # Check for PCAPNG magic number first
-        magic = struct.unpack("<I", data[:4])[0]
-        if magic == PCAPNG_MAGIC:
+        magic_bytes = data[:4]
+        if magic_bytes == PCAPNG_MAGIC_BYTES:
             return PcapAnalysisResult(
                 filename=filename,
                 size_bytes=len(data),
@@ -157,31 +161,17 @@ class PcapParser:
                 collected_at=collected_at,
             )
 
-        # Parse global header
-        try:
-            magic, version_major, version_minor, thiszone, sigfigs, snaplen, network = \
-                struct.unpack(PCAP_GLOBAL_HEADER_FMT, data[:PCAP_GLOBAL_HEADER_SIZE])
-        except struct.error as e:
-            return PcapAnalysisResult(
-                filename=filename,
-                size_bytes=len(data),
-                format="unknown",
-                parsed=False,
-                error=f"Failed to parse global header: {e}",
-                collected_at=collected_at,
-            )
-
-        # Determine endianness and timestamp resolution
-        if magic == PCAP_MAGIC_BE:
+        # Determine endianness and timestamp resolution from the raw bytes.
+        if magic_bytes == PCAP_MAGIC_BE_BYTES:
             endian = ">"
             ts_resolution = 1_000_000  # microseconds
-        elif magic == PCAP_MAGIC_LE:
+        elif magic_bytes == PCAP_MAGIC_LE_BYTES:
             endian = "<"
             ts_resolution = 1_000_000  # microseconds
-        elif magic == PCAP_MAGIC_BE_NS:
+        elif magic_bytes == PCAP_MAGIC_BE_NS_BYTES:
             endian = ">"
             ts_resolution = 1_000_000_000  # nanoseconds
-        elif magic == PCAP_MAGIC_LE_NS:
+        elif magic_bytes == PCAP_MAGIC_LE_NS_BYTES:
             endian = "<"
             ts_resolution = 1_000_000_000  # nanoseconds
         else:
@@ -190,7 +180,21 @@ class PcapParser:
                 size_bytes=len(data),
                 format="unknown",
                 parsed=False,
-                error=f"Unknown PCAP magic number: 0x{magic:08x}",
+                error=f"Unknown PCAP magic number: {magic_bytes.hex()}",
+                collected_at=collected_at,
+            )
+
+        # Parse the global header in the file's own byte order.
+        try:
+            magic, version_major, version_minor, thiszone, sigfigs, snaplen, network = \
+                struct.unpack(f"{endian}IHHIIII", data[:PCAP_GLOBAL_HEADER_SIZE])
+        except struct.error as e:
+            return PcapAnalysisResult(
+                filename=filename,
+                size_bytes=len(data),
+                format="unknown",
+                parsed=False,
+                error=f"Failed to parse global header: {e}",
                 collected_at=collected_at,
             )
 
