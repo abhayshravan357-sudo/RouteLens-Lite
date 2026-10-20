@@ -6,6 +6,8 @@ It's designed to be beginner-friendly with clear structure and comments.
 """
 
 import socket
+from ipaddress import IPv4Address, IPv6Address
+from typing import Optional
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -19,6 +21,7 @@ from app.discovery_routes import router as discovery_router
 from app.report_routes import router as report_router
 from app.pcap_routes import router as pcap_router
 from app.network_collector import get_network_collector
+from app.route_analysis import analyse_table, RouteAnalysisReport
 from app.security import (
     TargetValidationError,
     diagnostic_limiter,
@@ -227,7 +230,6 @@ async def trace_packet_journey(request: PacketJourneyRequest):
     """
     # Validate IPs
     try:
-        from ipaddress import IPv4Address
         IPv4Address(request.source_ip)
         IPv4Address(request.destination_ip)
     except ValueError as e:
@@ -331,6 +333,74 @@ async def get_routes():
         raise HTTPException(status_code=500, detail=result.error or "Failed to collect routes")
 
     return result
+
+
+@app.get("/network/routes/analysis", response_model=RouteAnalysisReport, tags=["Network"])
+async def get_routes_analysis(destination: Optional[str] = None):
+    """
+    Analyse the real routing table and explain what it would do.
+
+    Reads the host's routing table with `ip -j route show`, converts it into
+    the same model the routing engine uses, and then explains, for a
+    destination, which route would win and which candidates it beat.
+
+    Two different claims are kept apart here:
+    - The routing table is OBSERVED. It was read from the kernel.
+    - The explanation is INFERRED. It is a reading of the table.
+
+    No packet is transmitted and no route is changed.
+
+    Args:
+        destination: Optional destination address to explain. When omitted, a
+            set of interesting destinations is chosen: this host's own
+            addresses, the default route's gateway, and a public address.
+
+    Returns:
+        RouteAnalysisReport with the analysis, the candidates each route beat,
+        any shadowing found, and the limits of the analysis.
+
+    Errors:
+        - 400: The destination is not a valid IP address
+        - 500: The routing table could not be read
+    """
+    collector = get_network_collector()
+
+    routes_result = await collector.collect_routes()
+    if not routes_result.success:
+        raise HTTPException(
+            status_code=500,
+            detail=routes_result.error or "Failed to collect routes",
+        )
+
+    interfaces_result = await collector.collect_interfaces()
+    interfaces = interfaces_result.data if interfaces_result.success else []
+
+    if destination is not None:
+        destination = destination.strip()
+        if not destination:
+            destination = None
+        else:
+            try:
+                IPv4Address(destination)
+            except ValueError:
+                try:
+                    IPv6Address(destination)
+                except ValueError:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Invalid destination address: {destination}",
+                    )
+
+    report = analyse_table(
+        routes=list(routes_result.data or []),
+        interfaces=list(interfaces or []),
+        destinations=[destination] if destination else None,
+        collected_at=routes_result.timestamp,
+        command=routes_result.command,
+        ip_version="ipv4",
+    )
+
+    return report
 
 
 @app.get("/network/neighbors", tags=["Network"])
