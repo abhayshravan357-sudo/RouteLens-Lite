@@ -299,6 +299,75 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/host-exercises": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Host Exercises
+         * @description List the exercises that work on the host's own routing table.
+         */
+        get: operations["list_host_exercises_api_host_exercises_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/host-exercises/{exercise_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Host Exercise Detail
+         * @description The full explanation and instructions for one host exercise.
+         */
+        get: operations["get_host_exercise_detail_api_host_exercises__exercise_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/host-exercises/{exercise_id}/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Check Host Exercise
+         * @description Check a host exercise against the student's own routing table.
+         *
+         *     The table is read from the kernel with `ip -j route show` and is
+         *     OBSERVED. The conclusion drawn from it is INFERRED. The two are reported
+         *     separately and never merged.
+         *
+         *     When the machine's table does not have what the exercise needs, the
+         *     result says so plainly and points at what the student could look at
+         *     instead. It does not fall back to a modelled table, and it does not
+         *     pretend the exercise succeeded.
+         */
+        post: operations["check_host_exercise_api_host_exercises__exercise_id__check_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/discovery/audit": {
         parameters: {
             query?: never;
@@ -629,6 +698,45 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/routes/analysis": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Analyse Main Table
+         * @description Explain what the editable routing table would do.
+         *
+         *     This is the table the Route Lookup works against, not the host's
+         *     kernel table. The same analysis machinery that explains the kernel's
+         *     table is used here, so both are described in the same words.
+         *
+         *     Two claims are kept apart:
+         *     - The table is what the student built. It is MODELLED.
+         *     - The explanation is INFERRED from it.
+         *
+         *     Args:
+         *         destination: Optional destination address to explain. When omitted,
+         *             the table's own destinations are explained.
+         *
+         *     Returns:
+         *         A report with the analysis for each destination, the candidates
+         *         each route beat, any shadowing found, and the limits of the answer.
+         *
+         *     Errors:
+         *         - 400: The destination is not a valid IP address
+         */
+        get: operations["analyse_main_table_routes_analysis_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/packet-journey": {
         parameters: {
             query?: never;
@@ -705,6 +813,13 @@ export interface paths {
          *     - Metric
          *     - Protocol
          *     - Scope
+         *
+         *     The IPv4 and IPv6 tables are separate tables in the kernel, so the
+         *     family is a parameter. The default is IPv4, which is what the table
+         *     most viewers expect; pass `ip_version=ipv6` to read the other one.
+         *
+         *     Args:
+         *         ip_version: Which table to read. "ipv4" (the default) or "ipv6".
          *
          *     Returns:
          *         CollectionResult with list of RouteInfo objects
@@ -784,6 +899,21 @@ export interface paths {
          *     - MAC address (if available)
          *     - Neighbor state (REACHABLE, STALE, etc.)
          *     - Router flag
+         *     - A reverse DNS name, when one could be looked up
+         *
+         *     The name is looked up with a reverse DNS query, which is INFERRED, while
+         *     the address itself is OBSERVED. The two are reported separately. A
+         *     neighbour with no PTR record is reported as having no name, not with
+         *     its own address repeated back as if it were a hostname.
+         *
+         *     The lookup is bounded: it has a short timeout, it runs concurrently, and
+         *     only a limited number of neighbours are looked up at all. A neighbour
+         *     list always comes back complete, with names absent if they could not be
+         *     found.
+         *
+         *     Args:
+         *         resolve_names: Whether to look up reverse DNS names. Turning this off
+         *             avoids the DNS traffic entirely.
          *
          *     Returns:
          *         CollectionResult with list of NeighborInfo objects
@@ -1273,6 +1403,22 @@ export interface components {
             explanation: string;
             /** Next Node */
             next_node?: string | null;
+        };
+        /**
+         * HostExerciseCheckRequest
+         * @description Request to check a host exercise.
+         */
+        HostExerciseCheckRequest: {
+            /**
+             * Destination
+             * @description The address to work with. When omitted, the exercise picks one from the host's own table.
+             */
+            destination?: string | null;
+            /**
+             * Answer
+             * @description What the student thinks the answer is, if they are answering.
+             */
+            answer?: string | null;
         };
         /**
          * LabResult
@@ -2531,6 +2677,92 @@ export interface operations {
             };
         };
     };
+    list_host_exercises_api_host_exercises_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    get_host_exercise_detail_api_host_exercises__exercise_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                exercise_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    check_host_exercise_api_host_exercises__exercise_id__check_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                exercise_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["HostExerciseCheckRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_audit_trail_api_discovery_audit_get: {
         parameters: {
             query?: never;
@@ -2937,6 +3169,37 @@ export interface operations {
             };
         };
     };
+    analyse_main_table_routes_analysis_get: {
+        parameters: {
+            query?: {
+                destination?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     trace_packet_journey_packet_journey_post: {
         parameters: {
             query?: never;
@@ -2992,7 +3255,9 @@ export interface operations {
     };
     get_routes_network_routes_get: {
         parameters: {
-            query?: never;
+            query?: {
+                ip_version?: string;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -3006,6 +3271,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -3044,7 +3318,9 @@ export interface operations {
     };
     get_neighbors_network_neighbors_get: {
         parameters: {
-            query?: never;
+            query?: {
+                resolve_names?: boolean;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -3058,6 +3334,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
