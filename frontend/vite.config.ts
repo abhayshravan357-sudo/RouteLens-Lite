@@ -10,6 +10,7 @@ export default defineConfig({
       '/health': 'http://127.0.0.1:8000',
       '/routes': 'http://127.0.0.1:8000',
       '/lookup': 'http://127.0.0.1:8000',
+      '/packet-journey': 'http://127.0.0.1:8000',
       '/api/lab': 'http://127.0.0.1:8000',
       '/api/scenarios': 'http://127.0.0.1:8000',
       '/api/exercises': 'http://127.0.0.1:8000',
