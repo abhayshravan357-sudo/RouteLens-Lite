@@ -393,3 +393,35 @@ export interface ScenarioCompare {
   agree: boolean | null;
   note: string;
 }
+
+/**
+ * Evidence-based topology types - matching backend/app/topology.py.
+ */
+
+export type TopologyProvenance = 'observed' | 'inferred' | 'simulated' | 'unknown';
+
+export interface TopologyNode {
+  id: string;
+  kind: 'host' | 'router' | 'interface' | 'gateway' | 'neighbor' | 'unknown';
+  label: string;
+  provenance: TopologyProvenance;
+  addresses: string[];
+  detail: string | null;
+}
+
+export interface TopologyEdge {
+  source: string;
+  target: string;
+  kind: string;
+  provenance: TopologyProvenance;
+  label: string;
+  detail: string | null;
+}
+
+export interface TopologyGraph {
+  nodes: TopologyNode[];
+  edges: TopologyEdge[];
+  provenance: TopologyProvenance;
+  explanation: string;
+  observed_at: string;
+}

@@ -1,0 +1,227 @@
+/* Evidence-based topology graph */
+
+.topology-graph {
+  margin-top: 20px;
+  padding: 20px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+}
+
+.topology-loading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 24px;
+  color: var(--color-text-muted);
+  font-size: 0.875rem;
+}
+
+.topology-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.topology-header h3 {
+  margin: 0 0 4px 0;
+  font-size: 1.0625rem;
+  font-weight: 600;
+}
+
+.topology-explanation {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+  line-height: 1.6;
+  max-width: 70ch;
+}
+
+.topology-legend {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.topology-summary {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  background: var(--color-bg);
+  border-radius: var(--radius-md);
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+}
+
+.topology-summary strong {
+  color: var(--color-text);
+  font-family: var(--font-mono);
+}
+
+.topology-timestamp {
+  margin-left: auto;
+  font-family: var(--font-mono);
+}
+
+.topology-columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+
+.topology-group-title {
+  margin: 0 0 8px 0;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-muted);
+}
+
+.topology-node-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.topology-node {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--color-border);
+  border-left-width: 3px;
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  cursor: pointer;
+  text-align: left;
+  font-family: var(--font-sans);
+  font-size: 0.8125rem;
+  color: var(--color-text);
+  transition: all var(--transition);
+}
+
+.topology-node:hover {
+  background: var(--color-bg);
+}
+
+.topology-node.observed {
+  border-left-color: #16a34a;
+}
+
+.topology-node.inferred {
+  border-left-color: #d97706;
+}
+
+.topology-node.simulated {
+  border-left-color: #7c3aed;
+}
+
+.topology-node.unknown {
+  border-left-color: #64748b;
+}
+
+.topology-node.selected {
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+}
+
+.topology-node-label {
+  font-family: var(--font-mono);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.topology-node-detail {
+  margin: 6px 0 10px 0;
+  padding: 10px 12px;
+  background: var(--color-bg);
+  border-radius: var(--radius-sm);
+  font-size: 0.75rem;
+  line-height: 1.7;
+}
+
+.topology-addresses {
+  margin: 0 0 4px 0;
+  font-family: var(--font-mono);
+  color: var(--color-text);
+}
+
+.topology-node-note {
+  margin: 0 0 6px 0;
+  color: var(--color-text-muted);
+}
+
+.topology-edge {
+  margin: 2px 0;
+  color: var(--color-text-muted);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.topology-empty {
+  margin: 0;
+  padding: 24px;
+  text-align: center;
+  color: var(--color-text-muted);
+  font-size: 0.875rem;
+}
+
+.topology-edges {
+  margin-top: 16px;
+  font-size: 0.8125rem;
+}
+
+.topology-edges summary {
+  cursor: pointer;
+  color: var(--color-text-muted);
+  padding: 6px 0;
+}
+
+.topology-edge-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 8px;
+  font-size: 0.75rem;
+}
+
+.topology-edge-table th,
+.topology-edge-table td {
+  padding: 6px 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.topology-edge-table th {
+  color: var(--color-text-muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 0.6875rem;
+  letter-spacing: 0.04em;
+}
+
+.topology-edge-table .mono {
+  font-family: var(--font-mono);
+}
+
+@media (max-width: 768px) {
+  .topology-timestamp {
+    margin-left: 0;
+    width: 100%;
+  }
+}

@@ -28,6 +28,7 @@ import type {
   ScenarioRoute,
   LabRunResult,
   ScenarioCompare,
+  TopologyGraph,
 } from '../types/routing';
 
 const API_BASE = '';
@@ -291,5 +292,12 @@ export async function compareScenarioWithLab(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(request),
     }
+  );
+}
+
+export async function fetchScenarioTopology(scenarioId: string): Promise<TopologyGraph> {
+  return fetchWithTimeout<TopologyGraph>(
+    `/api/scenarios/${encodeURIComponent(scenarioId)}/topology`,
+    15000
   );
 }

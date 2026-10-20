@@ -8,10 +8,18 @@
  * itself; it only presents what the engine decided and explains it.
  */
 
-import { useState } from 'react';
-import type { Scenario, ScenarioTrace, TraceHop, TraceStatus } from '../types/routing';
+import { useEffect, useState } from 'react';
+import type {
+  Scenario,
+  ScenarioTrace,
+  TraceHop,
+  TraceStatus,
+  TopologyGraph,
+} from '../types/routing';
+import { fetchScenarioTopology } from '../api/routing';
 import ProvenanceBadge from './ProvenanceBadge';
 import ComparePanel from './ComparePanel';
+import TopologyGraphPanel from './TopologyGraph';
 import './ScenarioJourney.css';
 
 interface ScenarioJourneyProps {
@@ -65,6 +73,38 @@ export default function ScenarioJourney({
   const [currentHop, setCurrentHop] = useState(0);
   const [source, setSource] = useState('');
   const [destination, setDestination] = useState('');
+
+  const [topology, setTopology] = useState<TopologyGraph | null>(null);
+  const [topologyLoading, setTopologyLoading] = useState(false);
+  const [topologyError, setTopologyError] = useState<string | null>(null);
+
+  // Load the topology whenever the scenario changes.
+  useEffect(() => {
+    if (!scenario) {
+      setTopology(null);
+      return;
+    }
+    let cancelled = false;
+    setTopologyLoading(true);
+    setTopologyError(null);
+    fetchScenarioTopology(scenario.id)
+      .then((graph) => {
+        if (!cancelled) setTopology(graph);
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setTopologyError(
+            err instanceof Error ? err.message : 'Could not read the topology'
+          );
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setTopologyLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [scenario]);
 
   const hops = trace?.hops ?? [];
   const activeIndex = Math.min(currentHop, Math.max(0, hops.length - 1));
@@ -297,6 +337,12 @@ export default function ScenarioJourney({
               dst={destination.trim()}
             />
           )}
+
+          <TopologyGraphPanel
+            graph={topology}
+            loading={topologyLoading}
+            error={topologyError}
+          />
         </div>
       )}
     </div>

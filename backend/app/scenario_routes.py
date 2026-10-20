@@ -12,6 +12,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from app.scenario import Route, Scenario, TraceResult, trace
+from app.topology import TopologyGraph, build_topology
 from app import lab_builder as lab
 from app.scenarios_data import SCENARIOS
 
@@ -170,3 +171,19 @@ def compare(sid: str, req: TraceRequest):
         "agree": agree,
         "note": "agree=null means the lab was unavailable; no result was faked.",
     }
+
+
+@router.get("/{sid}/topology", response_model=TopologyGraph)
+async def get_topology(sid: str):
+    """
+    Build a topology graph for a scenario from two kinds of evidence.
+
+    The scenario contributes simulated devices and links. The real host
+    contributes observed interfaces, routes and neighbours, plus the
+    relationships inferred between them.
+
+    Every node and edge carries its own provenance so the client can
+    colour them differently and the user can tell measured from modelled.
+    """
+    scenario = _scenario(sid)
+    return await build_topology(scenario)
