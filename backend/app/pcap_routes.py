@@ -68,6 +68,52 @@ class PcapSummaryResponse(BaseModel):
     link_type: int
 
 
+class PcapPacketDetailResponse(BaseModel):
+    """Everything extracted from one frame, down to the transport layer."""
+
+    index: int
+    timestamp: str
+    src_mac: Optional[str] = None
+    dst_mac: Optional[str] = None
+    ethertype: Optional[int] = None
+    src_ip: Optional[str] = None
+    dst_ip: Optional[str] = None
+    protocol: Optional[str] = None
+    src_port: Optional[int] = None
+    dst_port: Optional[int] = None
+    tcp_flags: list[str] = []
+    tcp_flags_value: Optional[int] = None
+    icmp_type: Optional[int] = None
+    icmp_type_name: Optional[str] = None
+    icmp_code: Optional[int] = None
+    icmp_code_name: Optional[str] = None
+    dns_query_name: Optional[str] = None
+    dns_answers: list[str] = []
+    dns_is_response: Optional[bool] = None
+    dns_response_code: Optional[int] = None
+    arp_operation: Optional[int] = None
+    arp_operation_name: Optional[str] = None
+    arp_sender_mac: Optional[str] = None
+    arp_sender_ip: Optional[str] = None
+    arp_target_mac: Optional[str] = None
+    arp_target_ip: Optional[str] = None
+    handshake_stage: Optional[str] = None
+    provenance: dict[str, str] = {}
+    notes: list[str] = []
+    parsed: bool = True
+
+
+class PcapHandshakeResponse(BaseModel):
+    """A TCP three-way handshake seen in the capture."""
+
+    client: str
+    server: str
+    stages: list[str] = []
+    complete: bool = False
+    provenance: str = "inferred"
+    explanation: str = ""
+
+
 class PcapAnalyzeResponse(BaseModel):
     filename: str
     size_bytes: int
@@ -79,6 +125,9 @@ class PcapAnalyzeResponse(BaseModel):
     hosts: list[PcapHostResponse] = []
     conversations: list[PcapConversationResponse] = []
     limitations: list[str] = []
+    # Per-packet detail and the handshakes derived from it.
+    packets: list[PcapPacketDetailResponse] = []
+    handshakes: list[PcapHandshakeResponse] = []
 
 
 @router.post(
@@ -174,6 +223,56 @@ async def analyze_pcap(request: PcapAnalyzeRequest) -> PcapAnalyzeResponse:
                 bytes=c.bytes,
             )
             for c in result.conversations
+        ]
+
+    if result.packets:
+        response.packets = [
+            PcapPacketDetailResponse(
+                index=p.index,
+                timestamp=p.timestamp,
+                src_mac=p.src_mac,
+                dst_mac=p.dst_mac,
+                ethertype=p.ethertype,
+                src_ip=p.src_ip,
+                dst_ip=p.dst_ip,
+                protocol=p.protocol,
+                src_port=p.src_port,
+                dst_port=p.dst_port,
+                tcp_flags=list(p.tcp_flags),
+                tcp_flags_value=p.tcp_flags_value,
+                icmp_type=p.icmp_type,
+                icmp_type_name=p.icmp_type_name,
+                icmp_code=p.icmp_code,
+                icmp_code_name=p.icmp_code_name,
+                dns_query_name=p.dns_query_name,
+                dns_answers=list(p.dns_answers),
+                dns_is_response=p.dns_is_response,
+                dns_response_code=p.dns_response_code,
+                arp_operation=p.arp_operation,
+                arp_operation_name=p.arp_operation_name,
+                arp_sender_mac=p.arp_sender_mac,
+                arp_sender_ip=p.arp_sender_ip,
+                arp_target_mac=p.arp_target_mac,
+                arp_target_ip=p.arp_target_ip,
+                handshake_stage=p.handshake_stage,
+                provenance=dict(p.provenance),
+                notes=list(p.notes),
+                parsed=p.parsed,
+            )
+            for p in result.packets
+        ]
+
+    if result.handshakes:
+        response.handshakes = [
+            PcapHandshakeResponse(
+                client=h.client,
+                server=h.server,
+                stages=list(h.stages),
+                complete=h.complete,
+                provenance=h.provenance,
+                explanation=h.explanation,
+            )
+            for h in result.handshakes
         ]
 
     return response
