@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.routing import RouteLookupResult, RoutingEntry, SAMPLE_ROUTES
 from app.routing_logic import lookup_route
+from app.packet_lab_routes import router as packet_lab_router
 
 app = FastAPI(
     title="RouteLens Lite API",
@@ -26,6 +27,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(packet_lab_router)
 
 
 @app.get("/health", tags=["Health"])
@@ -64,11 +67,15 @@ async def route_lookup(
     result = lookup_route(destination, SAMPLE_ROUTES)
 
     if result.error:
-        # Return 400 for invalid input, 404 for no matching route
+        # Return 400 for invalid input
         if "Invalid" in result.error:
             raise HTTPException(status_code=400, detail=result.error)
         else:
             raise HTTPException(status_code=404, detail=result.explanation)
+
+    if not result.matched:
+        # No matching route found
+        raise HTTPException(status_code=404, detail=result.explanation)
 
     return result
 
