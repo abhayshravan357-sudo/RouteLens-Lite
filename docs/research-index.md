@@ -31,7 +31,7 @@
 ### 3. Connectivity & Traceroute
 | Topic | Status | Sources | Conclusion |
 |---|---|---|---|
-| ICMP ping from Python without root | ⚠️ Limited | `man ping`, Python socket docs | Requires raw socket (root) or `ping` subprocess |
+| ICMP ping from Python without root | ✅ **Resolved** | `man ping`, `getcap(1)`, kernel docs, testing | **Recommendation: `ping` subprocess**. Verified: `/usr/bin/ping` ships `cap_net_raw=ep`, so it runs unprivileged. All Python raw-socket libs (`aioping`, `asyncping3`, `aio_ping`) create `SOCK_RAW` and need root — verified `PermissionError: [Errno 13]`. Unprivileged in-process alternative is the ICMP *dgram* socket (`SOCK_DGRAM`+`IPPROTO_ICMP`, Linux 3.0+/3.11+), but only if the user's GID is in `net.ipv4.ping_group_range` (this host: `1 0` = disabled). |
 | TCP connect for port reachability | ✅ Resolved | Python asyncio docs | `asyncio.open_connection()` with timeout - no root needed |
 | Traceroute implementation options | ✅ **Resolved** | `man traceroute`, ipscout, mtrpacket, scapy | **Recommendation: `traceroute` subprocess with bounded hops/timeout**. Raw ICMP sockets need root/CAP_NET_RAW. `ipscout` claims unprivileged on Linux via IP_RECVERR but macOS unsupported. `mtrpacket` needs raw sockets. `scapy` needs root. `traceroute -n -w 2 -q 1` subprocess is simplest, works unprivileged, bounded by `-m max_hops`. |
 
@@ -59,6 +59,7 @@
 | RQ-003 | React Flow vs Cytoscape.js for topology graph? | Medium | Research Specialist | 2026-10-22 | 🔄 In Progress |
 | RQ-004 | Safe ARP neighbor discovery without root? | Medium | Research Specialist | 2026-10-22 | 🔄 In Progress |
 | RQ-005 | WebSocket vs Server-Sent Events for live topology? | Low | Research Specialist | 2026-10-23 | ⏳ Pending |
+| RQ-006 | Best async ICMP ping + TCP connect in Python 3.12 without root? | High | Research Specialist | 2026-10-21 | ✅ **Resolved** - Use `ping` subprocess (binary has `cap_net_raw=ep`) for ICMP + `asyncio.open_connection()` for TCP |
 
 ---
 
@@ -73,6 +74,8 @@
 | RD-005 | Tabbed UI for Network Diagnostics (All/Interfaces/Routes/Neighbors) | Progressive disclosure; matches data domains | 2026-10-20 |
 | RD-006 | **DNS Resolution**: Use `asyncio.getaddrinfo()` with `asyncio.wait_for()` timeout | Native async (3.7+), runs in executor; `aiodns` for true async | 2026-10-20 |
 | RD-007 | **Traceroute**: Use `traceroute` subprocess with `-m max_hops -w timeout -q 1` | Raw sockets need root; subprocess unprivileged, bounded, standard | 2026-10-20 |
+| RD-008 | **ICMP ping**: Use `ping` subprocess (`-c count -i interval -W deadline`) | `/usr/bin/ping` has `cap_net_raw=ep` → unprivileged; raw-socket Python libs all need root; in-process ICMP dgram needs `ping_group_range` | 2026-10-20 |
+| RD-009 | **TCP connect**: Use `asyncio.open_connection()` with `asyncio.wait_for()` | Standard TCP sockets, no privileges, ~20 ms latency, precise error types | 2026-10-20 |
 
 ---
 

@@ -76,6 +76,57 @@ tests and the frontend build run after each merge.
   verdict, and honest reporting
 - The wider coverage found four real defects — see below
 
+### Fixes
+- `/packet-journey` was missing from the Vite proxy, so the older Packet
+  Journey UI could not reach the backend in development. Fixed.
+- `network_collector.py` defined `class NetworkCollector` twice. The second
+  definition shadowed the first, so 708 lines of the earlier class were dead
+  code that no caller could ever reach, and `_check_tool`/`check_tools` were
+  defined twice inside the live class. Removed the shadowed class and the
+  duplicate method copies: 1846 → 1109 lines, deletions only, behaviour
+  unchanged (307 passed, 2 skipped).
+- `main.py` carried a stray `@app.get("/routes")` decorator with no function
+  under it, so it attached to the next function and registered
+  `get_interfaces` at `/routes` as well. `/routes` still returned routes at
+  runtime, but the OpenAPI schema documented it as "Get Interfaces" with the
+  wrong response schema. Fixed, and `tests/test_api_integrity.py` now fails
+  if a path is ever registered twice or drifts from its documented operation.
+- `routing.py` defined `RouteLookupResult` twice (byte-identical); the second
+  shadowed the first. `frontend/src/types/routing.ts` declared the three
+  traceroute interfaces 2–3 times each — TypeScript merges duplicate
+  interfaces, so this was silently type-widening rather than a compile error.
+  Both de-duplicated.
+
+### Research: DNS, Traceroute & Connectivity (RQ-001, RQ-002, RQ-006)
+- `docs/research/detailed-research.md` now holds the evidence for all three
+  questions; `docs/research-index.md` carries the summary tables and the
+  RD-006/007/008/009 decision records.
+- The headline finding for RQ-006: `/usr/bin/ping` ships `cap_net_raw=ep`, so
+  the `ping` subprocess runs ICMP **unprivileged**. Every Python raw-socket
+  alternative (`aioping`, `asyncping3`, `aio_ping`) was installed and tried
+  and failed with `PermissionError: [Errno 13]`. This is why the existing
+  TASK-402 implementation is the right shape.
+- The in-process unprivileged alternative — the ICMP *dgram* socket — needs the
+  user's GID inside `net.ipv4.ping_group_range`; on this host that range is
+  `1 0`, i.e. empty, so the socket is refused.
+
+### TASK-903: Overview Dashboard ✅ `af1c420`
+- Answers the five questions a student would otherwise hunt for
+- Real machine facts, real neighbour counts, real last-outcome
+- 4 browser checks
+
+### TASK-904: Exportable Report ✅ `b3b8b33`
+- Every claim records value, provenance, source and collection time
+- Limitations are part of the report, not an afterthought
+- Markdown for a file, JSON for processing
+- 8 backend tests, 3 browser checks
+
+### Browser-level tests ✅ `5801636`
+- 22 checks drive a real Chromium against the running app
+- Found two faults the API tests could not see: invalid DOM nesting in
+  Visualization.tsx, and a missing Vite proxy entry
+- Skip cleanly when Playwright is unavailable
+
 ---
 
 ## Defects found and fixed

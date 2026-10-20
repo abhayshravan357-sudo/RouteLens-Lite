@@ -387,6 +387,83 @@
   - `backend/pytest.ini` — `asyncio_default_fixture_loop_scope = function`
 - **Verification**: ✅ Full suite runs with **zero warnings**
 
+### TASK-612: Remove Shadowed `NetworkCollector` Class
+- **Owner**: Research Specialist
+- **Status**: ✅ **Done**
+- **Files**: `backend/app/network_collector.py`
+- **Finding**: `network_collector.py` defined `class NetworkCollector` twice — at line 109 and again at line 865. Because the second definition came later at module scope, it shadowed the first entirely: the earlier class's 708 lines (all 15 of its methods) were unreachable dead code, and `_check_tool`/`check_tools` were additionally defined twice *inside* the live class. An edit to the first copy would have had no effect while appearing to succeed.
+- **Fix**: Deleted the shadowed class and the two duplicate method copies. 1846 → 1109 lines.
+- **Acceptance Criteria**: ✅ Met
+  - Exactly one `class NetworkCollector` remains, with no duplicated method names
+  - Diff is deletions only — 737 deletions, 0 additions, so behaviour is unchanged by construction
+  - All module-level names still exported: `InterfaceInfo`, `RouteInfo`, `NeighborInfo`, `CollectionResult`, `NetworkCollectorError`, `CommandNotFoundError`, `CommandTimeoutError`, `ParseError`, `DnsRecord`, `DnsResolutionResult`, `ConnectivityResult`, `TracerouteHop`, `TracerouteResult`, `NetworkCollector`, `get_network_collector`
+- **Verification**: ✅ Passed
+  ```bash
+  cd backend && source .venv/bin/activate && python -m pytest -q
+  # 307 passed, 2 skipped
+  cd backend && source .venv/bin/activate && python -c "
+  import asyncio
+  from app.network_collector import get_network_collector
+  async def m():
+      c = get_network_collector()
+      print((await c.check_connectivity('google.com', protocol='icmp', count=3)).reachable)
+      print((await c.check_connectivity('google.com', port=443, protocol='tcp')).reachable)
+  asyncio.run(m())"
+  # True / True
+  ```
+
+### TASK-613: Research RQ-001 / RQ-002 / RQ-006
+- **Owner**: Research Specialist
+- **Status**: ✅ **Done**
+- **Files**:
+  - `docs/research/detailed-research.md` — full evidence, code examples and verification tests for all three questions
+  - `docs/research-index.md` — Research Categories tables, Open Research Questions row for RQ-006, and decision records RD-008 (ICMP via `ping` subprocess) and RD-009 (TCP via `asyncio.open_connection`)
+- **Finding**: The unprivileged-ICMP question had a concrete answer. `/usr/bin/ping` carries `cap_net_raw=ep`, so the `ping` subprocess does ICMP without root. Every Python raw-socket alternative (`aioping`, `asyncping3`, `aio_ping`) was installed and executed here, and each failed with `PermissionError: [Errno 13]`. The one in-process unprivileged route is the ICMP *dgram* socket (`SOCK_DGRAM` + `IPPROTO_ICMP`, Linux 3.0+ IPv4 / 3.11+ IPv6), which needs the user's GID inside `net.ipv4.ping_group_range`; this host has that range set to `1 0`, i.e. empty, so the socket is refused.
+- **Impact**: Confirms the shape of the already-shipped TASK-402 implementation (`_icmp_ping` via subprocess, `_tcp_connect` via `asyncio.open_connection`) is correct, and gives a documented reason why the raw-socket libraries were rejected.
+- **Verification**: ✅ Passed
+  ```bash
+  getcap /usr/bin/ping
+  # /usr/bin/ping cap_net_raw=ep
+  cd backend && source .venv/bin/activate && python -c "
+  import asyncio, aioping
+  async def t():
+      try:
+          await aioping.ping('google.com', timeout=2)
+      except PermissionError as e:
+          print('blocked:', e)
+  asyncio.run(t())"
+  # blocked: [Errno 13] Permission denied
+  ```
+
+### TASK-614: Fix Stray Route Decorator, Duplicate Class and Duplicate Types
+- **Owner**: Research Specialist
+- **Status**: ✅ **Done**
+- **Files**:
+  - `backend/app/main.py` — removed a stray `@app.get("/routes", tags=["Routing"])` decorator
+  - `backend/app/routing.py` — removed a duplicate `RouteLookupResult` class and de-duplicated an `ipaddress` import
+  - `backend/app/routing_logic.py` — de-duplicated an `ipaddress` import
+  - `frontend/src/types/routing.ts` — removed duplicate `TracerouteHopResponse`, `TracerouteRequest` and `TracerouteResponse` interfaces
+  - `backend/tests/test_api_integrity.py` (new) — 7 regression tests that fail if any of these reappear
+- **Findings**: three separate defects, all invisible to the existing test suite
+  1. **`main.py`** had a leftover `@app.get("/routes")` decorator with no function under it, so the decorator attached to the *next* function, `get_interfaces`. The result was `GET /routes` registered twice. At runtime the first registration still won, so `/routes` returned routes — but the OpenAPI schema documented `GET /routes` as "Get Interfaces" with the wrong `operationId` and the wrong response schema, and `get_interfaces` was exposed at a path unrelated to it.
+  2. **`routing.py`** defined `RouteLookupResult` twice, byte-identically. The second shadowed the first, leaving 18 unreachable lines.
+  3. **`frontend/src/types/routing.ts`** declared the three traceroute interfaces 2–3 times each. TypeScript *merges* duplicate interface declarations rather than replacing them, so this was not a compile error — but editing one copy would have silently widened the type.
+- **Acceptance Criteria**: ✅ Met
+  - No duplicate `(method, path)` route registrations; `/routes` documented as "List Routes", `/network/interfaces` as "Get Interfaces"
+  - Every OpenAPI `operationId` matches the route that serves it, and all ids are unique
+  - No shadowed module-level definitions, no duplicated methods within a class, no duplicated imported names — across all 36 Python files
+  - Frontend: `tsc --noEmit` clean, `vite build` clean
+- **Verification**: ✅ Passed
+  ```bash
+  cd backend && source .venv/bin/activate && python -m pytest -q
+  # 314 passed, 2 skipped
+  cd backend && source .venv/bin/activate && python -m pytest tests/test_api_integrity.py -v
+  # 7 passed
+  cd frontend && npm run lint && npm run build
+  # tsc --noEmit clean; vite build succeeded (61 modules)
+  ```
+  Each new test was confirmed to *fail* when its defect was reintroduced, so they are real guards rather than vacuous assertions.
+
 ---
 
 ## Phase 7: Scenario Frontend — ✅ **COMPLETE**
