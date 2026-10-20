@@ -441,13 +441,19 @@
 
 ---
 
-## Phase 8: Learning Lab — **PENDING**
+## Phase 8: Learning Lab — ✅ **COMPLETE**
 
 ### TASK-801: Guided Exercises
 - **Owner**: JourneyUI + RouteCore
-- **Status**: ⏳ **Pending**
-- **Notes**: Exercises must be driven by the same engine, and must be verified rather than merely opened.
-- **Depends On**: TASK-701, TASK-704
+- **Status**: ✅ **Done**
+- **Files**: `backend/app/exercises.py`, `backend/app/exercise_checks.py`, `backend/tests/test_exercises.py`, `frontend/src/components/LearningLab.tsx`, `frontend/src/components/LearningLab.css`
+- **Acceptance Criteria**: ✅ Met
+  - 7 exercises, each following the six-part teaching pattern
+  - Longest-prefix, default route, missing route, routing loop, changing a route, metric tiebreak, IPv6 separation
+  - Each exercise is verified by running the real engine, not by comparing typed text
+  - The edit exercises apply a suggested route for real and re-check
+  - The engine's traced hops are shown so the answer is inspectable
+- **Verification**: ✅ 19 tests pass; verified live through the Vite proxy
 
 ---
 

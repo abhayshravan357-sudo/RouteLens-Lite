@@ -10,11 +10,11 @@
 
 | Metric | Value |
 |---|---|
-| Backend tests | **247 passed, 1 skipped** |
+| Backend tests | **266 passed, 1 skipped** |
 | Frontend build | ✅ passes |
 | TypeScript | ✅ clean |
 | `git diff --check` | ✅ clean |
-| Commits this run | 6 |
+| Commits this run | 8 |
 | Skipped tests | 1 (root-only simulation-versus-lab) |
 
 ---
@@ -59,6 +59,12 @@
 - Edits stored in a workspace, not the shared scenario
 - Verified live: router switched from `10.0.0.0/24 (connected)` to `10.0.0.2/32 (static, metric 5)`
 
+### TASK-801: Learning Lab Exercises ✅ `182c257`
+- 7 guided exercises, each verified by running the real engine
+- Six-part teaching pattern: what it is, why it matters, what happens, analogy, try it, check it
+- Edit exercises apply a suggested route for real, then re-check
+- 19 tests pass
+
 ---
 
 ## Live Verification Performed
@@ -73,6 +79,7 @@
 | Compare without root | ✅ `agree: null`, honest reason |
 | Topology from real host | ✅ 8 nodes, 5 edges, provenance correct |
 | Route edit changes the trace | ✅ verified before/after |
+| Learning Lab exercises | ✅ 7 exercises, checked via the proxy |
 
 ---
 
@@ -98,10 +105,10 @@
 
 ## Next Batch
 
-1. **Learning Lab exercises (TASK-801)** — driven by the same engine, verified not merely opened
-2. **One privileged lab run** — needs explicit authorization for `sudo ip netns`
-3. **Archive the autonomous-engineering worktree** — ORANGE, needs approval
-4. **`agent/routing-backend` decision** — its `/trace` endpoint duplicates `/packet-journey`
+1. **One privileged lab run** — needs explicit authorization for `sudo ip netns`
+2. **Archive the autonomous-engineering worktree** — ORANGE, needs approval
+3. **`agent/routing-backend` decision** — its `/trace` endpoint duplicates `/packet-journey`
+4. **Phase 9: authorized host discovery** — scope, confirmation, rate limits, audit trail
 
 ---
 
@@ -109,8 +116,8 @@
 
 **Resume point**: `integration/baseline-2026-10-20` @ `930cb53`, working tree clean.
 
-**State**: Phases 0–7 complete. 247 tests pass, build clean, app running and verified
+**State**: Phases 0–8 complete. 266 tests pass, build clean, app running and verified
 through the Vite proxy.
 
-**Next action**: Implement TASK-801 (Learning Lab exercises) on this branch, or
-obtain authorization for a privileged lab run.
+**Next action**: Obtain authorization for a privileged lab run, or begin
+Phase 9 (authorized host discovery).
