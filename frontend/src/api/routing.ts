@@ -38,6 +38,8 @@ import type {
   PcapAnalyzeRequest,
   PcapAnalysisResult,
   RouteAnalysisReport,
+  RouteRequest,
+  RoutesSummary,
 } from '../types/routing';
 
 const API_BASE = '';
@@ -187,6 +189,94 @@ export async function fetchRoutes(): Promise<RoutingEntry[]> {
   return fetchWithTimeout<RoutingEntry[]>('/routes');
 }
 
+/**
+ * A request against the live routing table.
+ *
+ * Separate from the shared helper because deleting a route answers 204
+ * with no body, which has no JSON to read.
+ */
+async function routingTableRequest<T>(
+  endpoint: string,
+  method: 'POST' | 'PUT' | 'DELETE',
+  body?: unknown
+): Promise<T> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT);
+
+  try {
+    const response = await fetch(`${API_BASE}${endpoint}`, {
+      method,
+      signal: controller.signal,
+      headers:
+        body === undefined
+          ? undefined
+          : { 'Content-Type': 'application/json' },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      const payload = await response.json().catch(() => null);
+      const detail = (payload as { detail?: unknown } | null)?.detail;
+      throw new ApiError(
+        formatDetail(detail, `The backend refused the change (HTTP ${response.status}).`),
+        response.status
+      );
+    }
+
+    if (response.status === 204) {
+      return undefined as T;
+    }
+
+    return (await response.json()) as T;
+  } catch (error) {
+    clearTimeout(timeoutId);
+
+    if (error instanceof ApiError) {
+      throw error;
+    }
+
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw new TimeoutError('The backend did not answer in time.');
+    }
+
+    throw new ApiError(
+      error instanceof Error ? error.message : 'Network error',
+      0,
+      'NETWORK_ERROR'
+    );
+  }
+}
+
+/** Add a route to the live table. The backend validates it and refuses bad ones. */
+export async function addRoute(route: RouteRequest): Promise<RoutingEntry> {
+  return routingTableRequest<RoutingEntry>('/routes', 'POST', route);
+}
+
+/** Replace the route at an index. The backend refuses an out-of-range index. */
+export async function updateRoute(
+  index: number,
+  route: RouteRequest
+): Promise<RoutingEntry> {
+  return routingTableRequest<RoutingEntry>(`/routes/${index}`, 'PUT', route);
+}
+
+/** Remove the route at an index. The backend refuses an out-of-range index. */
+export async function deleteRoute(index: number): Promise<void> {
+  return routingTableRequest<void>(`/routes/${index}`, 'DELETE');
+}
+
+/** Put the original sample table back. */
+export async function resetRoutes(): Promise<RoutingEntry[]> {
+  return routingTableRequest<RoutingEntry[]>('/routes/reset', 'POST');
+}
+
+/** Counts and statistics for the live table. */
+export async function fetchRoutesSummary(): Promise<RoutesSummary> {
+  return fetchWithTimeout<RoutesSummary>('/routes/summary');
+}
+
 export async function lookupRoute(destination: string): Promise<RouteLookupResult> {
   const encoded = encodeURIComponent(destination);
   return fetchWithTimeout<RouteLookupResult>(`/lookup?destination=${encoded}`);
@@ -260,16 +350,68 @@ export async function resolveDns(request: DnsResolveRequest): Promise<DnsResolve
   );
 }
 
-export async function checkConnectivity(request: ConnectivityCheckRequest): Promise<ConnectivityCheckResponse> {
-  return fetchWithTimeout<ConnectivityCheckResponse>(
-    '/network/connectivity',
-    DIAGNOSTICS_TIMEOUT,
-    {
+/**
+ * Check whether a target is reachable.
+ *
+ * An unreachable target is a result, not a fault. The backend answers with
+ * an error status in that case, but sends the whole result in the
+ * `X-RouteLens-Result` header so the verdict is not lost. It is read from
+ * there, and the panel can then say "Unreachable" instead of showing a
+ * raw error.
+ */
+export async function checkConnectivity(
+  request: ConnectivityCheckRequest
+): Promise<ConnectivityCheckResponse> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), DIAGNOSTICS_TIMEOUT);
+
+  try {
+    const response = await fetch(`${API_BASE}/network/connectivity`, {
       method: 'POST',
+      signal: controller.signal,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(request),
+    });
+
+    clearTimeout(timeoutId);
+
+    const carried = response.headers.get('X-RouteLens-Result');
+    if (carried) {
+      try {
+        return JSON.parse(carried) as ConnectivityCheckResponse;
+      } catch {
+        // A header that will not parse is not a result; carry on with the
+        // status code below.
+      }
     }
-  );
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
+      throw new ApiError(
+        formatDetail(error.detail, `Request failed: ${response.status}`),
+        response.status,
+        error.code
+      );
+    }
+
+    return (await response.json()) as ConnectivityCheckResponse;
+  } catch (error) {
+    clearTimeout(timeoutId);
+
+    if (error instanceof ApiError) {
+      throw error;
+    }
+
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw new TimeoutError('The check did not finish in time.');
+    }
+
+    throw new ApiError(
+      error instanceof Error ? error.message : 'Network error',
+      0,
+      'NETWORK_ERROR'
+    );
+  }
 }
 
 export async function runTraceroute(request: TracerouteRequest): Promise<TracerouteResponse> {

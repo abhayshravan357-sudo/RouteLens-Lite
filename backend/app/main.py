@@ -91,6 +91,10 @@ app.add_middleware(
     allow_credentials=False,
     allow_methods=["GET", "POST", "PUT"],
     allow_headers=["Content-Type"],
+    # A failed connectivity check is a result, not a fault, so the backend
+    # sends the full result in this header. A cross-origin client can only
+    # read it if the header is exposed.
+    expose_headers=["X-RouteLens-Result"],
 )
 
 app.include_router(packet_lab_router, prefix="/api/lab")

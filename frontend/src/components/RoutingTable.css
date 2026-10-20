@@ -1,4 +1,283 @@
-/* Routing table — toolbar, filtering and row states */
+/**
+ * Styles for the live routing table.
+ *
+ * Two things live here: the table itself, with its filter bar and row
+ * states, and the editor around it - the notices, the before-and-after
+ * comparison and the form for adding and changing routes.
+ *
+ * Everything is scoped to a class that starts with "routing-table-" or
+ * that the shared table styles own, so nothing here can reach the rest
+ * of the application or fight with the styles the visual redesign owns.
+ */
+
+/**
+ * Styles for the live routing table editor.
+ *
+ * Everything here is scoped to a class that starts with "routing-table-",
+ * so nothing here can reach the rest of the application or fight with
+ * the styles the visual redesign owns.
+ */
+
+.routing-table-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+/* --- Notices ------------------------------------------------------------ */
+
+.routing-table-notices {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.routing-table-notice {
+  display: flex;
+  gap: 0.6rem;
+  align-items: flex-start;
+  padding: 0.6rem 0.75rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  font-size: 0.85rem;
+  line-height: 1.45;
+  color: var(--color-text);
+}
+
+.routing-table-notice > span[aria-hidden='true'] {
+  flex: 0 0 auto;
+  line-height: 1.45;
+}
+
+.routing-table-notice-info {
+  border-left: 3px solid var(--color-info);
+  background: color-mix(in srgb, var(--color-info) 6%, var(--color-surface));
+}
+
+.routing-table-notice-warning {
+  border-left: 3px solid var(--color-warning);
+  background: color-mix(in srgb, var(--color-warning) 8%, var(--color-surface));
+}
+
+.routing-table-notice-success {
+  border-left: 3px solid var(--color-success);
+  background: color-mix(in srgb, var(--color-success) 7%, var(--color-surface));
+}
+
+/* --- Before and after ---------------------------------------------------- */
+
+.routing-table-comparison {
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--color-primary) 4%, var(--color-surface));
+  padding: 0.85rem 1rem;
+}
+
+.routing-table-comparison-title {
+  margin: 0 0 0.6rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.routing-table-comparison-title code {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  background: var(--color-bg);
+  padding: 0.05rem 0.3rem;
+  border-radius: var(--radius-sm);
+}
+
+.routing-table-comparison-columns {
+  display: flex;
+  align-items: stretch;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.routing-table-comparison-column {
+  flex: 1 1 14rem;
+  min-width: 0;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 0.55rem 0.7rem;
+}
+
+.routing-table-comparison-label {
+  display: block;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-muted);
+  margin-bottom: 0.25rem;
+}
+
+.routing-table-comparison-answer {
+  margin: 0;
+  font-size: 0.85rem;
+  font-family: var(--font-mono);
+  color: var(--color-text);
+  word-break: break-word;
+}
+
+.routing-table-comparison-answer.changed {
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
+.routing-table-comparison-answer.unchanged {
+  color: var(--color-text-muted);
+}
+
+.routing-table-comparison-arrow {
+  align-self: center;
+  font-size: 1.1rem;
+  color: var(--color-text-muted);
+}
+
+.routing-table-comparison-note {
+  margin: 0.6rem 0 0;
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+}
+
+/* --- The table ----------------------------------------------------------- */
+
+.routing-table-editable {
+  width: 100%;
+}
+
+.routing-table-editable th,
+.routing-table-editable td {
+  vertical-align: top;
+}
+
+.routing-table-row.editing {
+  background: color-mix(in srgb, var(--color-primary) 6%, transparent);
+}
+
+.routing-table-editable .cell-provenance {
+  white-space: nowrap;
+}
+
+.routing-table-editable .cell-effect {
+  max-width: 26rem;
+}
+
+.routing-table-editable .cell-actions {
+  white-space: nowrap;
+  text-align: right;
+}
+
+.routing-table-coverage {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--color-text);
+}
+
+.routing-table-verdict {
+  display: block;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  margin-top: 0.2rem;
+}
+
+.routing-table-verdict.shadowed {
+  color: var(--color-warning);
+}
+
+.routing-table-verdict.clear {
+  color: var(--color-text-muted);
+}
+
+.routing-table-delete {
+  color: var(--color-error);
+  border-color: color-mix(in srgb, var(--color-error) 40%, var(--color-border));
+  background: transparent;
+}
+
+.routing-table-delete:not(:disabled):hover {
+  background: color-mix(in srgb, var(--color-error) 10%, transparent);
+}
+
+/* --- Actions and form ---------------------------------------------------- */
+
+.routing-table-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.routing-table-form {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg);
+  padding: 0.9rem 1rem 1rem;
+}
+
+.routing-table-form-title {
+  margin: 0 0 0.2rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.routing-table-form-hint {
+  margin: 0 0 0.8rem;
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+}
+
+.routing-table-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: 0.75rem;
+}
+
+.routing-table-form-grid .input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.routing-table-form-grid .input-group label {
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--color-text-muted);
+}
+
+.routing-table-form-grid .input-group input,
+.routing-table-form-grid .input-group select {
+  width: 100%;
+  padding: 0.4rem 0.55rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.routing-table-form-grid .input-group input:focus,
+.routing-table-form-grid .input-group select:focus {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 1px;
+}
+
+.routing-table-form-grid .input-group input:disabled {
+  background: var(--color-bg);
+  color: var(--color-text-muted);
+}
+
+.routing-table-form-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.9rem;
+}
+
+/* --- Filter bar, copy buttons and the best-match row --------------------- */
 
 .routing-table-wrapper {
   display: flex;

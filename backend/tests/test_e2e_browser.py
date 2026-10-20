@@ -120,6 +120,30 @@ def backend_available():
         pytest.skip(f"Backend is not reachable at {health}: {exc}")
 
 
+# ---------------------------------------------------------------------------
+# The application is a workstation: a sidebar of views, and one view on
+# screen at a time. A check that needs a feature has to open the view
+# that holds it, exactly as a person would.
+# ---------------------------------------------------------------------------
+
+VIEW_LABELS = {
+    "overview": "Overview",
+    "routing": "Routing Analyzer",
+    "kernel": "Kernel Table",
+    "journey": "Packet Journey",
+    "lab": "Virtual Lab",
+    "diagnostics": "Network Diagnostics",
+    "learning": "Learning Lab",
+}
+
+
+def goto_view(page, view, wait_ms=1200):
+    """Open one of the application's views by its sidebar entry."""
+    label = VIEW_LABELS.get(view, view)
+    page.locator(".sidebar-nav .nav-item", has_text=label).first.click()
+    page.wait_for_timeout(wait_ms)
+
+
 class TestPageLoads:
     """The application must start and render."""
 
@@ -155,14 +179,15 @@ class TestMainSections:
         page.goto(BASE_URL, wait_until="networkidle", timeout=30000)
         page.wait_for_timeout(1000)
         body = page.inner_text("body")
-        assert "Backend Connected" in body
+        assert "Backend online" in body
 
     def test_the_routing_table_is_shown(self, page, backend_available):
         """The routing table lists the sample routes."""
         page.goto(BASE_URL, wait_until="networkidle", timeout=30000)
         page.wait_for_timeout(1000)
+        goto_view(page, "routing")
         body = page.inner_text("body")
-        assert "Routing Table" in body
+        assert "Routing table" in body
         # The IPv4 and IPv6 default routes should both be listed.
         assert "0.0.0.0/0" in body
         assert "::/0" in body
@@ -171,6 +196,7 @@ class TestMainSections:
         """The diagnostics section appears with its tabs."""
         page.goto(BASE_URL, wait_until="networkidle", timeout=30000)
         page.wait_for_timeout(1000)
+        goto_view(page, "diagnostics")
         body = page.inner_text("body")
         assert "Network Diagnostics" in body
         for tab in ("Interfaces", "Routes", "Neighbors", "DNS", "Connectivity", "Traceroute"):
@@ -180,6 +206,7 @@ class TestMainSections:
         """The learning lab appears with its exercises."""
         page.goto(BASE_URL, wait_until="networkidle", timeout=30000)
         page.wait_for_timeout(1500)
+        goto_view(page, "learning")
         body = page.inner_text("body")
         assert "Learning Lab" in body
         assert "longest-prefix" not in body or True
@@ -194,6 +221,7 @@ class TestRouteLookup:
         """Entering an address shows the route it matched."""
         page.goto(BASE_URL, wait_until="networkidle", timeout=30000)
         page.wait_for_timeout(1000)
+        goto_view(page, "routing")
 
         # The lookup form is prefilled, so look for the result.
         body = page.inner_text("body")
@@ -203,6 +231,7 @@ class TestRouteLookup:
         """The result says why that route was chosen."""
         page.goto(BASE_URL, wait_until="networkidle", timeout=30000)
         page.wait_for_timeout(1000)
+        goto_view(page, "routing")
         body = page.inner_text("body")
         assert "Longest prefix length" in body or "longest prefix" in body.lower()
 
@@ -214,13 +243,15 @@ class TestScenarioJourney:
         """The scenario picker is present."""
         page.goto(BASE_URL, wait_until="networkidle", timeout=30000)
         page.wait_for_timeout(1500)
+        goto_view(page, "journey")
         body = page.inner_text("body")
-        assert "Scenario Lab" in body
+        assert "Packet Journey" in body
 
     def test_a_packet_can_be_traced(self, page, backend_available):
         """Choosing a source and destination produces a hop trace."""
         page.goto(BASE_URL, wait_until="networkidle", timeout=30000)
         page.wait_for_timeout(1500)
+        goto_view(page, "journey")
 
         # The scenario form has a source select and a destination input.
         selects = page.locator("select")
@@ -254,6 +285,7 @@ class TestScenarioJourney:
         """Tracing a packet does not throw."""
         page.goto(BASE_URL, wait_until="networkidle", timeout=30000)
         page.wait_for_timeout(1500)
+        goto_view(page, "journey")
 
         source_select = page.locator("#scenario-src")
         options = source_select.locator("option")
@@ -280,6 +312,7 @@ class TestLearningLab:
         """Checking an exercise runs the engine and reports a verdict."""
         page.goto(BASE_URL, wait_until="networkidle", timeout=30000)
         page.wait_for_timeout(1500)
+        goto_view(page, "learning")
 
         check_button = page.locator("button:has-text('Check my answer')")
         assert check_button.count() == 1, "expected a check button"
@@ -295,6 +328,7 @@ class TestLearningLab:
         """Checking an exercise does not throw."""
         page.goto(BASE_URL, wait_until="networkidle", timeout=30000)
         page.wait_for_timeout(1500)
+        goto_view(page, "learning")
 
         check_button = page.locator("button:has-text('Check my answer')")
         if check_button.count():
@@ -422,10 +456,17 @@ class TestResponsiveLayout:
 # =============================================================================
 
 
-def open_page(page):
-    """Load the app and wait until the header reports a live backend."""
+def open_page(page, view=None):
+    """
+    Load the app and wait until the header reports a live backend.
+
+    `view` opens one of the application's views once the page is up, which
+    is how a person reaches a feature: click it in the sidebar.
+    """
     page.goto(BASE_URL, wait_until="networkidle", timeout=30000)
     page.wait_for_timeout(1500)
+    if view is not None:
+        goto_view(page, view)
 
 
 def result_card(page):
@@ -437,10 +478,12 @@ def open_diagnostic_tab(page, tab_name):
     """
     Open one of the Network Diagnostics tabs.
 
+    The diagnostics live in their own view, so the view is opened first.
     The outer tab list in NetworkDiagnostics.tsx and the inner tab list in
     ConnectivityPanel.tsx are two different tab strips that both end up
     showing the same panel, so the inner tab is clicked as well.
     """
+    goto_view(page, "diagnostics")
     page.locator(".tab-navigation button", has_text=tab_name).first.click()
     page.wait_for_timeout(300)
     inner = page.locator(".connectivity-panel .tab-button", has_text=tab_name)
@@ -454,7 +497,7 @@ class TestRouteLookupForm:
 
     def test_typing_a_destination_replaces_the_previous_result(self, page, backend_available):
         """A new destination changes the route that is shown."""
-        open_page(page)
+        open_page(page, "routing")
 
         field = page.locator("#destination")
         field.fill("")
@@ -469,7 +512,7 @@ class TestRouteLookupForm:
 
     def test_the_result_reports_the_longest_prefix(self, page, backend_available):
         """The result says which prefix won and how many routes matched."""
-        open_page(page)
+        open_page(page, "routing")
 
         field = page.locator("#destination")
         field.fill("")
@@ -483,7 +526,7 @@ class TestRouteLookupForm:
 
     def test_an_invalid_destination_is_reported_as_an_error(self, page, backend_available):
         """A malformed address produces a readable error, not a blank result."""
-        open_page(page)
+        open_page(page, "routing")
 
         field = page.locator("#destination")
         field.fill("")
@@ -616,8 +659,10 @@ class TestConnectivityCheck:
         page.click("button:has-text('Check Connectivity')")
         page.wait_for_timeout(6000)
 
+        # The verdict is styled in capitals, so it is matched without
+        # regard to case.
         text = result_card(page).inner_text()
-        assert "Reachable" in text, f"expected a reachable result, got: {text}"
+        assert "reachable" in text.lower(), f"expected a reachable result, got: {text}"
 
     def test_an_unreachable_target_is_labelled_unreachable(self, page, backend_available):
         """
@@ -638,7 +683,7 @@ class TestConnectivityCheck:
         page.wait_for_timeout(6000)
 
         body = page.inner_text("body")
-        assert "Unreachable" in body, "the result was not labelled Unreachable"
+        assert "unreachable" in body.lower(), "the result was not labelled Unreachable"
 
     def test_a_failed_check_does_not_render_a_raw_error_object(self, page, backend_available):
         """A failure must not put an unrendered object on the page."""
@@ -668,8 +713,8 @@ class TestConnectivityCheck:
         cards = page.locator(".result-card")
         if cards.count() == 0:
             pytest.skip("The check reported only an error banner, with no result card")
-        text = cards.last.inner_text()
-        assert "Reachable" not in text or "Unreachable" in text, (
+        text = cards.last.inner_text().lower()
+        assert "reachable" not in text or "unreachable" in text, (
             f"a failed check was labelled reachable: {text}"
         )
 
@@ -731,7 +776,7 @@ class TestDiscoveryAuthorisation:
 
     def test_previewing_a_scope_shows_what_would_be_probed(self, page, backend_available):
         """The scope preview lists the network and how many addresses it holds."""
-        open_page(page)
+        open_page(page, "diagnostics")
         page.locator(".tab-navigation button", has_text="Discovery").first.click()
         page.wait_for_timeout(500)
 
@@ -746,7 +791,7 @@ class TestDiscoveryAuthorisation:
 
     def test_the_run_button_is_gated_on_the_confirmation(self, page, backend_available):
         """Before a scope is previewed there is nothing to run."""
-        open_page(page)
+        open_page(page, "diagnostics")
         page.locator(".tab-navigation button", has_text="Discovery").first.click()
         page.wait_for_timeout(500)
 
@@ -761,7 +806,7 @@ class TestDiscoveryAuthorisation:
         The request is intercepted on its way out so that `confirmed` is
         dropped, which is what a client that had not confirmed would send.
         """
-        open_page(page)
+        open_page(page, "diagnostics")
         page.locator(".tab-navigation button", has_text="Discovery").first.click()
         page.wait_for_timeout(500)
 
@@ -830,7 +875,7 @@ class TestRouteEditor:
         trace, which unmounted the editor and threw away the confirmation.
         See docs/qa-gap-report.md, finding QA-05.
         """
-        open_page(page)
+        open_page(page, "journey")
 
         assert page.locator("#route-editor-node").count() == 1, (
             "the route editor is not reachable until a packet has been sent"
@@ -855,7 +900,7 @@ class TestRouteEditor:
 
     def test_saving_a_route_reports_that_it_saved(self, page, backend_available):
         """Saving a route says so in the editor."""
-        open_page(page)
+        open_page(page, "journey")
         send_a_packet(page)
 
         picker = page.locator("#route-editor-node")
@@ -882,7 +927,7 @@ class TestRouteEditor:
 
     def test_a_saved_route_changes_the_trace(self, page, backend_available):
         """After a route is changed, the trace that follows uses the new route."""
-        open_page(page)
+        open_page(page, "journey")
         send_a_packet(page)
 
         picker = page.locator("#route-editor-node")
@@ -923,7 +968,7 @@ class TestLearningLabVerdict:
         Applying the exercise's suggested route and re-checking must report
         the new outcome, not the cached one.
         """
-        open_page(page)
+        open_page(page, "learning")
 
         # The exercise with an editable route is "Change a route, change the
         # outcome"; the default one has no suggested route to apply.
@@ -960,7 +1005,7 @@ class TestLearningLabVerdict:
 
     def test_the_verdict_is_readable_text(self, page, backend_available):
         """The verdict must not be an unrendered object."""
-        open_page(page)
+        open_page(page, "learning")
 
         check = page.locator("button:has-text('Check my answer')")
         if check.count() == 0:
@@ -979,12 +1024,21 @@ class TestHonestReporting:
         """
         No panel may render a raw object.
 
-        This walks every diagnostics tab, because a single shared error
-        handler is what turns an object-shaped `detail` into "[object Object]".
+        This walks every view and every diagnostics tab, because a single
+        shared error handler is what turns an object-shaped `detail` into
+        "[object Object]".
         """
         open_page(page)
 
-        for tab in ("DNS", "Connectivity", "Traceroute", "Discovery"):
+        for view in ("overview", "routing", "kernel", "journey", "lab", "learning"):
+            goto_view(page, view)
+            body = page.inner_text("body")
+            assert "[object Object]" not in body, (
+                f"the {view} view rendered a raw object"
+            )
+
+        goto_view(page, "diagnostics")
+        for tab in ("DNS", "Connectivity", "Traceroute", "Discovery", "Capture"):
             page.locator(".tab-navigation button", has_text=tab).first.click()
             page.wait_for_timeout(400)
             body = page.inner_text("body")
@@ -1326,13 +1380,17 @@ class TestCaptureFilePanel:
     """The capture panel must report what it read, and admit what it could not."""
 
     def _open_capture_tab(self, page):
+        goto_view(page, "diagnostics")
         page.locator(".tab-navigation button", has_text="Capture file").first.click()
         page.wait_for_timeout(400)
 
     def _upload(self, page, path):
         page.locator("input[type='file']").first.set_input_files(path)
         page.wait_for_timeout(400)
-        page.get_by_role("button", name="Analyze").first.click()
+        # The name is matched exactly: "Analyze" on its own also matches the
+        # "Routing Analyzer" view in the sidebar, which is not a button
+        # that analyses a capture.
+        page.get_by_role("button", name="Analyze", exact=True).first.click()
         page.wait_for_timeout(4000)
 
     def test_a_capture_that_cannot_be_parsed_says_so(self, page, backend_available, tmp_path):

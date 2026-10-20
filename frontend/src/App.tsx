@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   checkHealth,
   fetchRoutes,
@@ -15,6 +15,7 @@ import {
 import type {
   RoutingEntry,
   RouteLookupResult,
+  LookupComparison,
   LabState,
   LabStatusResponse,
   PacketJourneyRequest,
@@ -57,6 +58,17 @@ function App() {
   const [lookupError, setLookupError] = useState<string | null>(null);
   /** The address the student actually typed, kept for the decision chain. */
   const [queriedAddress, setQueriedAddress] = useState<string | null>(null);
+  /**
+   * The lookup answer before and after the routing table was changed, so
+   * the student can see what their edit did.
+   */
+  const [lookupComparison, setLookupComparison] = useState<LookupComparison | null>(null);
+  /**
+   * Mirrors of the two values above, so a table change always compares
+   * against the answer that is on screen right now.
+   */
+  const lookupResultRef = useRef<RouteLookupResult | null>(null);
+  const queriedAddressRef = useRef<string | null>(null);
 
   // --- Virtual lab ---
   const [labStatus, setLabStatus] = useState<LabStatusResponse | null>(null);
@@ -172,9 +184,14 @@ function App() {
     setLookupResult(null);
     setLookupError(null);
     setQueriedAddress(destination);
+    // A fresh lookup replaces the before-and-after comparison: the
+    // student is asking a new question now.
+    setLookupComparison(null);
+    queriedAddressRef.current = destination;
     try {
       const result = await lookupRoute(destination);
       setLookupResult(result);
+      lookupResultRef.current = result;
     } catch (error) {
       if (error instanceof TimeoutError) {
         setLookupError(
@@ -187,15 +204,45 @@ function App() {
           error instanceof Error ? error.message : 'The lookup failed'
         );
       }
-      setLookupResult({
+      const failed: RouteLookupResult = {
         matched: false,
         route: null,
         explanation: '',
         error: error instanceof Error ? error.message : 'The lookup failed',
         transmitted: false,
-      });
+      };
+      setLookupResult(failed);
+      lookupResultRef.current = failed;
     } finally {
       setLookupLoading(false);
+    }
+  }, []);
+
+  /**
+   * The routing table changed. Refresh it, then run the same lookup again
+   * so the student can see the new answer beside the old one.
+   */
+  const handleTableChanged = useCallback(async () => {
+    try {
+      const data = await fetchRoutes();
+      setRoutes(data);
+    } catch (error) {
+      console.error('Failed to refresh routes:', error);
+    }
+
+    const before = lookupResultRef.current;
+    const destination = queriedAddressRef.current;
+    if (!destination) return;
+
+    try {
+      const after = await lookupRoute(destination);
+      setLookupResult(after);
+      lookupResultRef.current = after;
+      setLookupComparison({ destination, before, after });
+    } catch (error) {
+      setLookupError(
+        error instanceof Error ? error.message : 'Could not run the lookup again.'
+      );
     }
   }, []);
 
@@ -465,6 +512,10 @@ function App() {
           ) : (
             <RoutingTable
               routes={routes}
+              onTableChanged={handleTableChanged}
+              comparison={lookupComparison}
+              lookupResult={lookupResult}
+              lookupDestination={queriedAddress ?? ''}
               bestMatch={lookupResult?.route?.destination ?? null}
             />
           )}

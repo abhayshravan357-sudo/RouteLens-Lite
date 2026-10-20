@@ -4,12 +4,25 @@
 
 export type NextHopType = 'gateway' | 'direct';
 
+/**
+ * How a route came to be known.
+ *
+ * The backend uses the same four words as the rest of the project, so a
+ * route the student typed can be told apart from one that was measured.
+ */
+export type RouteProvenance = 'observed' | 'inferred' | 'simulated' | 'unknown';
+
 export interface RoutingEntry {
   destination: string;
   next_hop: string | null;
   interface: string;
   metric: number;
   next_hop_type: NextHopType;
+  /**
+   * Optional so code that builds a RoutingEntry without it still compiles.
+   * The backend always sends it; routes the student typed are 'simulated'.
+   */
+  provenance?: RouteProvenance;
 }
 
 export interface RouteLookupResult {
@@ -18,6 +31,45 @@ export interface RouteLookupResult {
   explanation: string;
   error: string | null;
   transmitted: boolean;
+}
+
+/**
+ * A route as sent to the backend.
+ *
+ * The metric may be the text the student typed. The rules about what is
+ * acceptable live in the backend, which writes the message a student
+ * reads, so the browser does not second-guess the value.
+ */
+export interface RouteRequest {
+  destination: string;
+  next_hop: string | null;
+  interface: string;
+  metric: number | string;
+  next_hop_type: NextHopType;
+  provenance?: RouteProvenance;
+}
+
+/**
+ * Counts and statistics for the live routing table.
+ * Backend contract: GET /routes/summary
+ */
+export interface RoutesSummary {
+  total_routes: number;
+  longest_prefix: string | null;
+  lowest_metric: number | null;
+  default_route_count: number;
+  ipv4_count: number;
+  ipv6_count: number;
+}
+
+/**
+ * The result of a lookup before and after the routing table was changed,
+ * so a student can see what their edit actually did.
+ */
+export interface LookupComparison {
+  destination: string;
+  before: RouteLookupResult | null;
+  after: RouteLookupResult | null;
 }
 
 /**
