@@ -64,11 +64,15 @@ async def route_lookup(
     result = lookup_route(destination, SAMPLE_ROUTES)
 
     if result.error:
-        # Return 400 for invalid input, 404 for no matching route
+        # Return 400 for invalid input
         if "Invalid" in result.error:
             raise HTTPException(status_code=400, detail=result.error)
         else:
             raise HTTPException(status_code=404, detail=result.explanation)
+
+    if not result.matched:
+        # No matching route found
+        raise HTTPException(status_code=404, detail=result.explanation)
 
     return result
 

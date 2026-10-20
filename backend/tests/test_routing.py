@@ -351,6 +351,127 @@ class TestLookupRoute:
         assert "deterministic" in result.explanation.lower()
 
 
+class TestRouteLookupResult:
+    """Tests for the RouteLookupResult model and transmitted field."""
+
+    def test_transmitted_field_always_false_on_match(self):
+        """Test that transmitted is False when a route is matched."""
+        routes = [
+            RoutingEntry(
+                destination="192.168.1.0/24",
+                next_hop="10.0.0.1",
+                interface="eth0",
+                metric=10,
+            ),
+        ]
+        result = lookup_route("192.168.1.50", routes)
+        assert result.transmitted is False
+
+    def test_transmitted_field_always_false_on_no_match(self):
+        """Test that transmitted is False when no route matches."""
+        routes = [
+            RoutingEntry(
+                destination="192.168.1.0/24",
+                next_hop="10.0.0.1",
+                interface="eth0",
+                metric=10,
+            ),
+        ]
+        result = lookup_route("10.10.10.10", routes)
+        assert result.transmitted is False
+
+    def test_transmitted_field_always_false_on_invalid_input(self):
+        """Test that transmitted is False when input is invalid."""
+        routes = [
+            RoutingEntry(
+                destination="192.168.1.0/24",
+                next_hop="10.0.0.1",
+                interface="eth0",
+                metric=10,
+            ),
+        ]
+        result = lookup_route("not.an.ip", routes)
+        assert result.transmitted is False
+
+
+class TestEdgeCases:
+    """Tests for edge cases and additional scenarios."""
+
+    def test_network_address_matches(self):
+        """Test that the network address itself matches the route."""
+        routes = [
+            RoutingEntry(
+                destination="192.168.1.0/24",
+                next_hop="10.0.0.1",
+                interface="eth0",
+                metric=10,
+            ),
+        ]
+        result = lookup_route("192.168.1.0", routes)
+        assert result.matched is True
+        assert result.route.destination == "192.168.1.0/24"
+
+    def test_broadcast_address_matches(self):
+        """Test that the broadcast address matches the route."""
+        routes = [
+            RoutingEntry(
+                destination="192.168.1.0/24",
+                next_hop="10.0.0.1",
+                interface="eth0",
+                metric=10,
+            ),
+        ]
+        result = lookup_route("192.168.1.255", routes)
+        assert result.matched is True
+        assert result.route.destination == "192.168.1.0/24"
+
+    def test_overlapping_routes_different_metrics(self):
+        """Test overlapping routes where less specific has better metric."""
+        routes = [
+            RoutingEntry(
+                destination="192.168.0.0/16",
+                next_hop="10.0.0.1",
+                interface="eth0",
+                metric=5,
+            ),
+            RoutingEntry(
+                destination="192.168.1.0/24",
+                next_hop="10.0.0.2",
+                interface="eth1",
+                metric=20,
+            ),
+        ]
+        # /24 is more specific, should win despite higher metric
+        result = lookup_route("192.168.1.50", routes)
+        assert result.matched is True
+        assert result.route.destination == "192.168.1.0/24"
+        assert result.route.metric == 20
+
+    def test_same_prefix_different_next_hop_type(self):
+        """Test routes with same prefix but different next hop types."""
+        routes = [
+            RoutingEntry(
+                destination="192.168.1.0/24",
+                next_hop="10.0.0.1",
+                interface="eth0",
+                metric=10,
+                next_hop_type=NextHopType.GATEWAY,
+            ),
+            RoutingEntry(
+                destination="192.168.1.0/24",
+                next_hop=None,
+                interface="eth1",
+                metric=10,
+                next_hop_type=NextHopType.DIRECT,
+            ),
+        ]
+        # Same prefix and metric, deterministic tiebreaker by interface
+        result = lookup_route("192.168.1.50", routes)
+        assert result.matched is True
+        assert result.route.interface == "eth0"  # eth0 < eth1
+        assert result.route.next_hop_type == NextHopType.GATEWAY
+
+
 class TestSampleRoutes:
     """Tests using the provided sample routes."""
 
