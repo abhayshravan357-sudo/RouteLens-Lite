@@ -418,7 +418,7 @@ async def get_interfaces():
 
 
 @app.get("/network/routes", tags=["Network"])
-async def get_routes():
+async def get_routes(ip_version: str = "ipv4"):
     """
     Get real routing table from the host system.
 
@@ -430,11 +430,18 @@ async def get_routes():
     - Protocol
     - Scope
 
+    The IPv4 and IPv6 tables are separate tables in the kernel, so the
+    family is a parameter. The default is IPv4, which is what the table
+    most viewers expect; pass `ip_version=ipv6` to read the other one.
+
+    Args:
+        ip_version: Which table to read. "ipv4" (the default) or "ipv6".
+
     Returns:
         CollectionResult with list of RouteInfo objects
     """
     collector = get_network_collector()
-    result = await collector.collect_routes()
+    result = await collector.collect_routes(ip_version=ip_version)
 
     if not result.success:
         raise HTTPException(status_code=500, detail=result.error or "Failed to collect routes")
