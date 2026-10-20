@@ -574,6 +574,24 @@ branch, merged one at a time with the checks run after each merge.
 - The topology is an SVG graph with observed, inferred, simulated and
   unknown visually distinct, clickable and keyboard reachable
 
+### TASK-1006: Real Routing Table Analysis
+- **Owner**: Autonomous Engineering
+- **Branch**: `feature/real-route-analysis`
+- **Status**: 🔄 In progress
+- **Objective**: apply the existing, already-tested `routing_logic.lookup_route()` to the
+  *real* host routing table, so the measured data teaches something. Report the route
+  that would win and the candidates it beat, flag shadowing, use
+  `ipaddress.collapse_addresses()` to show what a default route stands in for, and
+  mark the conclusion as **inferred**, never observed.
+
+### TASK-1007: Deeper Capture Analysis
+- **Owner**: RouteCore
+- **Branch**: `feature/pcap-depth`
+- **Status**: 🔄 In progress
+- **Objective**: extract transport ports, TCP flags and the three-way handshake, ICMP
+  type, DNS query names and answers, and ARP hardware addresses. Optionally parse
+  PCAPNG. Everything derived stays marked **inferred**.
+
 ---
 
 ## Decisions Taken
@@ -591,6 +609,16 @@ branch, merged one at a time with the checks run after each merge.
   not lost. Merging it would duplicate the feature and add a second,
   inconsistent trace endpoint.
 - **Action**: The branch may be archived once the operator approves.
+
+### DEC-005: Two more defects found by agent review, both fixed
+- **Context**: the Autonomous Engineering agent audited the merged code and
+  reported an orphaned `@app.get("/routes")` decorator with no function under it,
+  and a duplicated `ipaddress` import.
+- **Finding**: both confirmed before acting. The orphan decorator bound the
+  interfaces handler a second time at `/routes`; the first registration still won
+  at runtime, but the OpenAPI schema advertised `GET /routes` as "Get
+  Interfaces". The duplication was in `routing.py` as well as `routing_logic.py`.
+- **Decision**: both fixed. The OpenAPI now correctly reports `list_routes`.
 
 ### DEC-003: A wrong agent finding is checked, not obeyed
 - **Context**: The PacketLab agent reported that the lab's route commands
