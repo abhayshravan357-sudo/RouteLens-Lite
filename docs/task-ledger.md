@@ -651,6 +651,32 @@ branch, merged one at a time with the checks run after each merge.
 - The topology is an SVG graph with observed, inferred, simulated and
   unknown visually distinct, clickable and keyboard reachable
 
+### TASK-1008: Neighbour Reverse Names ✅
+- **Owner**: Autonomous Engineering
+- **Branch**: `feature/neighbour-names` (merged)
+- **Outcome**: reverse DNS names for neighbours, with `NI_NAMEREQD` so a resolver
+  that has no name for an address cannot return the address again and have it
+  read as a name. Bounded: 2s per lookup, 8 at a time, 32 neighbours at most.
+  The address is observed, the name is inferred, and the two are reported apart.
+
+### TASK-1009: Student-Readable API Errors ✅
+- **Owner**: RouteCore (review) + Manager (fix)
+- **Branch**: merged
+- **Outcome**: four findings from the review, each reproduced before it was changed
+  - validation failures now return a sentence, not a list of Pydantic objects
+  - the app's own negative-metric message now reaches the student
+  - a bare address is refused instead of being silently read as a /32, and the
+    stored value is the network form
+  - "the main table" now says "the kernel's main table" where that is meant
+- **Also added**: `GET /routes/analysis`, which explains the editable table with
+  the same machinery that explains the kernel's
+
+### TASK-1010: Topology Includes the IPv6 Tables ✅
+- **Owner**: Manager
+- **Branch**: merged
+- **Outcome**: the real-host topology now reads both families, so a host no
+  longer appears to have no IPv6 routes when it has them
+
 ### TASK-1006: Real Routing Table Analysis
 - **Owner**: Autonomous Engineering
 - **Branch**: `feature/real-route-analysis`
