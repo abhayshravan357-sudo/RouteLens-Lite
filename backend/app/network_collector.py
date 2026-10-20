@@ -75,6 +75,8 @@ class RouteInfo:
     destination: str
     gateway: Optional[str] = None
     interface: Optional[str] = None
+    #: The metric, with the kernel's own convention applied: a route it
+    #: printed without a metric has metric zero.
     metric: Optional[int] = None
     proto: str = "kernel"
     scope: str = "link"
@@ -488,7 +490,12 @@ class NetworkCollector:
 
         gateway = data.get("gateway")
         interface = data.get("dev")
+        # The kernel leaves the metric out when it is zero, which is the
+        # default. It is recorded as zero here so that this view and the
+        # analysis of the same table do not disagree about the same route.
         metric = data.get("metric")
+        if metric is None:
+            metric = 0
         proto = data.get("protocol", "kernel")
         scope = data.get("scope", "link")
         pref_src = data.get("prefsrc")

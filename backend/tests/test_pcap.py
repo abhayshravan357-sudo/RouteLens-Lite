@@ -463,6 +463,33 @@ class TestPcapEndpoint:
         assert len(data["limitations"]) > 0
         assert any("single captured file" in lim for lim in data["limitations"])
 
+    def test_the_vlan_limitation_says_what_the_parser_actually_does(self, client):
+        """
+        The limitation must not understate the parser.
+
+        A VLAN tag is skipped and the protocol inside it is still read, so
+        saying the tag is "not parsed" would tell a student their
+        VLAN-tagged frame would not be understood when in fact it is.
+        """
+        frame = self._build_icmp_frame("10.0.0.1", "10.0.0.2")
+        b64 = self._make_pcap_base64([(1000, frame)])
+
+        response = client.post(
+            "/api/pcap/analyze",
+            json={"filename": "test.pcap", "data_base64": b64}
+        )
+
+        assert response.status_code == 200
+        limitations = response.json()["limitations"]
+        vlan = [lim for lim in limitations if "VLAN" in lim]
+        assert vlan, "the VLAN limitation is not stated at all"
+        assert not any("are not parsed" in lim for lim in vlan), (
+            f"the VLAN limitation understates the parser: {vlan}"
+        )
+        assert any("skipped" in lim for lim in vlan), (
+            f"the VLAN limitation does not say what happens: {vlan}"
+        )
+
     def test_hosts_and_conversations_structure(self, client):
         """Test that hosts and conversations have correct structure."""
         frame = self._build_icmp_frame("10.0.0.1", "10.0.0.2")

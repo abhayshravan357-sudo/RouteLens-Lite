@@ -195,6 +195,27 @@ class TestNetworkCollector:
         assert route2.metric == 100
         assert route2.proto == "dhcp"
 
+    def test_parse_route_without_a_metric_records_zero(self, collector):
+        """
+        A route the kernel printed without a metric has metric zero.
+
+        The kernel leaves the metric out when it is the default, so a
+        missing metric is not an unknown one. Recording it as zero keeps
+        this view and the analysis of the same table from disagreeing
+        about the same route.
+        """
+        route = collector._parse_route(
+            {
+                "dst": "192.168.1.0/24",
+                "dev": "eth0",
+                "protocol": "kernel",
+                "scope": "link",
+                "prefsrc": "192.168.1.100",
+            }
+        )
+
+        assert route.metric == 0
+
     def test_parse_neighbor(self, collector, mock_neighbors_json):
         """Test parsing neighbor data from JSON."""
         neigh1_data = mock_neighbors_json[0]

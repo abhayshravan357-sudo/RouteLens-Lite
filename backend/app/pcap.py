@@ -839,7 +839,7 @@ class PcapParser:
                 "Timestamps come from the capture file, not the system clock",
                 "Only Ethernet (link type 1) packets are fully parsed",
                 "Fragmented IP packets are not reassembled",
-                "VLAN tags (802.1Q) are not parsed",
+                "A VLAN tag (802.1Q) is skipped, and the protocol inside it is still read; the tag itself is not reported",
                 "DNS is parsed for UDP only; DNS over TCP carries a two-byte length prefix and is reported, not decoded",
                 "A TCP flow reports at most one handshake, so repeated connection attempts in one flow are not all listed",
                 "DNS names and TCP handshakes are inferred from observed bytes, not observed directly",

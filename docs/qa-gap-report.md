@@ -207,8 +207,10 @@ protocol is still read, or the code should stop handling it.
 
 **Owner**: the capture/PCAP agent.
 
-**Resolution**: not yet fixed. The wording is still conservative, and still
-understates the parser.
+**Resolution**: fixed. The limitation now says that a VLAN tag is skipped
+and the protocol inside it is still read, which is what the code does. A
+check in `backend/tests/test_pcap.py` asserts that the wording does not
+understate the parser, so it cannot drift back.
 
 ---
 
@@ -225,8 +227,11 @@ limitations that a route the kernel printed without a metric has metric zero.
 
 **Owner**: the route analysis agent.
 
-**Resolution**: not yet fixed. The observed and analysed views still disagree
-about a route the kernel printed without a metric.
+**Resolution**: fixed. The collector now records a route the kernel printed
+without a metric as metric zero, which is what a missing metric means for
+`ip route show`. The observed view and the analysis of the same table no
+longer disagree about the same route. A check in
+`backend/tests/test_network_collector.py` asserts it.
 
 ---
 
@@ -327,7 +332,7 @@ is matched without regard to case, and everything else is matched exactly.
    call site.~~ **Done.**
 3. ~~**QA-07** — extend `PcapAnalysisResult` and render the per-packet detail
    and the handshake.~~ **Done.**
-4. **QA-09, QA-10** — wording corrections. **Still open.**
+4. ~~**QA-09, QA-10** — wording corrections.~~ **Done.**
 
 ---
 
