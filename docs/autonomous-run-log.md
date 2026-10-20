@@ -10,11 +10,11 @@
 
 | Metric | Value |
 |---|---|
-| Backend tests | **266 passed, 1 skipped** |
+| Backend tests | **290 passed, 1 skipped** |
 | Frontend build | ✅ passes |
 | TypeScript | ✅ clean |
 | `git diff --check` | ✅ clean |
-| Commits this run | 8 |
+| Commits this run | 9 |
 | Skipped tests | 1 (root-only simulation-versus-lab) |
 
 ---
@@ -65,6 +65,12 @@
 - Edit exercises apply a suggested route for real, then re-check
 - 19 tests pass
 
+### TASK-901/902: Authorised Host Discovery ✅ `4f1541b`
+- Scope validated, previewed and confirmed before any probe
+- Rate limited, cancellable, with a full audit trail
+- 24 tests pass
+- Verified live: found the real gateway at 192.168.0.1
+
 ---
 
 ## Live Verification Performed
@@ -80,6 +86,8 @@
 | Topology from real host | ✅ 8 nodes, 5 edges, provenance correct |
 | Route edit changes the trace | ✅ verified before/after |
 | Learning Lab exercises | ✅ 7 exercises, checked via the proxy |
+| Discovery guards | ✅ 403 without confirmation, 400 on a wide scope |
+| Real discovery | ✅ found the real gateway 192.168.0.1 |
 
 ---
 
@@ -108,7 +116,7 @@
 1. **One privileged lab run** — needs explicit authorization for `sudo ip netns`
 2. **Archive the autonomous-engineering worktree** — ORANGE, needs approval
 3. **`agent/routing-backend` decision** — its `/trace` endpoint duplicates `/packet-journey`
-4. **Phase 9: authorized host discovery** — scope, confirmation, rate limits, audit trail
+4. **Browser-level check** — the flows are verified at API level, not in a browser
 
 ---
 
@@ -116,8 +124,8 @@
 
 **Resume point**: `integration/baseline-2026-10-20` @ `930cb53`, working tree clean.
 
-**State**: Phases 0–8 complete. 266 tests pass, build clean, app running and verified
+**State**: Phases 0–9 complete. 290 tests pass, build clean, app running and verified
 through the Vite proxy.
 
-**Next action**: Obtain authorization for a privileged lab run, or begin
-Phase 9 (authorized host discovery).
+**Next action**: Obtain authorization for a privileged lab run, or archive the
+duplicate autonomous-engineering worktree.

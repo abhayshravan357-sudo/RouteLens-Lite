@@ -457,13 +457,32 @@
 
 ---
 
-## Phase 9: Authorized Host Discovery — **PENDING**
+## Phase 9: Authorized Host Discovery — ✅ **COMPLETE**
 
 ### TASK-901: Scoped Discovery
-- **Owner**: Backend
-- **Status**: ⏳ **Pending**
-- **Notes**: Explicit target scope, confirmation, rate limits, cancellation and audit records before any active scanning.
-- **Depends On**: TASK-602 (security groundwork is in place)
+- **Owner**: Backend + JourneyUI
+- **Status**: ✅ **Done**
+- **Files**: `backend/app/discovery.py`, `backend/app/discovery_routes.py`, `backend/tests/test_discovery.py`, `backend/tests/test_discovery_api.py`, `frontend/src/components/DiscoveryPanel.tsx`, `frontend/src/components/DiscoveryPanel.css`
+- **Acceptance Criteria**: ✅ Met
+  - Scope is validated before anything is sent; a network over 1024 addresses is refused
+  - The operator previews the exact address list, then types the target back to confirm
+  - Without a matching confirmation the scan is refused with 403 and nothing is probed
+  - Probes are rate limited, bounded in count, and cancellable
+  - Every request including refusals is written to an audit trail shown in the UI
+  - A scan where nothing answers reports zero hosts, which is a real result
+  - The address is passed after `--` so it cannot be read as a command option
+- **Verification**: ✅ 24 tests pass; verified live — a local /29 scan found the real gateway at 192.168.0.1
+
+### TASK-902: Discovery UI
+- **Owner**: JourneyUI
+- **Status**: ✅ **Done**
+- **Acceptance Criteria**: ✅ Met
+  - Authorization notice before the form
+  - Scope preview listing the addresses that would be probed
+  - Confirmation step that must quote the target back
+  - Results table, an honest empty state, and the audit trail
+  - The host's own network offered as a starting point
+- **Depends On**: TASK-901
 
 ---
 
