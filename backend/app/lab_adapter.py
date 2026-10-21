@@ -495,14 +495,28 @@ class LabAdapter:
 
         if overall_ready:
             summary = "Lab is fully ready for packet operations"
-        elif not topology_ok:
-            summary = f"Lab topology issues: {'; '.join(issues)}"
-        elif missing_tools:
-            summary = f"Missing required tools: {', '.join(missing_tools)}"
-        elif permission_issues:
-            summary = f"Permission issues: {'; '.join(permission_issues)}"
         else:
-            summary = "Lab not ready"
+            # Name every reason, not just the first one. A reader who is
+            # told only about a topology problem will look for a topology
+            # problem, when what actually stopped the lab is a namespace
+            # that is missing or a permission that was refused. "Lab not
+            # ready" on its own tells the reader nothing they can act on.
+            reasons: list[str] = []
+            if not topology_ok:
+                reasons.append(f"Lab topology issues: {'; '.join(issues)}")
+            if missing_tools:
+                reasons.append(f"Missing required tools: {', '.join(missing_tools)}")
+            if permission_issues:
+                reasons.append(f"Permission issues: {'; '.join(permission_issues)}")
+            for ns in namespaces.values():
+                if ns.error:
+                    name = ns.name.value if hasattr(ns.name, "value") else ns.name
+                    reasons.append(f"{name}: {ns.error}")
+            summary = (
+                "Lab is not ready: " + "; ".join(reasons)
+                if reasons
+                else "Lab is not ready: the expected topology was not found."
+            )
 
         return LabReadinessReport(
             timestamp=timestamp,

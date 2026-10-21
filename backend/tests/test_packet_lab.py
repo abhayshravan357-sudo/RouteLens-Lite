@@ -273,6 +273,51 @@ class TestLabAdapter:
         assert report.overall_ready is False
         assert "IP forwarding not enabled" in report.summary
 
+    @pytest.mark.asyncio
+    async def test_the_readiness_reason_names_the_namespace_that_failed(self):
+        """
+        "Lab not ready" on its own tells the reader nothing.
+
+        The reason is nearly always one specific namespace that is missing
+        or one specific permission that was refused, and that is what the
+        summary has to say, because the summary is what the interface
+        shows the student.
+        """
+        adapter = LabAdapter()
+
+        missing = NamespaceStatus(
+            name="rl260-client",
+            exists=False,
+            accessible=False,
+            error="Namespace rl260-client does not exist",
+        )
+        refused = NamespaceStatus(
+            name="rl260-router",
+            exists=True,
+            accessible=False,
+            error=(
+                "Permission denied accessing rl260-router. "
+                "Privilege escalation (sudo/pkexec) not configured for web backend."
+            ),
+        )
+        server = NamespaceStatus(
+            name="rl260-server", exists=True, accessible=True,
+            interfaces=[InterfaceInfo(name="rls0", ipv4_network="192.168.20.2/24")],
+        )
+
+        with patch.object(adapter, 'get_namespace_status', new_callable=AsyncMock) as mock_get:
+            mock_get.side_effect = [missing, refused, server]
+            report = await adapter.check_lab_readiness()
+
+        assert report.overall_ready is False
+        assert "rl260-client" in report.summary, report.summary
+        assert "does not exist" in report.summary, report.summary
+        assert "rl260-router" in report.summary, report.summary
+        assert "Permission denied" in report.summary, report.summary
+        assert report.summary != "Lab not ready", (
+            "the summary fell back to the generic message"
+        )
+
 
 class TestPacketLab:
     """Tests for the PacketLab class."""
