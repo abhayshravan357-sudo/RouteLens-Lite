@@ -36,10 +36,10 @@ It is worth being clear about this, because the name invites the wrong idea.
 - **A packet journey traced hop by hop** through a modelled scenario, with
   each hop's routing decision shown in full.
 - **A virtual packet lab** that can send real packets between network
-  namespaces and check the capture afterwards. The backend can do this; the
-  page cannot yet drive it — the lab's *status* is shown, and the comparison
-  view asks the lab to run a scenario, but there are no controls to set the
-  lab up, send a packet or tear it down. See **Limitations**.
+  namespaces and check the capture afterwards. The page drives it: you pick
+  a network to build, build the lab, send a test packet and tear it down.
+  Every step needs root, and each one says so when it is refused. See
+  **Limitations**.
 - **Network diagnostics read from the host** — interfaces, routing table,
   neighbour cache, DNS resolution, connectivity checks and traceroute.
 - **A capture file importer** that reads a PCAP or PCAPNG and extracts ports,
@@ -141,20 +141,20 @@ python -m pytest -q
 ```
 
 ```
-607 passed, 1 skipped, 1 warning in 9.12s
+682 passed, 1 skipped, 1 warning in 12.27s
 ```
 
-That run includes the browser checks, which **skip** unless a backend is
-already answering on port 8000 — so on a machine where something else is
-using that port they will run and the suite will take several minutes
-instead. To run just the backend:
+That run includes the browser checks, which **skip** unless the application
+is already running — so on a machine where something else is using port
+8000 they will run and the suite will take several minutes instead. To run
+just the backend:
 
 ```bash
 python -m pytest -q --ignore=tests/test_e2e_browser.py
 ```
 
 ```
-607 passed, 1 skipped, 1 warning in 9.12s
+682 passed, 1 skipped, 1 warning in 12.27s
 ```
 
 The one skip is a test that needs a kernel interface this machine does not
@@ -188,23 +188,23 @@ python -m pytest tests/test_e2e_browser.py -q -p no:cacheprovider
 ```
 
 ```
-82 passed, 4 xfailed
+91 passed, 2 xfailed
 ```
 
-Every check runs against the real application in a real browser. The four
-`xfail`s are for things that are known and recorded rather than silently
-skipped:
-
-- two are for the lab lifecycle and the journey provenance banner, whose
-  frontend work has not landed yet;
-- two are for API-contract gaps in schemas another stream owns, listed in
-  [`docs/qa-gap-report.md`](docs/qa-gap-report.md).
+Every check runs against the real application in a real browser. The two
+`xfail`s are for API-contract gaps in schemas another stream owns, listed in
+[`docs/qa-gap-report.md`](docs/qa-gap-report.md).
 
 A check that cannot fail is not a check, so none of these are written as
 "skip if the element is missing" — a missing required element is a failure.
+The only skips left are for the application not running at all: if either
+half is not answering, the whole file is skipped with a message naming which
+half is missing, so "the app is not running" can never be mistaken for "the
+app is broken".
 
-These checks **skip cleanly** if Playwright or the backend is not there, so an
-ordinary `pytest` run is never blocked by them.
+These checks **skip cleanly** if Playwright is not installed or either half
+of the application is not running, so an ordinary `pytest` run is never
+blocked by them.
 
 **Everything at once:**
 
@@ -251,10 +251,11 @@ The project tries not to claim more than it does, and these are the real ones:
 - **The routing decision is inferred, not observed.** It is what the kernel's
   table implies, not a packet that was sent. Only the virtual lab sends real
   packets, and only inside namespaces it creates.
-- **The page cannot drive the virtual lab.** The lab's status is shown and the
-  comparison view asks it to run a scenario, but there are no controls to set
-  the lab up, send a packet or tear it down. The backend can do all of that;
-  the interface cannot yet.
+- **The virtual lab needs root, and without it every step is refused.** The
+  page can build the lab, send a test packet and tear it down, but each of
+  those needs network namespaces and therefore root. Without it the lab says
+  it is unavailable, says why, and offers no packet-sending action. Nothing
+  in the interface claims a packet was sent.
 - **Only the main routing table is read.** The kernel keeps local and
   broadcast routes in separate tables, so an address this host owns may have
   no entry of its own in what you see.
