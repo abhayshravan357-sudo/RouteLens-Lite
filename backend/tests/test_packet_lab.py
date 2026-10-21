@@ -5,6 +5,7 @@ Unit and integration tests for the virtual router lab adapter and API.
 """
 
 import pytest
+from pydantic import ValidationError
 from httpx import AsyncClient, ASGITransport
 from unittest.mock import AsyncMock, patch, MagicMock, Mock
 from ipaddress import IPv4Address, IPv4Network
@@ -1068,11 +1069,44 @@ class TestDataModels:
             available=True,
             state="ready",
             message="OK",
-            router_info={"interfaces": []},
+            router_info={
+                "interfaces": ["rlr0c", "rlr0s"],
+                "routing_table": [
+                    {
+                        "destination": "192.168.10.0/24",
+                        "next_hop": None,
+                        "interface": "rlr0c",
+                    }
+                ],
+                "client_ip": "192.168.10.2",
+                "server_ip": "192.168.20.2",
+            },
             error=None
         )
         assert resp.available is True
         assert resp.state == "ready"
+        assert resp.router_info is not None
+        assert resp.router_info.interfaces == ["rlr0c", "rlr0s"]
+        assert resp.router_info.routing_table[0].destination == "192.168.10.0/24"
+        assert resp.router_info.routing_table[0].next_hop is None
+        assert resp.router_info.client_ip == "192.168.10.2"
+
+    def test_the_router_info_is_not_a_free_form_dictionary(self):
+        """
+        The schema has to say what router_info is.
+
+        It used to be a bare dictionary, so the schema said nothing about
+        it and the interface's stricter type was checked against nothing.
+        A router_info that does not have the shape is now refused.
+        """
+        with pytest.raises(ValidationError):
+            LabStatusResponse(
+                available=True,
+                state="ready",
+                message="OK",
+                router_info={"interfaces": []},
+                error=None,
+            )
 
 
 class TestNamespaceStatus:
