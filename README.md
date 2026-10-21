@@ -140,10 +140,6 @@ source .venv/bin/activate
 python -m pytest -q
 ```
 
-```
-682 passed, 1 skipped, 1 warning in 12.27s
-```
-
 That run includes the browser checks, which **skip** unless the application
 is already running — so on a machine where something else is using port
 8000 they will run and the suite will take several minutes instead. To run
@@ -153,12 +149,11 @@ just the backend:
 python -m pytest -q --ignore=tests/test_e2e_browser.py
 ```
 
-```
-682 passed, 1 skipped, 1 warning in 12.27s
-```
-
-The one skip is a test that needs a kernel interface this machine does not
-have; it is skipped for the same reason on every machine.
+The counts move as the work lands, so run the command rather than trusting
+a number in this file. When this README was written, the backend suite was
+`682 passed, 1 skipped`, and the single skip is a test that needs a kernel
+interface this machine does not have — it skips on every machine for the
+same reason.
 
 **Frontend** — type check and production build:
 
@@ -187,13 +182,13 @@ ROUTELENS_HEALTH=http://127.0.0.1:8000/health \
 python -m pytest tests/test_e2e_browser.py -q -p no:cacheprovider
 ```
 
-```
-91 passed, 2 xfailed
-```
-
-Every check runs against the real application in a real browser. The two
-`xfail`s are for API-contract gaps in schemas another stream owns, listed in
+When this README was written the browser file was `91 passed, 2 xfailed`.
+The counts move as the work lands, so run the command rather than trusting
+a number in this file. The two `xfail`s are for API-contract gaps in
+schemas another stream owns, listed in
 [`docs/qa-gap-report.md`](docs/qa-gap-report.md).
+
+Every check runs against the real application in a real browser.
 
 A check that cannot fail is not a check, so none of these are written as
 "skip if the element is missing" — a missing required element is a failure.
