@@ -365,6 +365,12 @@ class HostExerciseState(BaseModel):
     message: str = ""
 
     # The two claims, kept apart.
+    #
+    # "observed" means the table was read out of the kernel. "inferred" means
+    # a conclusion was drawn from that table. When the table could not be
+    # read, neither claim holds, and both are "unknown" rather than being
+    # left at their defaults, which would claim a measurement that never
+    # happened.
     table_provenance: str = "observed"
     analysis_provenance: str = "inferred"
 
@@ -450,8 +456,16 @@ def _unavailable(
     exercise: Exercise,
     reason: str,
     message: Optional[str] = None,
+    table_read: bool = True,
 ) -> HostExerciseState:
-    """A result for a machine whose table cannot answer this exercise."""
+    """A result for a machine whose table cannot answer this exercise.
+
+    Args:
+        table_read: Whether the routing table was successfully read. It was
+            read in every case except a failed collection, and the two
+            provenance claims depend on it: a table that was never read
+            cannot be "observed", and nothing was inferred from it.
+    """
     return HostExerciseState(
         exercise_id=exercise.id,
         title=exercise.title,
@@ -460,6 +474,8 @@ def _unavailable(
         available=False,
         unavailable_reason=reason,
         message=message or exercise.unavailable_hint or "",
+        table_provenance="observed" if table_read else "unknown",
+        analysis_provenance="inferred" if table_read else "unknown",
         checks=[
             ExerciseCheck(
                 description="This exercise can be run on this machine",
@@ -475,7 +491,7 @@ def _unreadable_table(exercise: Exercise, error: Optional[str]) -> HostExerciseS
     reason = "Your machine's routing table could not be read."
     if error:
         reason = f"{reason} ({error})"
-    return _unavailable(exercise, reason)
+    return _unavailable(exercise, reason, table_read=False)
 
 
 async def _collect_host_table(ip_version: str = "ipv4"):

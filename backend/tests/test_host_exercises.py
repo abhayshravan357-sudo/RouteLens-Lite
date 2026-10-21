@@ -531,6 +531,45 @@ class TestWhenTheTableCannotBeRead:
             assert state.available is False
             assert state.complete is False
 
+    @pytest.mark.asyncio
+    async def test_it_does_not_claim_the_table_was_observed(self, host_unreadable):
+        """A table that was never read cannot be 'observed'.
+
+        The frontend shows a 'table observed, conclusion inferred' badge
+        when both claims are made, so claiming them here would put a
+        measurement badge above a message saying the measurement failed.
+        """
+        for exercise_id in HOST_EXERCISES:
+            state = await check_host_exercise(exercise_id, answer="192.168.0.1")
+
+            assert state.table_provenance == "unknown"
+            assert state.analysis_provenance == "unknown"
+
+    @pytest.mark.asyncio
+    async def test_the_badge_condition_does_not_fire(self, host_unreadable):
+        """The condition the frontend uses to show the badge."""
+        for exercise_id in HOST_EXERCISES:
+            state = await check_host_exercise(exercise_id, answer="192.168.0.1")
+
+            badge_would_show = (
+                state.table_provenance == "observed"
+                and state.analysis_provenance == "inferred"
+            )
+            assert badge_would_show is False
+
+    @pytest.mark.asyncio
+    async def test_a_table_that_was_read_is_still_observed(self, host_without_default):
+        """Only the failed collection loses the 'observed' claim.
+
+        A machine with no default route still had its table read, so the
+        table is observed and a conclusion was drawn from it.
+        """
+        state = await check_host_exercise("host-default-shadowed")
+
+        assert state.available is False
+        assert state.table_provenance == "observed"
+        assert state.analysis_provenance == "inferred"
+
 
 # --------------------------------------------------------------------------
 # Endpoints
