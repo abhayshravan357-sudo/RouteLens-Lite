@@ -113,10 +113,16 @@ class TestLabAdapter:
     async def test_get_namespace_status_permission_denied(self):
         """Test getting status when permission is denied."""
         adapter = LabAdapter()
-        # Mock _run_in_namespace to simulate permission denied
+        # Mock _run_in_namespace to simulate permission denied, and say the
+        # namespace exists. Whether it does is a fact about the machine, not
+        # about the code, and the machine's namespaces come and go.
         with patch.object(adapter, '_run_in_namespace', new_callable=AsyncMock) as mock_run:
             mock_run.return_value = (-1, "", "Error executing command as another user: Request dismissed")
-            status = await adapter.get_namespace_status("rl260-client")
+            with patch.object(
+                adapter, 'check_namespace_exists', new_callable=AsyncMock
+            ) as mock_exists:
+                mock_exists.return_value = True
+                status = await adapter.get_namespace_status("rl260-client")
             assert status.exists is True
             assert status.accessible is False
             assert "Permission denied" in status.error
@@ -128,7 +134,11 @@ class TestLabAdapter:
         adapter = LabAdapter()
         with patch.object(adapter, '_run_in_namespace', new_callable=AsyncMock) as mock_run:
             mock_run.return_value = (-1, "", "Some other error")
-            status = await adapter.get_namespace_status("rl260-client")
+            with patch.object(
+                adapter, 'check_namespace_exists', new_callable=AsyncMock
+            ) as mock_exists:
+                mock_exists.return_value = True
+                status = await adapter.get_namespace_status("rl260-client")
             assert status.exists is True
             assert status.accessible is False
             assert "Failed to get interfaces" in status.error
