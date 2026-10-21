@@ -70,6 +70,29 @@ REAL_NAME = "_gateway"
 REAL_ADDRESSES_WITHOUT_NAME = ["192.168.0.102", "192.168.0.105"]
 
 
+def deterministic_resolver():
+    """
+    A reverse resolver with a fixed answer.
+
+    The live resolver is asked of the machine, not of the code, and the
+    answer changes: this machine's PTR record for 192.168.0.1 has been
+    there and has gone. A check that depends on it passes on one network
+    and fails on another, which is not a check of anything.
+
+    This is the resolver the code under test should see. The live one is
+    exercised separately, by the test that tolerates either answer.
+    """
+
+    def lookup(ip_address: str):
+        if ip_address == REAL_ADDRESS_WITH_NAME:
+            return (REAL_NAME, None)
+        return (None, "no PTR record for this address")
+
+    return patch.object(
+        NetworkCollector, "_lookup_name_blocking", side_effect=lookup
+    )
+
+
 def make_neighbors(count: int, prefix: str = "10.9.0") -> list[NeighborInfo]:
     """Build a list of neighbour entries for testing the cap."""
     return [
@@ -291,7 +314,8 @@ class TestResolveNeighbourNames:
             NeighborInfo(ip_address=REAL_ADDRESS_WITH_NAME, interface="wlp2s0", state="REACHABLE")
         ]
 
-        await collector.resolve_neighbour_names(neighbors)
+        with deterministic_resolver():
+            await collector.resolve_neighbour_names(neighbors)
 
         assert neighbors[0].name_provenance == "inferred"
         assert neighbors[0].name_provenance != "observed"
@@ -408,7 +432,8 @@ class TestCollectNeighborsWithNames:
         with patch.object(collector, "_run_command", new_callable=AsyncMock) as mock_run:
             mock_run.return_value = (0, json.dumps(REAL_NEIGHBORS_JSON), "")
 
-            result = await collector.collect_neighbors("ipv4")
+            with deterministic_resolver():
+                result = await collector.collect_neighbors("ipv4")
 
         assert result.success is True
         assert len(result.data) == 3
@@ -426,7 +451,8 @@ class TestCollectNeighborsWithNames:
         with patch.object(collector, "_run_command", new_callable=AsyncMock) as mock_run:
             mock_run.return_value = (0, json.dumps(REAL_NEIGHBORS_JSON), "")
 
-            result = await collector.collect_neighbors("ipv4")
+            with deterministic_resolver():
+                result = await collector.collect_neighbors("ipv4")
 
         summary = result.name_lookup
         assert summary is not None
