@@ -12,7 +12,7 @@
           "PacketLab"
         ],
         "summary": "Check virtual router lab availability",
-        "description": "Check if the virtual router lab is available and ready.\n\nReturns lab status, router interfaces, routing table, and any blockers.",
+        "description": "Check if the virtual router lab is available and ready.\n\nReturns lab status, router interfaces, routing table, and any blockers.\n\nNote: This endpoint reports on the rl260-* lab (rl260-client, rl260-router, rl260-server).\nThe application does not provide a method to create this lab; it must exist beforehand.",
         "operationId": "get_lab_status_api_lab_status_get",
         "responses": {
           "200": {
@@ -37,7 +37,7 @@
           "PacketLab"
         ],
         "summary": "Simulate packet transmission through virtual router",
-        "description": "Simulate a packet transmission through the virtual router.\n\nTransmits a real packet and captures it for verification.\nReturns verification details including TTL decrement, checksum, and route matching\nwith provenance (observed/inferred/simulated/unknown) for each check.",
+        "description": "Simulate a packet transmission through the virtual router.\n\nTransmits a real packet and captures it for verification.\nReturns verification details including TTL decrement, checksum, and route matching\nwith provenance (observed/inferred/simulated/unknown) for each check.\n\nNote: This endpoint requires the rl260-* lab (rl260-client, rl260-router, rl260-server)\nto exist and be accessible. The application does not provide a method to create this lab.",
         "operationId": "simulate_packet_api_lab_simulate_post",
         "requestBody": {
           "content": {
@@ -1249,7 +1249,7 @@
           "Packet Journey"
         ],
         "summary": "Trace Packet Journey",
-        "description": "Trace the path a packet would take from source to destination through the routing table.\n\nThis endpoint traces the packet's path hop by hop through the routing table,\nshowing each routing decision made at each hop.\n\nArgs:\n    request: PacketJourneyRequest with source and destination IPs\n\nReturns:\n    PacketJourneyResponse with hop-by-hop trace",
+        "description": "Trace the path a packet would take from source to destination through the routing table.\n\nThis endpoint traces the packet's path hop by hop through the routing table,\nshowing each routing decision made at each hop.\n\nEach hop is a decision made by the router holding the packet at that moment,\nusing that router's own table. The teaching table describes one router, so a\njourney that reaches another router stops there with the action\n'unresolved_next_hop': the packet was forwarded, but that router's table is\nnot part of this one, so its forwarding cannot be worked out. The Scenario Lab\ntraces the full path through a network where every router has a table.\n\nThe action on each hop is one of:\n  forward             - the router handed the packet to a next hop\n  deliver             - the packet reached the destination\n  drop                - the packet was discarded: no route, or the hop limit ran out\n  loop                - the packet came back to a router it had already been at\n  unresolved_next_hop - the packet was forwarded to a router whose table is unknown\n  error               - the request, or a routing table, could not be read\n\nNothing is transmitted. The journey is calculated from a routing table, which\nis what the response's 'provenance' field says.\n\nArgs:\n    request: PacketJourneyRequest with source and destination IPs\n\nReturns:\n    PacketJourneyResponse with hop-by-hop trace",
         "operationId": "trace_packet_journey_packet_journey_post",
         "requestBody": {
           "content": {
@@ -1266,7 +1266,9 @@
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/PacketJourneyResponse"
+                }
               }
             }
           },
@@ -2485,6 +2487,41 @@
         ],
         "title": "LabStatusResponse"
       },
+      "MatchedRoute": {
+        "properties": {
+          "destination": {
+            "type": "string",
+            "title": "Destination"
+          },
+          "next_hop": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Hop"
+          },
+          "interface": {
+            "type": "string",
+            "title": "Interface"
+          },
+          "metric": {
+            "type": "integer",
+            "title": "Metric"
+          }
+        },
+        "type": "object",
+        "required": [
+          "destination",
+          "interface",
+          "metric"
+        ],
+        "title": "MatchedRoute",
+        "description": "The route a router selected at one hop of a journey.\n\nAttributes:\n    destination: The network that matched, in CIDR notation\n    next_hop: The next hop address, or None for a direct route\n    interface: The outgoing interface the packet left by\n    metric: The cost of the route"
+      },
       "NextHopType": {
         "type": "string",
         "enum": [
@@ -2493,6 +2530,73 @@
         ],
         "title": "NextHopType",
         "description": "Type of next hop for a routing entry."
+      },
+      "PacketHopResponse": {
+        "properties": {
+          "hop_number": {
+            "type": "integer",
+            "title": "Hop Number"
+          },
+          "current_device": {
+            "type": "string",
+            "title": "Current Device"
+          },
+          "destination_ip": {
+            "type": "string",
+            "title": "Destination Ip"
+          },
+          "action": {
+            "type": "string",
+            "title": "Action",
+            "description": "What happened at this hop. One of: forward, deliver, drop, loop, unresolved_next_hop, error"
+          },
+          "explanation": {
+            "type": "string",
+            "title": "Explanation"
+          },
+          "matched_route": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MatchedRoute"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "next_hop_ip": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Hop Ip"
+          },
+          "egress_interface": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Egress Interface"
+          }
+        },
+        "type": "object",
+        "required": [
+          "hop_number",
+          "current_device",
+          "destination_ip",
+          "action",
+          "explanation"
+        ],
+        "title": "PacketHopResponse",
+        "description": "One hop of a packet journey.\n\nThe fields are exactly the ones the interface renders. A field that\ndoes not apply to this hop is left out of the response entirely,\nrather than sent as null, so the shape of the data says what\nhappened.\n\nAttributes:\n    hop_number: Which hop this is, counting from 1\n    current_device: The device making the decision at this hop\n    destination_ip: The destination the packet is travelling towards\n    action: One of PACKET_JOURNEY_ACTIONS\n    explanation: A plain-language account of the decision\n    matched_route: The route that was selected, when one was\n    next_hop_ip: The address the packet was handed to\n    egress_interface: The interface the packet left by"
       },
       "PacketJourneyRequest": {
         "properties": {
@@ -2514,6 +2618,55 @@
         ],
         "title": "PacketJourneyRequest",
         "description": "Request model for packet journey trace."
+      },
+      "PacketJourneyResponse": {
+        "properties": {
+          "source_ip": {
+            "type": "string",
+            "title": "Source Ip"
+          },
+          "destination_ip": {
+            "type": "string",
+            "title": "Destination Ip"
+          },
+          "hops": {
+            "items": {
+              "$ref": "#/components/schemas/PacketHopResponse"
+            },
+            "type": "array",
+            "title": "Hops"
+          },
+          "success": {
+            "type": "boolean",
+            "title": "Success"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "provenance": {
+            "type": "string",
+            "title": "Provenance",
+            "description": "How this journey was worked out. 'simulated' because the path is calculated from a routing table; no packet is transmitted.",
+            "default": "simulated"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source_ip",
+          "destination_ip",
+          "hops",
+          "success"
+        ],
+        "title": "PacketJourneyResponse",
+        "description": "Response model for packet journey trace.\n\nThe journey is worked out from a routing table. No packet is sent,\nso the answer is a calculated decision rather than an observation of\ntraffic, and `provenance` says so.\n\nAttributes:\n    source_ip: The address the packet started from\n    destination_ip: The address the packet was heading for\n    hops: Each forwarding decision, in order\n    success: Whether the packet was shown reaching the destination\n    error: Why the journey did not reach the destination, if it did not\n    provenance: How this answer was arrived at"
       },
       "PacketResponseModel": {
         "properties": {

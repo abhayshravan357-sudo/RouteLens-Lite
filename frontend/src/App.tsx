@@ -632,8 +632,9 @@ function App() {
               <div className="warning-content">
                 <strong>Different topologies.</strong> The routing table uses
                 sample networks (192.168.1.0/24, 10.0.0.0/8). The isolated lab
-                runs on 192.168.10.0/24 and 192.168.20.0/24. The trace below
-                follows the routing table, not the physical lab.
+                is built from a scenario, so it uses that scenario&rsquo;s own
+                networks. The trace below follows the routing table, not the
+                physical lab.
               </div>
             </div>
             <PacketJourney

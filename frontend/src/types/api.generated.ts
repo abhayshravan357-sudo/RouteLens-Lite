@@ -16,6 +16,9 @@ export interface paths {
          * @description Check if the virtual router lab is available and ready.
          *
          *     Returns lab status, router interfaces, routing table, and any blockers.
+         *
+         *     Note: This endpoint reports on the rl260-* lab (rl260-client, rl260-router, rl260-server).
+         *     The application does not provide a method to create this lab; it must exist beforehand.
          */
         get: operations["get_lab_status_api_lab_status_get"];
         put?: never;
@@ -42,6 +45,9 @@ export interface paths {
          *     Transmits a real packet and captures it for verification.
          *     Returns verification details including TTL decrement, checksum, and route matching
          *     with provenance (observed/inferred/simulated/unknown) for each check.
+         *
+         *     Note: This endpoint requires the rl260-* lab (rl260-client, rl260-router, rl260-server)
+         *     to exist and be accessible. The application does not provide a method to create this lab.
          */
         post: operations["simulate_packet_api_lab_simulate_post"];
         delete?: never;
@@ -754,6 +760,24 @@ export interface paths {
          *     This endpoint traces the packet's path hop by hop through the routing table,
          *     showing each routing decision made at each hop.
          *
+         *     Each hop is a decision made by the router holding the packet at that moment,
+         *     using that router's own table. The teaching table describes one router, so a
+         *     journey that reaches another router stops there with the action
+         *     'unresolved_next_hop': the packet was forwarded, but that router's table is
+         *     not part of this one, so its forwarding cannot be worked out. The Scenario Lab
+         *     traces the full path through a network where every router has a table.
+         *
+         *     The action on each hop is one of:
+         *       forward             - the router handed the packet to a next hop
+         *       deliver             - the packet reached the destination
+         *       drop                - the packet was discarded: no route, or the hop limit ran out
+         *       loop                - the packet came back to a router it had already been at
+         *       unresolved_next_hop - the packet was forwarded to a router whose table is unknown
+         *       error               - the request, or a routing table, could not be read
+         *
+         *     Nothing is transmitted. The journey is calculated from a routing table, which
+         *     is what the response's 'provenance' field says.
+         *
          *     Args:
          *         request: PacketJourneyRequest with source and destination IPs
          *
@@ -1455,11 +1479,70 @@ export interface components {
             error?: string | null;
         };
         /**
+         * MatchedRoute
+         * @description The route a router selected at one hop of a journey.
+         *
+         *     Attributes:
+         *         destination: The network that matched, in CIDR notation
+         *         next_hop: The next hop address, or None for a direct route
+         *         interface: The outgoing interface the packet left by
+         *         metric: The cost of the route
+         */
+        MatchedRoute: {
+            /** Destination */
+            destination: string;
+            /** Next Hop */
+            next_hop?: string | null;
+            /** Interface */
+            interface: string;
+            /** Metric */
+            metric: number;
+        };
+        /**
          * NextHopType
          * @description Type of next hop for a routing entry.
          * @enum {string}
          */
         NextHopType: "gateway" | "direct";
+        /**
+         * PacketHopResponse
+         * @description One hop of a packet journey.
+         *
+         *     The fields are exactly the ones the interface renders. A field that
+         *     does not apply to this hop is left out of the response entirely,
+         *     rather than sent as null, so the shape of the data says what
+         *     happened.
+         *
+         *     Attributes:
+         *         hop_number: Which hop this is, counting from 1
+         *         current_device: The device making the decision at this hop
+         *         destination_ip: The destination the packet is travelling towards
+         *         action: One of PACKET_JOURNEY_ACTIONS
+         *         explanation: A plain-language account of the decision
+         *         matched_route: The route that was selected, when one was
+         *         next_hop_ip: The address the packet was handed to
+         *         egress_interface: The interface the packet left by
+         */
+        PacketHopResponse: {
+            /** Hop Number */
+            hop_number: number;
+            /** Current Device */
+            current_device: string;
+            /** Destination Ip */
+            destination_ip: string;
+            /**
+             * Action
+             * @description What happened at this hop. One of: forward, deliver, drop, loop, unresolved_next_hop, error
+             */
+            action: string;
+            /** Explanation */
+            explanation: string;
+            matched_route?: components["schemas"]["MatchedRoute"] | null;
+            /** Next Hop Ip */
+            next_hop_ip?: string | null;
+            /** Egress Interface */
+            egress_interface?: string | null;
+        };
         /**
          * PacketJourneyRequest
          * @description Request model for packet journey trace.
@@ -1475,6 +1558,40 @@ export interface components {
              * @description Destination IPv4 or IPv6 address
              */
             destination_ip: string;
+        };
+        /**
+         * PacketJourneyResponse
+         * @description Response model for packet journey trace.
+         *
+         *     The journey is worked out from a routing table. No packet is sent,
+         *     so the answer is a calculated decision rather than an observation of
+         *     traffic, and `provenance` says so.
+         *
+         *     Attributes:
+         *         source_ip: The address the packet started from
+         *         destination_ip: The address the packet was heading for
+         *         hops: Each forwarding decision, in order
+         *         success: Whether the packet was shown reaching the destination
+         *         error: Why the journey did not reach the destination, if it did not
+         *         provenance: How this answer was arrived at
+         */
+        PacketJourneyResponse: {
+            /** Source Ip */
+            source_ip: string;
+            /** Destination Ip */
+            destination_ip: string;
+            /** Hops */
+            hops: components["schemas"]["PacketHopResponse"][];
+            /** Success */
+            success: boolean;
+            /** Error */
+            error?: string | null;
+            /**
+             * Provenance
+             * @description How this journey was worked out. 'simulated' because the path is calculated from a routing table; no packet is transmitted.
+             * @default simulated
+             */
+            provenance: string;
         };
         /** PacketResponseModel */
         PacketResponseModel: {
@@ -3229,7 +3346,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["PacketJourneyResponse"];
                 };
             };
             /** @description Validation Error */
