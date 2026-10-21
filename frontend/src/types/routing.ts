@@ -848,3 +848,209 @@ export interface PcapAnalysisResult {
   /** Reconstructed handshakes. Present on backends that parse beyond the summary. */
   handshakes?: PcapHandshake[];
 }
+
+/**
+ * The outcome of tracing a packet through a set of routing tables.
+ *
+ * The backend already publishes this model, so it is taken from the
+ * generated schema rather than written out again.
+ */
+export type TraceResult = components['schemas']['TraceResult'];
+
+/**
+ * Router discovery.
+ *
+ * This is a different thing from the ICMP host sweep in
+ * `/api/discovery/`. That one finds hosts on a network by pinging them.
+ * This one walks a network of *routers*: it asks each device for its
+ * neighbours over LLDP or CDP where it can, reads the routing tables where
+ * it can, and works out the links between devices where it cannot.
+ *
+ * The distinction matters because the two kinds of link are not equally
+ * trustworthy. An LLDP or CDP neighbour was told to us by the device
+ * itself — that is an observation. A next hop or a shared subnet was
+ * deduced — that is an inference. The interface shows which is which.
+ *
+ * The backend has not published these models yet, so they are written out
+ * here rather than aliased from the generated schema. When it does, these
+ * should become aliases of `components['schemas'][...]` the way
+ * `VerificationField` and `PacketJourneyResponse` already are, so there is
+ * one declaration of each and the two cannot drift apart.
+ */
+
+/** How a link between two devices was established. */
+export type RouterDiscoveryEdgeKind =
+  | 'lldp'
+  | 'cdp'
+  | 'l3_next_hop'
+  | 'shared_subnet';
+
+/**
+ * Where a piece of knowledge came from.
+ *
+ * The project's own vocabulary: observed, inferred, simulated, unknown.
+ * An observed link was told to us by a device; an inferred one was
+ * deduced by the backend.
+ */
+export type RouterDiscoveryProvenance =
+  | 'observed'
+  | 'inferred'
+  | 'simulated'
+  | 'unknown';
+
+/** One route in a device's routing table. */
+export interface RouteEntry {
+  prefix: string;
+  next_hop: string | null;
+  interface: string | null;
+  protocol: string | null;
+  metric: number;
+  admin_distance: number | null;
+  /** True when the device itself marks this route as the selected one. */
+  selected: boolean;
+}
+
+/** One interface on a device. */
+export interface IfaceInfo {
+  name: string;
+  addresses: string[];
+  up: boolean;
+}
+
+/** One neighbour a device knows about. */
+export interface Neighbor {
+  local_if: string;
+  remote_name: string | null;
+  remote_if: string | null;
+  remote_ip: string | null;
+  via: string | null;
+}
+
+/** Everything the backend managed to read from one device. */
+export interface DeviceSnapshot {
+  device_id: string;
+  hostname: string | null;
+  mgmt_target: string | null;
+  method: string | null;
+  collected_at: string | null;
+  interfaces: IfaceInfo[];
+  routes: RouteEntry[];
+  neighbors: Neighbor[];
+  /** Why parts of this device could not be read. */
+  errors: string[];
+  provenance: RouterDiscoveryProvenance;
+}
+
+/** A link between two devices. */
+export interface RouterDiscoveryEdge {
+  /** The device the link is from. */
+  a: string;
+  /** The device the link is to. */
+  b: string;
+  kind: RouterDiscoveryEdgeKind;
+  provenance: RouterDiscoveryProvenance;
+  /** What the backend used to decide this link exists. */
+  evidence: string;
+}
+
+/** A device in the discovered graph. */
+export interface RouterDiscoveryNode {
+  device_id: string;
+  /** What the reader sees on the map. */
+  label: string;
+  provenance: RouterDiscoveryProvenance;
+  /** Set when the device could not be collected at all. */
+  error: string | null;
+  /** Partial failures while collecting this device. */
+  errors: string[];
+}
+
+/** The graph the backend built from a run. */
+export interface RouterDiscoveryGraph {
+  nodes: RouterDiscoveryNode[];
+  edges: RouterDiscoveryEdge[];
+}
+
+/** A device as the drawer shows it. */
+export interface RouterDiscoveryDevice extends DeviceSnapshot {
+  /** The links this device takes part in, as the backend reported them. */
+  edges: RouterDiscoveryEdge[];
+}
+
+/** Something the backend noticed worth telling the student about. */
+export interface RouterDiscoveryFinding {
+  device_id: string;
+  /** What sort of finding this is. */
+  kind: string;
+  /** How serious the backend judged it to be. */
+  severity: string;
+  /** The finding in one line. */
+  title: string;
+  /** What it means. */
+  detail: string;
+  /** What the backend used to reach the conclusion. */
+  evidence: string;
+}
+
+/** The state of one discovery run. */
+export interface RouterDiscoveryRun {
+  /**
+   * The run's identifier.
+   *
+   * The status response does not carry it — the caller already knows it,
+   * because it asked for this run by name. It is here for convenience and
+   * is absent when the backend does not echo it.
+   */
+  run_id?: string;
+  status: string;
+  /** What the backend has done so far, in order. */
+  progress: string[];
+  /**
+   * What failed.
+   *
+   * The shape of each value is the backend's, so it is left open rather
+   * than guessed at.
+   */
+  failures: Record<string, unknown>;
+}
+
+/** The result of starting a run. */
+export interface RouterDiscoveryRunStart {
+  run_id: string;
+  status: string;
+}
+
+/** The routes of one device. */
+export interface RouterDiscoveryDeviceRoutes {
+  routes: RouteEntry[];
+}
+
+/** The findings of one run. */
+export interface RouterDiscoveryFindings {
+  findings: RouterDiscoveryFinding[];
+}
+
+/** How two runs differ. */
+export interface RouterDiscoveryDiff {
+  added: string[];
+  removed: string[];
+  changed: string[];
+}
+
+/** The request that starts a run. */
+export interface RouterDiscoveryRunRequest {
+  /** The devices to start from. */
+  seeds: string[];
+  /** The network to stay within. */
+  scope: string;
+  /** How to reach a device. */
+  method: string;
+  max_depth: number;
+  max_devices: number;
+}
+
+/** The request that traces a path through the collected tables. */
+export interface RouterDiscoveryTraceRequest {
+  src_device: string;
+  dst_ip: string;
+}
