@@ -27,7 +27,15 @@ from app.lab_builder import (
     teardown_commands,
     PFX,
 )
-from app.packet_lab import PacketLab, LabState, LabStatus, SimulateRequest, SimulateResponse
+from app.packet_lab import (
+    PacketLab,
+    LabState,
+    LabStatus,
+    SimulateRequest,
+    SimulateResponse,
+    VerificationProvenance,
+    VerificationField,
+)
 from app.packet_lab_routes import (
     SimulateRequestModel,
     LabStatusResponse,
@@ -383,7 +391,7 @@ class TestPacketLab:
             duration_ms=100,
             data={
                 "ping": {"success": True, "packets_sent": 3, "packets_received": 3},
-                "capture": {"packets_captured": 2},
+                "capture": {"packets_captured": 2, "raw_output": "IP ... ttl 63 ... checksum 0x1234 (correct)"},
             },
         )
         mock_adapter.run_ping_with_capture = AsyncMock(return_value=mock_operation)
@@ -399,7 +407,13 @@ class TestPacketLab:
         assert response.capture_verified is True
         assert response.packet is not None
         assert response.verification_details is not None
-        assert response.verification_details.ttl_decremented is True
+        # Check new VerificationField structure
+        assert response.verification_details.ttl_decremented.value is True
+        assert response.verification_details.ttl_decremented.provenance == VerificationProvenance.OBSERVED
+        assert response.verification_details.checksum_valid.value is True
+        assert response.verification_details.checksum_valid.provenance == VerificationProvenance.OBSERVED
+        assert response.verification_details.route_matched.value is True
+        assert response.verification_details.route_matched.provenance == VerificationProvenance.OBSERVED
 
     @pytest.mark.asyncio
     async def test_simulate_timeout(self):
@@ -424,7 +438,7 @@ class TestPacketLab:
             duration_ms=5000,
             data={
                 "ping": {"success": True, "packets_sent": 3, "packets_received": 3},
-                "capture": {"packets_captured": 0},
+                "capture": {"packets_captured": 0, "raw_output": ""},
             },
             error="No packets captured",
             warnings=["Verify lab connectivity"],
@@ -440,6 +454,14 @@ class TestPacketLab:
 
         assert response.state == LabState.TIMEOUT
         assert response.capture_verified is False
+        # Check that verification details still have inferred provenance
+        assert response.verification_details is not None
+        assert response.verification_details.ttl_decremented.value is True
+        assert response.verification_details.ttl_decremented.provenance == VerificationProvenance.INFERRED
+        assert response.verification_details.checksum_valid.value is True
+        assert response.verification_details.checksum_valid.provenance == VerificationProvenance.INFERRED
+        assert response.verification_details.route_matched.value is False
+        assert response.verification_details.route_matched.provenance == VerificationProvenance.UNKNOWN
 
     @pytest.mark.asyncio
     async def test_simulate_transmission_error(self):
@@ -464,7 +486,7 @@ class TestPacketLab:
             duration_ms=5000,
             data={
                 "ping": {"success": False, "packets_sent": 3, "packets_received": 0},
-                "capture": {"packets_captured": 0},
+                "capture": {"packets_captured": 0, "raw_output": ""},
             },
             error="Destination unreachable",
         )
@@ -479,6 +501,14 @@ class TestPacketLab:
 
         assert response.state == LabState.ERROR
         assert response.capture_verified is False
+        # Check that verification details have inferred provenance for failed ping
+        assert response.verification_details is not None
+        assert response.verification_details.ttl_decremented.value is False
+        assert response.verification_details.ttl_decremented.provenance == VerificationProvenance.INFERRED
+        assert response.verification_details.checksum_valid.value is False
+        assert response.verification_details.checksum_valid.provenance == VerificationProvenance.INFERRED
+        assert response.verification_details.route_matched.value is False
+        assert response.verification_details.route_matched.provenance == VerificationProvenance.UNKNOWN
 
     def test_validate_request_protocol(self):
         """Test protocol validation."""
@@ -874,7 +904,8 @@ class TestPacketLabRoutes:
                 mock_response = SimulateResponse(
                     state=LabState.UNAVAILABLE,
                     message="Lab unavailable",
-                    error="Permission denied"
+                    error="Permission denied",
+                    verification_details=None,
                 )
                 mock_lab.simulate = AsyncMock(return_value=mock_response)
                 mock_get_lab.return_value = mock_lab
@@ -899,7 +930,8 @@ class TestPacketLabRoutes:
                 mock_response = SimulateResponse(
                     state=LabState.TIMEOUT,
                     message="Capture timeout",
-                    error="No packets captured"
+                    error="No packets captured",
+                    verification_details=None,
                 )
                 mock_lab.simulate = AsyncMock(return_value=mock_response)
                 mock_get_lab.return_value = mock_lab
@@ -924,7 +956,8 @@ class TestPacketLabRoutes:
                 mock_response = SimulateResponse(
                     state=LabState.ERROR,
                     message="Transmission failed",
-                    error="Destination unreachable"
+                    error="Destination unreachable",
+                    verification_details=None,
                 )
                 mock_lab.simulate = AsyncMock(return_value=mock_response)
                 mock_get_lab.return_value = mock_lab

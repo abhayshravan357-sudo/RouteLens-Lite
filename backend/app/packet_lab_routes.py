@@ -16,9 +16,16 @@ from app.packet_lab import (
     SimulateRequest,
     SimulateResponse,
     LabState,
+    VerificationProvenance,
 )
 
 router = APIRouter(tags=["PacketLab"])
+
+
+class VerificationFieldModel(BaseModel):
+    value: bool
+    provenance: str
+    details: str = ""
 
 
 class SimulateRequestModel(BaseModel):
@@ -66,9 +73,9 @@ class PacketResponseModel(BaseModel):
 
 
 class VerificationDetailsModel(BaseModel):
-    ttl_decremented: bool
-    checksum_valid: bool
-    route_matched: bool
+    ttl_decremented: VerificationFieldModel
+    checksum_valid: VerificationFieldModel
+    route_matched: VerificationFieldModel
 
 
 class LabStatusResponse(BaseModel):
@@ -101,7 +108,10 @@ async def get_lab_status() -> LabStatusResponse:
     """
     Check if the virtual router lab is available and ready.
 
-    Returns lab status, router interfaces, and routing table when available.
+    Returns lab status, router interfaces, routing table, and any blockers.
+    
+    Note: This endpoint reports on the rl260-* lab (rl260-client, rl260-router, rl260-server).
+    The application does not provide a method to create this lab; it must exist beforehand.
     """
     lab = get_packet_lab()
     lab_status: LabStatus = await lab.get_status()
@@ -138,7 +148,11 @@ async def simulate_packet(request: SimulateRequestModel) -> SimulateResponseMode
     Simulate a packet transmission through the virtual router.
 
     Transmits a real packet and captures it for verification.
-    Returns verification details including TTL decrement, checksum, and route matching.
+    Returns verification details including TTL decrement, checksum, and route matching
+    with provenance (observed/inferred/simulated/unknown) for each check.
+    
+    Note: This endpoint requires the rl260-* lab (rl260-client, rl260-router, rl260-server)
+    to exist and be accessible. The application does not provide a method to create this lab.
     """
     lab = get_packet_lab()
 
@@ -183,6 +197,27 @@ async def simulate_packet(request: SimulateRequestModel) -> SimulateResponseMode
             action=response.packet.forwarding_info.action,
         )
 
+    # Build verification details model
+    verification_details = None
+    if response.verification_details:
+        verification_details = VerificationDetailsModel(
+            ttl_decremented=VerificationFieldModel(
+                value=response.verification_details.ttl_decremented.value,
+                provenance=response.verification_details.ttl_decremented.provenance.value,
+                details=response.verification_details.ttl_decremented.details,
+            ),
+            checksum_valid=VerificationFieldModel(
+                value=response.verification_details.checksum_valid.value,
+                provenance=response.verification_details.checksum_valid.provenance.value,
+                details=response.verification_details.checksum_valid.details,
+            ),
+            route_matched=VerificationFieldModel(
+                value=response.verification_details.route_matched.value,
+                provenance=response.verification_details.route_matched.provenance.value,
+                details=response.verification_details.route_matched.details,
+            ),
+        )
+
     return SimulateResponseModel(
         state=response.state.value,
         message=response.message,
@@ -195,10 +230,6 @@ async def simulate_packet(request: SimulateRequestModel) -> SimulateResponseMode
             forwarding_info=forwarding_info,
         ) if response.packet else None,
         capture_verified=response.capture_verified,
-        verification_details=VerificationDetailsModel(
-            ttl_decremented=response.verification_details.ttl_decremented,
-            checksum_valid=response.verification_details.checksum_valid,
-            route_matched=response.verification_details.route_matched,
-        ) if response.verification_details else None,
+        verification_details=verification_details,
         error=response.error,
     )

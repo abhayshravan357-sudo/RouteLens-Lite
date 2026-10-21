@@ -605,11 +605,12 @@ class LabAdapter:
         count: int = 10,
         duration: Optional[float] = None,
     ) -> PacketCaptureResult:
-        """Capture packets on a namespace interface."""
+        """Capture packets on a namespace interface with verbose output for verification."""
         start_time = time.time()
         timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
-        cmd = ["timeout", str(int(self.capture_timeout)), "tcpdump", "-i", interface, "-n", "-c", str(count), filter_expr]
+        # Use -v for verbose output including TTL and checksum
+        cmd = ["timeout", str(int(self.capture_timeout)), "tcpdump", "-v", "-i", interface, "-n", "-c", str(count), filter_expr]
         rc, stdout, stderr = await self._run_in_namespace(namespace, cmd, timeout=self.capture_timeout + 2)
 
         packets_captured = 0
