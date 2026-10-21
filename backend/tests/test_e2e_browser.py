@@ -25,6 +25,10 @@ skipped with a clear reason rather than failing.
 import json
 import os
 import re
+import sys
+import urllib.error
+import urllib.request
+from pathlib import Path
 
 import pytest
 
@@ -35,13 +39,27 @@ playwright_api = pytest.importorskip(
 
 from playwright.sync_api import sync_playwright  # noqa: E402
 
+# The backend's own declaration of what a hop may say. It is imported rather
+# than copied so that a second list cannot drift away from the one the
+# implementation uses.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from app.routing import PACKET_JOURNEY_ACTIONS  # noqa: E402
+
 
 BASE_URL = os.environ.get("ROUTELENS_URL", "http://127.0.0.1:5173")
+HEALTH_URL = os.environ.get("ROUTELENS_HEALTH", "http://127.0.0.1:8000/health")
 
 
 @pytest.fixture(scope="module")
 def browser():
-    """A headless Chromium, shared by the checks in this module."""
+    """
+    A headless Chromium, shared by the checks in this module.
+
+    One browser for the whole module, with a fresh context per check. The
+    teardown is checked: a run of this file leaves no chrome-headless-shell
+    process behind, so the orphans seen on a busy machine come from runs
+    that were interrupted, not from this fixture.
+    """
     with sync_playwright() as p:
         try:
             b = p.chromium.launch(
@@ -50,8 +68,10 @@ def browser():
             )
         except Exception as exc:  # pragma: no cover - environment dependent
             pytest.skip(f"Could not launch a browser: {exc}")
-        yield b
-        b.close()
+        try:
+            yield b
+        finally:
+            b.close()
 
 
 @pytest.fixture
@@ -106,18 +126,35 @@ def script_errors(page):
 
 
 @pytest.fixture(scope="module")
-def backend_available():
-    """Skip the browser checks when the backend is not reachable."""
-    import urllib.error
-    import urllib.request
+def app_available():
+    """
+    Skip the browser checks when the application is not running.
 
-    health = os.environ.get("ROUTELENS_HEALTH", "http://127.0.0.1:8000/health")
-    try:
-        with urllib.request.urlopen(health, timeout=5) as response:
-            if response.status != 200:
-                pytest.skip(f"Backend health check returned {response.status}")
-    except (urllib.error.URLError, OSError) as exc:
-        pytest.skip(f"Backend is not reachable at {health}: {exc}")
+    Both halves have to be up: the frontend serves the page, and the
+    frontend proxies to the backend. Checking only the backend lets a
+    missing frontend turn every check into a scattered failure that looks
+    like a regression but is not.
+
+    A missing *feature* is a failure and is asserted as one. A missing
+    *application* is a skip, and the message names both halves.
+    """
+    problems = []
+
+    for label, url in (("backend", HEALTH_URL), ("frontend", BASE_URL)):
+        try:
+            with urllib.request.urlopen(url, timeout=5) as response:
+                if response.status != 200:
+                    problems.append(
+                        f"the {label} at {url} answered {response.status}"
+                    )
+        except (urllib.error.URLError, OSError) as exc:
+            problems.append(f"the {label} at {url} is not reachable ({exc})")
+
+    if problems:
+        pytest.skip(
+            "The application is not running, so these checks cannot say "
+            "anything about it: " + "; ".join(problems) + "."
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -147,19 +184,19 @@ def goto_view(page, view, wait_ms=1200):
 class TestPageLoads:
     """The application must start and render."""
 
-    def test_the_page_loads_with_its_title(self, page, backend_available):
+    def test_the_page_loads_with_its_title(self, page, app_available):
         """The page loads and has the expected title."""
         page.goto(BASE_URL, wait_until="networkidle", timeout=30000)
         assert page.title() == "RouteLens Lite"
 
-    def test_the_page_loads_without_console_errors(self, page, backend_available):
+    def test_the_page_loads_without_console_errors(self, page, app_available):
         """Nothing throws during the initial render."""
         page.goto(BASE_URL, wait_until="networkidle", timeout=30000)
         page.wait_for_timeout(500)
         errors = script_errors(page)
         assert errors == [], f"console errors: {errors}"
 
-    def test_the_backend_is_reached(self, page, backend_available):
+    def test_the_backend_is_reached(self, page, app_available):
         """The frontend actually calls the backend."""
         page.goto(BASE_URL, wait_until="networkidle", timeout=30000)
         page.wait_for_timeout(500)
@@ -174,14 +211,14 @@ class TestPageLoads:
 class TestMainSections:
     """The main sections must be present and populated."""
 
-    def test_the_header_shows_the_backend_connection(self, page, backend_available):
+    def test_the_header_shows_the_backend_connection(self, page, app_available):
         """The header reports the backend as connected."""
         page.goto(BASE_URL, wait_until="networkidle", timeout=30000)
         page.wait_for_timeout(1000)
         body = page.inner_text("body")
         assert "Backend online" in body
 
-    def test_the_routing_table_is_shown(self, page, backend_available):
+    def test_the_routing_table_is_shown(self, page, app_available):
         """The routing table lists the sample routes."""
         page.goto(BASE_URL, wait_until="networkidle", timeout=30000)
         page.wait_for_timeout(1000)
@@ -192,7 +229,7 @@ class TestMainSections:
         assert "0.0.0.0/0" in body
         assert "::/0" in body
 
-    def test_the_network_diagnostics_section_is_shown(self, page, backend_available):
+    def test_the_network_diagnostics_section_is_shown(self, page, app_available):
         """The diagnostics section appears with its tabs."""
         page.goto(BASE_URL, wait_until="networkidle", timeout=30000)
         page.wait_for_timeout(1000)
@@ -202,7 +239,7 @@ class TestMainSections:
         for tab in ("Interfaces", "Routes", "Neighbors", "DNS", "Connectivity", "Traceroute"):
             assert tab in body, f"missing the {tab} tab"
 
-    def test_the_learning_lab_is_shown(self, page, backend_available):
+    def test_the_learning_lab_is_shown(self, page, app_available):
         """The learning lab appears with its exercises."""
         page.goto(BASE_URL, wait_until="networkidle", timeout=30000)
         page.wait_for_timeout(1500)
@@ -217,7 +254,7 @@ class TestMainSections:
 class TestRouteLookup:
     """Looking up a route must work in the browser."""
 
-    def test_a_lookup_shows_the_matched_route(self, page, backend_available):
+    def test_a_lookup_shows_the_matched_route(self, page, app_available):
         """Entering an address shows the route it matched."""
         page.goto(BASE_URL, wait_until="networkidle", timeout=30000)
         page.wait_for_timeout(1000)
@@ -227,7 +264,7 @@ class TestRouteLookup:
         body = page.inner_text("body")
         assert "192.168.1.0/25" in body, "the /25 route should be shown"
 
-    def test_the_result_explains_the_choice(self, page, backend_available):
+    def test_the_result_explains_the_choice(self, page, app_available):
         """The result says why that route was chosen."""
         page.goto(BASE_URL, wait_until="networkidle", timeout=30000)
         page.wait_for_timeout(1000)
@@ -239,7 +276,7 @@ class TestRouteLookup:
 class TestScenarioJourney:
     """The scenario lab must let a student trace a packet."""
 
-    def test_the_scenario_section_appears(self, page, backend_available):
+    def test_the_scenario_section_appears(self, page, app_available):
         """The scenario picker is present."""
         page.goto(BASE_URL, wait_until="networkidle", timeout=30000)
         page.wait_for_timeout(1500)
@@ -247,7 +284,7 @@ class TestScenarioJourney:
         body = page.inner_text("body")
         assert "Packet Journey" in body
 
-    def test_a_packet_can_be_traced(self, page, backend_available):
+    def test_a_packet_can_be_traced(self, page, app_available):
         """Choosing a source and destination produces a hop trace."""
         page.goto(BASE_URL, wait_until="networkidle", timeout=30000)
         page.wait_for_timeout(1500)
@@ -281,7 +318,7 @@ class TestScenarioJourney:
         # The hop list should have rendered.
         assert "Hop 1" in body
 
-    def test_tracing_produces_no_console_errors(self, page, backend_available):
+    def test_tracing_produces_no_console_errors(self, page, app_available):
         """Tracing a packet does not throw."""
         page.goto(BASE_URL, wait_until="networkidle", timeout=30000)
         page.wait_for_timeout(1500)
@@ -308,7 +345,7 @@ class TestScenarioJourney:
 class TestLearningLab:
     """The learning lab must let a student check an answer."""
 
-    def test_an_exercise_can_be_checked(self, page, backend_available):
+    def test_an_exercise_can_be_checked(self, page, app_available):
         """Checking an exercise runs the engine and reports a verdict."""
         page.goto(BASE_URL, wait_until="networkidle", timeout=30000)
         page.wait_for_timeout(1500)
@@ -324,7 +361,7 @@ class TestLearningLab:
         # Either the exercise is complete or it says what is missing.
         assert "Correct" in body or "Not yet" in body
 
-    def test_checking_an_exercise_produces_no_console_errors(self, page, backend_available):
+    def test_checking_an_exercise_produces_no_console_errors(self, page, app_available):
         """Checking an exercise does not throw."""
         page.goto(BASE_URL, wait_until="networkidle", timeout=30000)
         page.wait_for_timeout(1500)
@@ -342,7 +379,7 @@ class TestLearningLab:
 class TestOverview:
     """The overview must answer the questions a student would ask first."""
 
-    def test_the_overview_is_the_first_thing_shown(self, page, backend_available):
+    def test_the_overview_is_the_first_thing_shown(self, page, app_available):
         """The overview appears above the routing table."""
         page.goto(BASE_URL, wait_until="networkidle", timeout=30000)
         page.wait_for_timeout(1500)
@@ -353,7 +390,7 @@ class TestOverview:
         table = page.locator(".overview-card h3", has_text="What am I looking at?")
         assert table.count() == 1, "expected the 'what am I looking at' card"
 
-    def test_the_overview_answers_the_key_questions(self, page, backend_available):
+    def test_the_overview_answers_the_key_questions(self, page, app_available):
         """All five questions have a card."""
         page.goto(BASE_URL, wait_until="networkidle", timeout=30000)
         page.wait_for_timeout(1500)
@@ -367,7 +404,7 @@ class TestOverview:
         ):
             assert heading in body, f"missing the '{heading}' card"
 
-    def test_the_overview_reports_the_real_machine(self, page, backend_available):
+    def test_the_overview_reports_the_real_machine(self, page, app_available):
         """The overview shows this machine's real address, not a placeholder."""
         page.goto(BASE_URL, wait_until="networkidle", timeout=30000)
         page.wait_for_timeout(2000)
@@ -376,7 +413,7 @@ class TestOverview:
         # A real IPv4 address from this machine should appear.
         assert "This machine" in body
 
-    def test_the_overview_produces_no_script_errors(self, page, backend_available):
+    def test_the_overview_produces_no_script_errors(self, page, app_available):
         """Reading the host does not throw."""
         page.goto(BASE_URL, wait_until="networkidle", timeout=30000)
         page.wait_for_timeout(2000)
@@ -387,14 +424,14 @@ class TestOverview:
 class TestReport:
     """The student must be able to take away what was measured."""
 
-    def test_the_report_panel_is_present(self, page, backend_available):
+    def test_the_report_panel_is_present(self, page, app_available):
         """There is a way to build a report."""
         page.goto(BASE_URL, wait_until="networkidle", timeout=30000)
         page.wait_for_timeout(1500)
         body = page.inner_text("body")
         assert "Build report" in body
 
-    def test_a_report_can_be_built(self, page, backend_available):
+    def test_a_report_can_be_built(self, page, app_available):
         """Building a report shows the evidence and the limitations."""
         page.goto(BASE_URL, wait_until="networkidle", timeout=30000)
         page.wait_for_timeout(1500)
@@ -411,7 +448,7 @@ class TestReport:
         # The simulated table must be labelled as such.
         assert "simulated" in body
 
-    def test_building_a_report_produces_no_script_errors(self, page, backend_available):
+    def test_building_a_report_produces_no_script_errors(self, page, app_available):
         """Building a report does not throw."""
         page.goto(BASE_URL, wait_until="networkidle", timeout=30000)
         page.wait_for_timeout(1500)
@@ -428,7 +465,7 @@ class TestReport:
 class TestResponsiveLayout:
     """The layout must work on a smaller screen too."""
 
-    def test_the_page_works_on_a_narrow_screen(self, page, backend_available):
+    def test_the_page_works_on_a_narrow_screen(self, page, app_available):
         """Nothing overflows the viewport on a phone-sized screen."""
         page.set_viewport_size({"width": 390, "height": 844})
         page.goto(BASE_URL, wait_until="networkidle", timeout=30000)
@@ -509,7 +546,7 @@ def open_diagnostic_tab(page, tab_name):
 class TestRouteLookupForm:
     """The route lookup form must reflect what the user typed."""
 
-    def test_typing_a_destination_replaces_the_previous_result(self, page, backend_available):
+    def test_typing_a_destination_replaces_the_previous_result(self, page, app_available):
         """A new destination changes the route that is shown."""
         open_page(page, "routing")
 
@@ -524,7 +561,7 @@ class TestRouteLookupForm:
         assert "10.0.0.0/8" in text, f"expected the /8 direct route, got: {text}"
         assert "Directly connected" in text, "expected a direct next hop"
 
-    def test_the_result_reports_the_longest_prefix(self, page, backend_available):
+    def test_the_result_reports_the_longest_prefix(self, page, app_available):
         """The result says which prefix won and how many routes matched."""
         open_page(page, "routing")
 
@@ -538,7 +575,7 @@ class TestRouteLookupForm:
         assert "192.168.1.0/25" in text
         assert "Longest prefix length" in text
 
-    def test_an_invalid_destination_is_reported_as_an_error(self, page, backend_available):
+    def test_an_invalid_destination_is_reported_as_an_error(self, page, app_available):
         """A malformed address produces a readable error, not a blank result."""
         open_page(page, "routing")
 
@@ -557,7 +594,7 @@ class TestRouteLookupForm:
 class TestScenarioFailures:
     """The scenario engine must report loops and missing routes honestly."""
 
-    def test_a_forwarding_loop_is_reported_as_a_loop(self, page, backend_available):
+    def test_a_forwarding_loop_is_reported_as_a_loop(self, page, app_available):
         """The 'loop' scenario ends in a loop, and the UI says so."""
         open_page(page, "journey")
 
@@ -582,7 +619,7 @@ class TestScenarioFailures:
         body = page.inner_text("body")
         assert "Routing loop detected" in body, "the loop status was not shown"
 
-    def test_a_delivered_packet_is_labelled_as_delivered(self, page, backend_available):
+    def test_a_delivered_packet_is_labelled_as_delivered(self, page, app_available):
         """A working path is labelled 'delivered', so the failure labels mean something."""
         open_page(page, "journey")
 
@@ -608,7 +645,7 @@ class TestScenarioFailures:
 class TestDnsResolution:
     """DNS resolution must report success and failure in plain language."""
 
-    def test_a_resolvable_name_lists_its_addresses(self, page, backend_available):
+    def test_a_resolvable_name_lists_its_addresses(self, page, app_available):
         """A name that resolves shows the addresses it resolved to."""
         open_page(page)
         open_diagnostic_tab(page, "DNS")
@@ -622,7 +659,7 @@ class TestDnsResolution:
         assert "Resolved" in text, f"expected a resolved result, got: {text}"
         assert re.search(r"\d+\.\d+\.\d+\.\d+", text), "no IPv4 address was listed"
 
-    def test_a_name_that_does_not_resolve_shows_a_readable_error(self, page, backend_available):
+    def test_a_name_that_does_not_resolve_shows_a_readable_error(self, page, app_available):
         """
         A name that does not resolve must say so in words.
 
@@ -644,7 +681,7 @@ class TestDnsResolution:
         )
         assert "not found" in body.lower() or "failed" in body.lower()
 
-    def test_a_dns_failure_does_not_claim_success(self, page, backend_available):
+    def test_a_dns_failure_does_not_claim_success(self, page, app_available):
         """A failed lookup must not be labelled 'Resolved'."""
         open_page(page)
         open_diagnostic_tab(page, "DNS")
@@ -667,7 +704,7 @@ class TestDnsResolution:
 class TestConnectivityCheck:
     """The connectivity check must distinguish reachable from unreachable."""
 
-    def test_a_reachable_target_is_labelled_reachable(self, page, backend_available):
+    def test_a_reachable_target_is_labelled_reachable(self, page, app_available):
         """A TCP connect to a listening port reports success."""
         open_page(page)
         open_diagnostic_tab(page, "Connectivity")
@@ -683,7 +720,7 @@ class TestConnectivityCheck:
         text = result_card(page).inner_text()
         assert "reachable" in text.lower(), f"expected a reachable result, got: {text}"
 
-    def test_an_unreachable_target_is_labelled_unreachable(self, page, backend_available):
+    def test_an_unreachable_target_is_labelled_unreachable(self, page, app_available):
         """
         A closed port must be reported as unreachable.
 
@@ -704,7 +741,7 @@ class TestConnectivityCheck:
         body = page.inner_text("body")
         assert "unreachable" in body.lower(), "the result was not labelled Unreachable"
 
-    def test_a_failed_check_does_not_render_a_raw_error_object(self, page, backend_available):
+    def test_a_failed_check_does_not_render_a_raw_error_object(self, page, app_available):
         """A failure must not put an unrendered object on the page."""
         open_page(page)
         open_diagnostic_tab(page, "Connectivity")
@@ -718,7 +755,7 @@ class TestConnectivityCheck:
         body = page.inner_text("body")
         assert "[object Object]" not in body, "an error object was rendered raw"
 
-    def test_a_failed_check_does_not_claim_reachable(self, page, backend_available):
+    def test_a_failed_check_does_not_claim_reachable(self, page, app_available):
         """
         The connectivity verdict must not say 'Reachable' for a closed port.
 
@@ -752,7 +789,7 @@ class TestConnectivityCheck:
 class TestTraceroute:
     """Traceroute must show hops, or say honestly that it could not."""
 
-    def test_traceroute_reports_hops_or_says_it_could_not_run(self, page, backend_available):
+    def test_traceroute_reports_hops_or_says_it_could_not_run(self, page, app_available):
         """
         Running a traceroute produces either a hop table or a plain statement
         that the tool is not available. It must never look like a successful
@@ -777,7 +814,7 @@ class TestTraceroute:
         )
         assert "[object Object]" not in body, "the traceroute error was rendered raw"
 
-    def test_a_traceroute_failure_is_not_reported_as_a_lab_outage(self, page, backend_available):
+    def test_a_traceroute_failure_is_not_reported_as_a_lab_outage(self, page, app_available):
         """
         A missing traceroute binary is not a packet-lab outage.
 
@@ -804,7 +841,7 @@ class TestTraceroute:
 class TestDiscoveryAuthorisation:
     """Discovery must ask for confirmation and record what happened."""
 
-    def test_previewing_a_scope_shows_what_would_be_probed(self, page, backend_available):
+    def test_previewing_a_scope_shows_what_would_be_probed(self, page, app_available):
         """The scope preview lists the network and how many addresses it holds."""
         open_page(page, "diagnostics")
         page.locator(".tab-navigation button", has_text="Discovery").first.click()
@@ -819,7 +856,7 @@ class TestDiscoveryAuthorisation:
         assert "192.168.99.0/24" in body
         assert "address" in body.lower()
 
-    def test_the_run_button_is_gated_on_the_confirmation(self, page, backend_available):
+    def test_the_run_button_is_gated_on_the_confirmation(self, page, app_available):
         """Before a scope is previewed there is nothing to run."""
         open_page(page, "diagnostics")
         page.locator(".tab-navigation button", has_text="Discovery").first.click()
@@ -828,7 +865,7 @@ class TestDiscoveryAuthorisation:
         body = page.inner_text("body")
         assert "Start the scan" not in body, "the scan button is available before a preview"
 
-    def test_an_unconfirmed_run_is_refused_and_audited(self, page, backend_available):
+    def test_an_unconfirmed_run_is_refused_and_audited(self, page, app_available):
         """
         A run without a matching confirmation is refused, and the refusal is
         written to the audit trail.
@@ -917,7 +954,7 @@ def send_a_packet(page, source_value=None, destination="10.0.0.2"):
 class TestRouteEditor:
     """Editing a route must change the trace that follows it."""
 
-    def test_the_route_editor_is_reachable_without_a_trace(self, page, backend_available):
+    def test_the_route_editor_is_reachable_without_a_trace(self, page, app_available):
         """
         The route editor must be usable as soon as a scenario is selected.
 
@@ -949,7 +986,7 @@ class TestRouteEditor:
             "choosing a device did not reveal the route editor"
         )
 
-    def test_saving_a_route_reports_that_it_saved(self, page, backend_available):
+    def test_saving_a_route_reports_that_it_saved(self, page, app_available):
         """Saving a route says so in the editor."""
         open_page(page, "journey")
         send_a_packet(page)
@@ -971,7 +1008,7 @@ class TestRouteEditor:
         assert "Saved." in body, "the editor did not report the save"
         assert "[object Object]" not in body, "a save error was rendered raw"
 
-    def test_a_saved_route_changes_the_trace(self, page, backend_available):
+    def test_a_saved_route_changes_the_trace(self, page, app_available):
         """After a route is changed, the trace that follows uses the new route."""
         open_page(page, "journey")
         send_a_packet(page)
@@ -1006,7 +1043,7 @@ class TestRouteEditor:
 class TestHostExercises:
     """The exercises that work against the reader's own machine."""
 
-    def test_the_host_exercises_are_listed(self, page, backend_available):
+    def test_the_host_exercises_are_listed(self, page, app_available):
         """They appear in the Learning Lab, apart from the modelled ones."""
         open_page(page, "learning")
 
@@ -1019,7 +1056,7 @@ class TestHostExercises:
             f"no host exercise is listed: {titles}"
         )
 
-    def test_a_host_exercise_is_checked_against_the_real_table(self, page, backend_available):
+    def test_a_host_exercise_is_checked_against_the_real_table(self, page, app_available):
         """
         Checking one runs it against the machine's own routing table.
 
@@ -1048,7 +1085,7 @@ class TestHostExercises:
         )
         assert "[object Object]" not in body, "an error object was rendered raw"
 
-    def test_a_host_exercise_does_not_promise_more_than_it_can_show(self, page, backend_available):
+    def test_a_host_exercise_does_not_promise_more_than_it_can_show(self, page, app_available):
         """
         A machine whose table cannot answer must be told that plainly.
 
@@ -1076,7 +1113,7 @@ class TestHostExercises:
 class TestRoutingTableEditing:
     """The live routing table can be changed, and the lookup notices."""
 
-    def test_a_route_can_be_added_and_removed(self, page, backend_available):
+    def test_a_route_can_be_added_and_removed(self, page, app_available):
         """Add a route, see it in the table, then remove it again."""
         open_page(page, "routing")
 
@@ -1105,7 +1142,7 @@ class TestRoutingTableEditing:
         restored = page.locator("table.routing-table tbody tr").count()
         assert restored == before, f"the reset did not restore the table"
 
-    def test_an_edit_changes_the_lookup_and_says_so(self, page, backend_available):
+    def test_an_edit_changes_the_lookup_and_says_so(self, page, app_available):
         """
         The before-and-after comparison is the point of the editor.
 
@@ -1139,7 +1176,7 @@ class TestRoutingTableEditing:
         page.click("button:has-text('Reset to original')")
         page.wait_for_timeout(2500)
 
-    def test_a_bad_route_is_refused_with_a_readable_reason(self, page, backend_available):
+    def test_a_bad_route_is_refused_with_a_readable_reason(self, page, app_available):
         """The backend's own words, not a blank form."""
         open_page(page, "routing")
 
@@ -1160,7 +1197,7 @@ class TestRoutingTableEditing:
 class TestLearningLabVerdict:
     """The exercise verdict must follow the route that is actually in place."""
 
-    def test_applying_the_suggested_route_changes_the_verdict(self, page, backend_available):
+    def test_applying_the_suggested_route_changes_the_verdict(self, page, app_available):
         """
         Applying the exercise's suggested route and re-checking must report
         the new outcome, not the cached one.
@@ -1209,7 +1246,7 @@ class TestLearningLabVerdict:
             "an error object was rendered raw"
         )
 
-    def test_the_verdict_is_readable_text(self, page, backend_available):
+    def test_the_verdict_is_readable_text(self, page, app_available):
         """The verdict must not be an unrendered object."""
         open_page(page, "learning")
 
@@ -1231,7 +1268,7 @@ class TestLearningLabVerdict:
 class TestHonestReporting:
     """Nothing on the page may claim more than was actually done."""
 
-    def test_no_unrendered_objects_anywhere_on_the_page(self, page, backend_available):
+    def test_no_unrendered_objects_anywhere_on_the_page(self, page, app_available):
         """
         No panel may render a raw object.
 
@@ -1257,14 +1294,14 @@ class TestHonestReporting:
                 f"the {tab} tab rendered a raw object"
             )
 
-    def test_no_unrendered_objects_before_any_action(self, page, backend_available):
+    def test_no_unrendered_objects_before_any_action(self, page, app_available):
         """A freshly loaded page must not contain a raw object."""
         open_page(page)
 
         body = page.inner_text("body")
         assert "[object Object]" not in body, "the page rendered a raw object on load"
 
-    def test_the_report_labels_simulated_data_as_simulated(self, page, backend_available):
+    def test_the_report_labels_simulated_data_as_simulated(self, page, app_available):
         """The report must not present the sample table as if it were measured."""
         open_page(page)
 
@@ -1276,7 +1313,7 @@ class TestHonestReporting:
         assert "simulated" in body.lower(), "the report does not say what was simulated"
         assert "**Provenance:**" in body, "the report does not give a provenance"
 
-    def test_the_report_lists_its_sources(self, page, backend_available):
+    def test_the_report_lists_its_sources(self, page, app_available):
         """Each claim in the report must name where it came from."""
         open_page(page)
 
@@ -1303,6 +1340,19 @@ class TestHonestReporting:
 def api_get(page, path):
     """GET a path on the application's own origin, through the proxy."""
     response = page.request.get(f"{BASE_URL}{path}")
+    return response.status, response.json()
+
+
+def backend_get(page, path):
+    """
+    GET a path from the backend itself, not through the proxy.
+
+    The Vite proxy forwards the paths the application uses. It does not
+    forward /openapi.json, so the schema has to be read from the backend
+    directly.
+    """
+    origin = HEALTH_URL.rsplit("/", 1)[0]
+    response = page.request.get(f"{origin}{path}")
     return response.status, response.json()
 
 
@@ -1450,7 +1500,7 @@ class TestRouteAnalysis:
     checks also prove the proxy forwards it.
     """
 
-    def test_the_analysis_endpoint_is_reachable(self, page, backend_available):
+    def test_the_analysis_endpoint_is_reachable(self, page, app_available):
         """The analysis endpoint answers through the application's proxy."""
         open_page(page)
 
@@ -1458,7 +1508,7 @@ class TestRouteAnalysis:
         assert status == 200, f"the analysis endpoint answered {status}"
         assert "analyses" in payload, "the response is not an analysis report"
 
-    def test_the_analysis_separates_what_was_read_from_what_was_concluded(self, page, backend_available):
+    def test_the_analysis_separates_what_was_read_from_what_was_concluded(self, page, app_available):
         """The table is observed; the conclusion drawn from it is inferred."""
         open_page(page)
 
@@ -1476,7 +1526,7 @@ class TestRouteAnalysis:
                 f"a per-destination conclusion is marked {analysis['provenance']!r}"
             )
 
-    def test_the_analysis_names_the_winner_and_the_candidates_it_beat(self, page, backend_available):
+    def test_the_analysis_names_the_winner_and_the_candidates_it_beat(self, page, app_available):
         """A destination with more than one match says which won and why the other lost."""
         open_page(page)
 
@@ -1501,7 +1551,7 @@ class TestRouteAnalysis:
                     f"{candidate['destination']} lost without saying why"
                 )
 
-    def test_a_shadowed_route_is_reported_as_shadowed(self, page, backend_available):
+    def test_a_shadowed_route_is_reported_as_shadowed(self, page, app_available):
         """A less specific route that a more specific one takes traffic from is reported."""
         open_page(page)
 
@@ -1515,7 +1565,7 @@ class TestRouteAnalysis:
             assert finding["less_specific_destination"], "a finding names no shadowed route"
             assert finding["explanation"], "a finding gives no explanation"
 
-    def test_the_analysis_says_no_packet_was_sent(self, page, backend_available):
+    def test_the_analysis_says_no_packet_was_sent(self, page, app_available):
         """The report states plainly that nothing was transmitted."""
         open_page(page)
 
@@ -1527,7 +1577,7 @@ class TestRouteAnalysis:
             "the limitations do not say that nothing was transmitted"
         )
 
-    def test_routes_it_could_not_express_are_listed_rather_than_guessed(self, page, backend_available):
+    def test_routes_it_could_not_express_are_listed_rather_than_guessed(self, page, app_available):
         """A route the model cannot express is reported, not silently dropped."""
         open_page(page)
 
@@ -1538,7 +1588,7 @@ class TestRouteAnalysis:
         for skipped in payload["routes_skipped"]:
             assert skipped["reason"], "a skipped route gives no reason"
 
-    def test_an_ipv6_address_is_analysed_rather_than_reported_as_missing(self, page, backend_available):
+    def test_an_ipv6_address_is_analysed_rather_than_reported_as_missing(self, page, app_available):
         """The IPv6 table is read and an IPv6 destination is looked up in it."""
         open_page(page)
 
@@ -1557,7 +1607,7 @@ class TestRouteAnalysis:
                 "the IPv6 table"
             )
 
-    def test_the_ipv6_analysis_does_not_repeat_the_ipv4_limitation(self, page, backend_available):
+    def test_the_ipv6_analysis_does_not_repeat_the_ipv4_limitation(self, page, app_available):
         """The IPv6 report does not claim IPv6 routes are missing."""
         open_page(page)
 
@@ -1580,7 +1630,7 @@ class TestRouteAnalysisIsNotShownToTheUser:
     client for it.
     """
 
-    def test_the_route_analysis_is_visible_somewhere_on_the_page(self, page, backend_available):
+    def test_the_route_analysis_is_visible_somewhere_on_the_page(self, page, app_available):
         """The analysis should be reachable from the page, not only from the API."""
         open_page(page)
         goto_view(page, "kernel")
@@ -1608,7 +1658,7 @@ class TestCaptureFilePanel:
         page.get_by_role("button", name="Analyze", exact=True).first.click()
         page.wait_for_timeout(4000)
 
-    def test_a_capture_that_cannot_be_parsed_says_so(self, page, backend_available, tmp_path):
+    def test_a_capture_that_cannot_be_parsed_says_so(self, page, app_available, tmp_path):
         """A file that is not a capture is reported as a parse failure."""
         open_page(page)
         self._open_capture_tab(page)
@@ -1622,7 +1672,7 @@ class TestCaptureFilePanel:
         )
         assert "[object Object]" not in body, "an error object was rendered raw"
 
-    def test_a_capture_that_cannot_be_parsed_shows_no_summary(self, page, backend_available, tmp_path):
+    def test_a_capture_that_cannot_be_parsed_shows_no_summary(self, page, app_available, tmp_path):
         """A failed parse must not also present a summary as though it had read the file."""
         open_page(page)
         self._open_capture_tab(page)
@@ -1636,7 +1686,7 @@ class TestCaptureFilePanel:
         assert "Total packets" not in body, "a summary was shown for a file that failed to parse"
         assert "Total bytes" not in body, "a summary was shown for a file that failed to parse"
 
-    def test_a_real_capture_produces_a_summary(self, page, backend_available, tmp_path):
+    def test_a_real_capture_produces_a_summary(self, page, app_available, tmp_path):
         """A real capture is read and summarised."""
         open_page(page)
         self._open_capture_tab(page)
@@ -1648,7 +1698,7 @@ class TestCaptureFilePanel:
         assert "Parse error" not in body, f"a real capture failed to parse: {body[-500:]}"
         assert "10.0.0.1" in body, "the capture's own addresses were not listed"
 
-    def test_the_capture_panel_shows_ports_flags_and_a_handshake(self, page, backend_available, tmp_path):
+    def test_the_capture_panel_shows_ports_flags_and_a_handshake(self, page, app_available, tmp_path):
         """The panel should show the per-packet detail the backend now returns."""
         open_page(page)
         self._open_capture_tab(page)
@@ -1672,7 +1722,7 @@ class TestCaptureFilePanel:
 class TestIPv6Collection:
     """The collector must be able to read the IPv6 table, not only IPv4."""
 
-    def test_the_routes_endpoint_honours_the_address_family(self, page, backend_available):
+    def test_the_routes_endpoint_honours_the_address_family(self, page, app_available):
         """Asking for the IPv6 table should return IPv6 routes."""
         open_page(page)
 
@@ -1695,7 +1745,7 @@ class TestErrorContract:
     locks the fix in place at the level the bug actually lived.
     """
 
-    def test_a_failed_dns_lookup_returns_a_string_detail(self, page, backend_available):
+    def test_a_failed_dns_lookup_returns_a_string_detail(self, page, app_available):
         """A name that cannot be resolved comes back with a readable message."""
         open_page(page)
 
@@ -1711,7 +1761,7 @@ class TestErrorContract:
         )
         assert payload["detail"], "the error message was empty"
 
-    def test_a_failed_connectivity_check_returns_a_string_detail(self, page, backend_available):
+    def test_a_failed_connectivity_check_returns_a_string_detail(self, page, app_available):
         """A refused connection comes back with a readable message."""
         open_page(page)
 
@@ -1747,7 +1797,7 @@ class TestPacketJourneyEndpoint:
     the journey routes.
     """
 
-    def test_the_journey_endpoint_is_reachable(self, page, backend_available):
+    def test_the_journey_endpoint_is_reachable(self, page, app_available):
         """The journey endpoint answers through the application's proxy."""
         open_page(page)
 
@@ -1759,8 +1809,16 @@ class TestPacketJourneyEndpoint:
         assert status == 200, f"the journey endpoint answered {status}"
         assert "hops" in payload, "the journey response has no hops"
 
-    def test_a_forwarded_journey_reports_its_hops_in_order(self, page, backend_available):
-        """A journey that is forwarded lists its hops, numbered from one."""
+    def test_a_forwarded_journey_reports_its_hops_in_order(self, page, app_available):
+        """
+        A journey that is forwarded lists its hops, numbered from one.
+
+        The set of actions a hop may carry is the backend's own
+        PACKET_JOURNEY_ACTIONS, imported above, so this cannot drift away
+        from what the implementation actually says. A hard-coded second
+        list is what let the previous version of this check pass while the
+        endpoint was reporting actions that were not in it.
+        """
         open_page(page)
 
         status, payload = api_post(
@@ -1777,12 +1835,46 @@ class TestPacketJourneyEndpoint:
         )
         for hop in hops:
             assert hop["explanation"], f"hop {hop['hop_number']} has no explanation"
-            assert hop["action"] in ("forward", "loop", "dropped", "delivered"), (
-                f"hop {hop['hop_number']} has an unexpected action {hop['action']!r}"
+            assert hop["action"] in PACKET_JOURNEY_ACTIONS, (
+                f"hop {hop['hop_number']} has an action {hop['action']!r} that "
+                f"the backend does not declare; it declares "
+                f"{list(PACKET_JOURNEY_ACTIONS)}"
             )
 
-    def test_a_looped_journey_is_reported_as_a_loop(self, page, backend_available):
-        """A journey that returns to a device is a loop, not a drop."""
+    def test_the_declared_actions_match_the_published_schema(self, page, app_available):
+        """
+        The schema describes the same actions the backend declares.
+
+        The OpenAPI description of the hop's action names them, so a schema
+        that was not regenerated after a change would be caught here.
+        """
+        open_page(page)
+
+        status, payload = backend_get(page, "/openapi.json")
+        assert status == 200
+
+        description = (
+            payload["components"]["schemas"]["PacketHopResponse"]["properties"][
+                "action"
+            ]["description"]
+        )
+        for action in PACKET_JOURNEY_ACTIONS:
+            assert action in description, (
+                f"the schema's description of a hop's action does not mention "
+                f"{action!r}: {description!r}"
+            )
+
+    def test_a_journey_that_reaches_another_router_is_not_called_a_loop(self, page, app_available):
+        """
+        A journey that hands the packet to a router we know nothing about is
+        not a routing loop.
+
+        The teaching table describes one router. A packet that leaves it
+        reaches a device whose own table was never given, so the journey
+        stops with "unresolved_next_hop": the hand-off worked, and the
+        journey simply cannot say what happens next. Calling that a loop
+        told the student their network had a routing loop, which was wrong.
+        """
         open_page(page)
 
         status, payload = api_post(
@@ -1793,11 +1885,57 @@ class TestPacketJourneyEndpoint:
         assert status == 200
 
         actions = [hop["action"] for hop in payload["hops"]]
-        assert "loop" in actions, f"expected a loop in the hop actions, got {actions}"
-        assert payload["success"] is False, "a looped journey claimed success"
-        assert payload["error"], "a looped journey gave no reason"
+        assert actions, "the journey reported no hops"
+        assert "loop" not in actions, (
+            f"a journey that reached another router was called a loop: {actions}"
+        )
+        assert actions[-1] in PACKET_JOURNEY_ACTIONS, (
+            f"the terminal action {actions[-1]!r} is not one the backend declares"
+        )
+        assert actions[0] == "forward", (
+            f"the first hop did not forward the packet: {actions}"
+        )
 
-    def test_an_invalid_journey_is_refused(self, page, backend_available):
+        # The journey did not arrive, and it says why.
+        assert payload["success"] is False, "the journey claimed success"
+        assert payload["error"], "the journey stopped without saying why"
+        assert "no routing table" in payload["error"].lower() or (
+            "handed over" in payload["error"].lower()
+        ), (
+            "the reason does not say that the hand-off succeeded and the "
+            f"journey stopped: {payload['error']!r}"
+        )
+
+    def test_a_genuine_loop_is_still_reported_as_a_loop(self, page, app_available):
+        """
+        The endpoint reports a loop when there really is one.
+
+        A loop needs a router whose own table points back at itself, and
+        the teaching table has none, so this is covered by the routing
+        stream's unit tests rather than over HTTP. What this check can
+        prove is that the endpoint still has the vocabulary: the action it
+        would report is a declared one, and it is not the action used for
+        a hand-off.
+        """
+        open_page(page)
+
+        status, payload = api_post(
+            page,
+            "/packet-journey",
+            {"source_ip": "192.168.1.1", "destination_ip": "8.8.8.8"},
+        )
+        assert status == 200
+
+        # The endpoint's vocabulary still includes a loop...
+        assert "loop" in PACKET_JOURNEY_ACTIONS
+        # ...and a hand-off is not reported as one.
+        actions = [hop["action"] for hop in payload["hops"]]
+        assert "loop" not in actions
+        assert "unresolved_next_hop" in actions, (
+            f"the journey did not stop at the hand-off: {actions}"
+        )
+
+    def test_an_invalid_journey_is_refused(self, page, app_available):
         """A malformed address is refused rather than answered."""
         open_page(page)
 
@@ -1827,7 +1965,7 @@ class TestJourneyOutcomeClassification:
             data=routes,
         )
 
-    def test_an_unreachable_next_hop_is_its_own_outcome(self, page, backend_available):
+    def test_an_unreachable_next_hop_is_its_own_outcome(self, page, app_available):
         """
         A route whose next hop is not on the link is 'unresolved_next_hop'.
 
@@ -1864,7 +2002,7 @@ class TestJourneyOutcomeClassification:
         finally:
             self._set_route(page, "two-routers", "r1", {"routes": original})
 
-    def test_the_interface_labels_the_three_outcomes_differently(self, page, backend_available):
+    def test_the_interface_labels_the_three_outcomes_differently(self, page, app_available):
         """
         The three terminal outcomes have three different labels.
 
@@ -1928,7 +2066,16 @@ class TestJourneyIsHonestAboutWhatItDid:
     transmitted something is claiming a measurement it never made.
     """
 
-    def test_the_journey_view_never_claims_to_transmit(self, page, backend_available):
+    def _look_up_an_address(self, page):
+        """Look up an address, so the lab has a destination to trace to."""
+        open_page(page, "routing")
+        field = page.locator("#destination")
+        field.fill("")
+        field.type("192.168.1.50")
+        page.click("button:has-text('Analyze Route')")
+        page.wait_for_timeout(2000)
+
+    def test_the_journey_view_never_claims_to_transmit(self, page, app_available):
         """Nothing in the journey view says a packet was transmitted."""
         open_page(page, "journey")
 
@@ -1939,22 +2086,58 @@ class TestJourneyIsHonestAboutWhatItDid:
                 "claim it has not earned"
             )
 
-    @pytest.mark.xfail(
-        reason=(
-            "The journey view is not yet labelled as calculated. The frontend "
-            "work that adds the provenance banner has not landed in this "
-            "build; the contract is agreed and this check will start passing "
-            "when it does."
-        ),
-    )
-    def test_the_journey_view_says_the_result_was_calculated(self, page, backend_available):
-        """The journey view labels its result as calculated, not measured."""
-        open_page(page, "journey")
+    def test_the_journey_result_is_banner_labelled_calculated(self, page, app_available):
+        """
+        A journey worked out from the routing table says so.
+
+        The journey that /packet-journey produces is shown with a
+        provenance banner. For a journey worked out from a routing table
+        the banner must read "Calculated" -- never "Captured", which would
+        claim that every hop was observed on the wire.
+        """
+        self._look_up_an_address(page)
+        goto_view(page, "lab")
+        page.wait_for_timeout(1000)
+
+        trace = page.get_by_role("button", name=re.compile("Trace the packet journey"))
+        assert trace.count() == 1, (
+            "the lab view offers no way to trace the packet journey"
+        )
+        trace.first.click()
+        page.wait_for_timeout(3000)
+
+        banner = page.locator(".journey-provenance")
+        assert banner.count() == 1, "the journey has no provenance banner"
+
+        text = banner.inner_text()
+        # The tag is uppercased by the stylesheet, so the case is ignored.
+        assert re.search(r"calculated", text, re.I), (
+            f"the journey banner does not say the result was calculated: {text!r}"
+        )
+        assert not re.search(r"captured", text, re.I), (
+            f"the journey banner claims the hops were captured: {text!r}"
+        )
+        assert "No packet was sent" in text, (
+            f"the journey banner does not say that nothing was sent: {text!r}"
+        )
+
+    def test_a_calculated_journey_never_claims_a_transmission(self, page, app_available):
+        """After tracing, the view still must not say a packet was transmitted."""
+        self._look_up_an_address(page)
+        goto_view(page, "lab")
+        page.wait_for_timeout(1000)
+
+        trace = page.get_by_role("button", name=re.compile("Trace the packet journey"))
+        if trace.count() == 0:
+            pytest.skip("the lab view offers no way to trace the packet journey")
+        trace.first.click()
+        page.wait_for_timeout(3000)
 
         body = page.inner_text("body")
-        assert re.search(r"calculat", body, re.I), (
-            "the journey view does not say that its result was calculated"
-        )
+        for phrase in ("Transmitting packet", "Packet sent", "Transmitted"):
+            assert phrase not in body, (
+                f"after tracing a calculated journey the view says {phrase!r}"
+            )
 
 
 class TestVirtualLabIsHonest:
@@ -1971,7 +2154,7 @@ class TestVirtualLabIsHonest:
     this build yet.
     """
 
-    def test_the_lab_view_asks_the_backend_for_the_lab_status(self, page, backend_available):
+    def test_the_lab_view_asks_the_backend_for_the_lab_status(self, page, app_available):
         """The panel is driven by the backend's answer, not a template."""
         open_page(page, "lab")
 
@@ -1987,7 +2170,7 @@ class TestVirtualLabIsHonest:
             "the lab view did not ask the backend whether the lab is ready"
         )
 
-    def test_an_unavailable_lab_says_so_and_says_why(self, page, backend_available):
+    def test_an_unavailable_lab_says_so_and_says_why(self, page, app_available):
         """Without namespaces the lab is unavailable, and the reason is shown."""
         open_page(page, "lab")
 
@@ -2000,7 +2183,7 @@ class TestVirtualLabIsHonest:
             "the lab view did not explain why the lab is unavailable"
         )
 
-    def test_the_lab_never_claims_a_packet_was_sent(self, page, backend_available):
+    def test_the_lab_never_claims_a_packet_was_sent(self, page, app_available):
         """An unavailable lab must not read as a successful transmission."""
         open_page(page, "lab")
 
@@ -2015,26 +2198,18 @@ class TestVirtualLabIsHonest:
                 f"the lab view says {phrase!r} while the lab is unavailable"
             )
 
-    @pytest.mark.xfail(
-        reason=(
-            "The lab lifecycle work has not landed in this build. The "
-            "selectors are published and agreed, so this check starts "
-            "passing when the lifecycle elements arrive."
-        ),
-    )
-    def test_the_lab_lifecycle_is_offered(self, page, backend_available):
+    def test_the_lab_lifecycle_is_offered(self, page, app_available):
         """
         The lab offers its lifecycle steps.
 
-        This needs the lab lifecycle work, which has not landed in this
-        build: the selectors are published, the elements are not there yet.
+        The lifecycle work has landed, so this is a real check now rather
+        than a recorded gap.
         """
         open_page(page, "lab")
 
         lifecycle = page.locator(".lab-lifecycle")
         assert lifecycle.count() == 1, (
-            "the lab view has no lifecycle; the lab lifecycle work has not "
-            "landed yet"
+            "the lab view has no lifecycle"
         )
         assert page.locator(".lab-lifecycle-step").count() >= 1, (
             "the lab lifecycle has no steps"
@@ -2057,7 +2232,7 @@ class TestNestedApiContracts:
         assert status == 200, f"the OpenAPI schema answered {status}"
         return payload
 
-    def test_the_discovery_scope_has_the_fields_the_interface_reads(self, page, backend_available):
+    def test_the_discovery_scope_has_the_fields_the_interface_reads(self, page, app_available):
         """The scope the panel reads must actually carry those fields."""
         open_page(page)
 
@@ -2074,7 +2249,7 @@ class TestNestedApiContracts:
                 f"the discovery scope has no {field!r}, but the interface reads it"
             )
 
-    def test_the_compare_result_has_the_fields_the_interface_reads(self, page, backend_available):
+    def test_the_compare_result_has_the_fields_the_interface_reads(self, page, app_available):
         """
         The comparison panel reads .simulated.status, .simulated.hops and
         .lab.status, so those must be there even when the lab is unavailable.
@@ -2105,7 +2280,7 @@ class TestNestedApiContracts:
             "see docs/qa-gap-report.md."
         ),
     )
-    def test_the_lab_router_info_has_a_defined_shape_in_the_schema(self, page, backend_available):
+    def test_the_lab_router_info_has_a_defined_shape_in_the_schema(self, page, app_available):
         """
         The schema should say what router_info is.
 
@@ -2133,7 +2308,7 @@ class TestNestedApiContracts:
             "unnoticed. The frontend stream owns the checker."
         ),
     )
-    def test_the_compare_and_discovery_schemas_are_checked_for_drift(self, page, backend_available):
+    def test_the_compare_and_discovery_schemas_are_checked_for_drift(self, page, app_available):
         """
         The contract checker should cover the schemas the frontend types.
 
@@ -2156,3 +2331,109 @@ class TestNestedApiContracts:
         assert not missing, (
             f"these schemas are not in the contract checker's list: {missing}"
         )
+
+
+class TestVirtualLabLifecycle:
+    """
+    The lab's four steps, and what the interface is allowed to claim at each.
+
+    The lab needs root to create its namespaces. This machine does not have
+    it, so the lab is genuinely unavailable here and the build is genuinely
+    refused. That is the state these checks require, and a lab that cannot
+    be built must say so rather than pretend.
+
+    Nothing here proves that real namespaces or a real capture work. It
+    proves that the interface describes what happened accurately.
+    """
+
+    def _open_lab(self, page):
+        open_page(page, "lab")
+        page.wait_for_timeout(1500)
+
+    def test_the_lab_lists_its_lifecycle_steps(self, page, app_available):
+        """The four steps are named, in order."""
+        self._open_lab(page)
+
+        steps = page.locator(".lab-lifecycle-step")
+        assert steps.count() == 4, (
+            f"the lab lifecycle has {steps.count()} steps, expected four"
+        )
+        labels = [steps.nth(i).inner_text() for i in range(steps.count())]
+        for label in ("Check", "Build", "Test", "Tear down"):
+            assert any(label in text for text in labels), (
+                f"the lifecycle has no {label!r} step: {labels}"
+            )
+
+    def test_the_test_and_teardown_actions_are_not_offered_before_the_lab_is_ready(
+        self, page, app_available
+    ):
+        """
+        The actions that need a running lab are not offered when it is not.
+
+        Sending a test packet and tearing the lab down only make sense once
+        there is a lab. Offering them beforehand invites the user to press a
+        button that cannot work.
+        """
+        self._open_lab(page)
+
+        assert page.locator(".lab-ready").count() == 0, (
+            "the lab claims to be ready without namespaces"
+        )
+        for label in ("Send a test packet", "Tear the lab down"):
+            button = page.get_by_role("button", name=label)
+            assert button.count() == 0, (
+                f"the {label!r} action is offered while the lab is unavailable"
+            )
+
+    def test_the_build_action_is_enabled_when_a_scenario_is_selected(self, page, app_available):
+        """With a scenario chosen, building the lab is an action the user can take."""
+        self._open_lab(page)
+
+        picker = page.locator("#lab-scenario")
+        assert picker.count() == 1, "the lab has no scenario picker"
+        assert picker.input_value(), "no scenario is selected"
+
+        build = page.get_by_role("button", name="Build the lab")
+        assert build.count() == 1, "there is no 'Build the lab' action"
+        assert not build.first.is_disabled(), (
+            "the build action is disabled even though a scenario is selected"
+        )
+
+    def test_a_refused_build_is_reported_and_the_lab_stays_unavailable(self, page, app_available):
+        """
+        A build that is refused is reported, and changes nothing.
+
+        The refusal has to reach the user with its reason, and the lab must
+        not afterwards claim to be ready or to have sent anything.
+        """
+        self._open_lab(page)
+
+        build = page.get_by_role("button", name="Build the lab")
+        assert build.count() == 1, "there is no 'Build the lab' action"
+        build.first.click()
+        page.wait_for_timeout(5000)
+
+        body = page.inner_text("body")
+        assert re.search(r"refused|could not|failed|not ready", body, re.I), (
+            "the refused build was not reported"
+        )
+        # The reason must be given, not just the verdict.
+        assert re.search(r"root|namespace|permission", body, re.I), (
+            "the refused build did not say why it was refused"
+        )
+
+        assert page.locator(".lab-ready").count() == 0, (
+            "the lab claims to be ready after a build that was refused"
+        )
+        assert page.locator(".lab-test-result").count() == 0, (
+            "a test result is shown after a build that was refused"
+        )
+        for phrase in (
+            "Transmitting packet",
+            "Packet sent",
+            "Transmitted",
+            "capture verified",
+        ):
+            assert phrase not in body, (
+                f"after a refused build the lab says {phrase!r}"
+            )

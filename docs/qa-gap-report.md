@@ -529,3 +529,135 @@ field would be better; the collector owns that.
 seconds, and the endpoints use separate keys (`main.py:644` "dns", `:761`
 "connectivity", `:864` "traceroute"), so each has its own budget rather than
 sharing one. The README now says "each allow 20 requests a minute".
+
+---
+
+## 10. Findings from the routing-stream fix
+
+These are from the third pass, after the routing stream's fix landed
+(`cbd96b9`, `6ebe22d`). They are numbered from QA-22.
+
+### QA-22 — Two browser checks had encoded the bug that was just fixed — **High** (fixed here)
+
+- `TestPacketJourneyEndpoint::test_a_forwarded_journey_reports_its_hops_in_order`
+  asserted `hop["action"] in ("forward", "loop", "dropped", "delivered")`.
+  That list was never the backend's list: the backend says `drop` and
+  `deliver`, not `dropped` and `delivered`, and it omits
+  `unresolved_next_hop` and `error`. The check passed only because the
+  buggy implementation happened to produce `forward` and `loop`, both of
+  which were in the list.
+
+- `TestPacketJourneyEndpoint::test_a_looped_journey_is_reported_as_a_loop`
+  asserted that `192.168.1.1 -> 8.8.8.8` produces a loop. **That was the
+  bug.** The trace consulted one global table at every hop, so the packet's
+  next hop was the router it had just reached, and the application told the
+  student their network had a routing loop.
+
+**Now**: the expected actions are read from the backend's own
+`app.routing.PACKET_JOURNEY_ACTIONS`, imported into the test file, so there
+is one source of truth rather than a second list that can drift. A separate
+check reads the OpenAPI description of the hop's `action` field and asserts
+it names all six, so a schema that was not regenerated is caught too.
+
+The loop check has been rewritten rather than inverted. It now asserts that
+the journey to a reachable destination does **not** report a loop, that the
+terminal action is one the backend declares, that `success` is `False`, and
+that the error says the hand-off succeeded and the journey stopped:
+
+> The packet is at Gateway (10.0.0.254), but no routing table for that
+> router was given, so its forwarding decision cannot be worked out. The
+> packet was handed over; the journey stops here.
+
+A genuine loop is only reachable when a router's own table points back at
+itself, and the teaching table has none. It is covered by the routing
+stream's unit tests (`backend/tests/test_packet_journey.py`), not over
+HTTP, and this file does not pretend otherwise: the check says the endpoint
+still has the vocabulary and that a hand-off is not reported as a loop.
+
+### QA-23 — The browser checks were not hermetic — **Medium** (fixed here)
+
+`backend_available` only checked the backend. The checks drive a browser
+against the **frontend**, and the frontend proxies to the backend, so a
+missing frontend turned every check into a scattered failure that looked
+like a regression but was not.
+
+**Now**: the fixture is `app_available` and checks both halves, skipping
+with a message that names which one is missing:
+
+```
+The application is not running, so these checks cannot say anything about
+it: the frontend at http://127.0.0.1:5999 is not reachable
+(<urlopen error [Errno 111] Connection refused>).
+```
+
+The distinction the repair milestone asked for is kept exactly: a missing
+**application** skips, a missing **feature** fails. Every guard that was
+converted from a skip to an assertion in the previous round is still an
+assertion, and none of them can be reached unless the application answered.
+
+### QA-24 — The Vite proxy does not forward `/openapi.json` — **Low** (reported, not fixed)
+
+The proxy in `frontend/vite.config.ts` forwards `/health`, `/routes`,
+`/lookup`, `/packet-journey`, `/api/lab`, `/api/scenarios`,
+`/api/exercises`, `/api/discovery`, `/api/report` and `/network`. It does
+**not** forward `/openapi.json`, so a request for the schema through the
+application's origin returns the frontend's `index.html` rather than the
+schema.
+
+This is not a defect in the application — the schema is not something the
+page needs — but it means the contract checker and any browser check that
+wants the schema must read it from the backend directly. The check that
+compares the published action list with the backend's constant does so, via
+`backend_get()`, which derives the backend's origin from `ROUTELENS_HEALTH`.
+
+### QA-25 — The browser suite's Chromium leak — **not a defect** (investigated)
+
+The repair milestone reported 13 orphaned `chrome-headless-shell` processes
+after a full run, and an OOM-killed backend on a busy machine.
+
+**Measured**: a full 89-check run on this branch leaves **zero**
+`chrome-headless-shell` processes behind:
+
+```bash
+ps -eo args | grep -c "[c]hrome-headless-shell"
+# before a run: 6, after a run: 6 (the same pids, from another process on
+# the same machine)
+# after a full run in isolation: 0
+```
+
+The pids that do linger are stable across runs — they are not created and
+dropped by the suite. The five that were present at the start of this
+investigation were about seven hours old, which is the signature of a run
+that was **interrupted** rather than one that finished.
+
+The fixtures are sound: `browser` is module-scoped and closes the browser
+in a `finally` inside the `sync_playwright()` context, and `page` is
+function-scoped and closes its context. One browser process for the whole
+module, one context per check, is the right scope for 93 checks.
+
+**Conclusion**: the orphans come from interrupted runs, not from this
+fixture. The most likely interruption is the one this sandbox forces — a
+long browser run whose dev server is reaped part-way through, which leaves
+Chromium behind. It is an environment limitation rather than a defect in the
+suite.
+
+### QA-26 — The lab lifecycle landed, and the page can now drive the lab — **resolved**
+
+QA-16 said the page could not drive the virtual lab. That was true when it
+was written. The lab lifecycle work has since landed:
+`frontend/src/components/VirtualLabPanel.tsx` now imports and calls
+`applyScenarioLab` (line 373), `simulatePacket` (line 424) and
+`teardownScenarioLab` (line 454), and the panel offers the four lifecycle
+steps — Check, Build, Test, Tear down.
+
+The README has been corrected accordingly, and the check that recorded the
+gap as an `xfail` is now a real passing check. Four new checks cover the
+lifecycle: the steps are named and in order; the packet-sending and
+teardown actions are **not offered at all** before the lab is ready; the
+build action is enabled when a scenario is selected; and a build that is
+refused is reported with its reason, leaves the lab unavailable, and
+produces no test result and no claim that a packet was sent.
+
+None of this proves that real namespaces or a real capture work. This
+machine cannot create them, so the lab is genuinely unavailable here and
+every step is genuinely refused. That is the state the checks require.
