@@ -85,6 +85,7 @@ const ACTION_LABELS: Record<string, string> = {
   drop: 'Dropped',
   loop: 'Loop',
   error: 'Error',
+  unresolved_next_hop: 'Handed over',
 };
 
 const OUTCOME_PRESENTATION: Record<
@@ -114,6 +115,13 @@ const OUTCOME_PRESENTATION: Record<
     detail:
       'No route in the table covers the destination, so the packet could not be forwarded.',
   },
+  unresolved_next_hop: {
+    // Not an error. The hand-off worked; only the next step is unknown.
+    label: 'Handed to the next router',
+    tone: 'info',
+    detail:
+      "The packet was handed over successfully, but that router's own routing table is not known here, so the next forwarding decision cannot be worked out. The teaching table is one router's table; a full multi-router journey is what the scenario lab is for.",
+  },
   invalid_input: {
     label: 'Invalid address',
     tone: 'error',
@@ -129,11 +137,14 @@ const OUTCOME_PRESENTATION: Record<
 /**
  * Work out how the journey ended.
  *
- * The backend reports a hop `action` and an `explanation`. The three ways a
- * journey can fail are all reported as "drop" apart from the loop, so the
+ * The backend reports a hop `action` and an `explanation`. The ways a
+ * journey can fail are mostly reported as "drop" apart from the loop, so the
  * explanation is consulted to tell them apart. The explanation itself is
  * always shown as well, so the student reads the backend's own words rather
  * than this summary.
+ *
+ * "unresolved_next_hop" is not a failure: the hand-over to the next router
+ * worked, and only that router's own table is missing.
  */
 function classifyOutcome(hops: PacketHopResponse[]): JourneyOutcome {
   if (hops.length === 0) return 'in_progress';
@@ -143,8 +154,12 @@ function classifyOutcome(hops: PacketHopResponse[]): JourneyOutcome {
 
   if (last.action === 'deliver') return 'delivered';
   if (last.action === 'loop') return 'loop';
+  if (last.action === 'unresolved_next_hop') return 'unresolved_next_hop';
   if (last.action === 'error') return 'invalid_input';
   if (hops.some((hop) => hop.action === 'loop')) return 'loop';
+  if (hops.some((hop) => hop.action === 'unresolved_next_hop')) {
+    return 'unresolved_next_hop';
+  }
 
   if (last.action === 'drop') {
     if (
@@ -178,6 +193,9 @@ function getActionIcon(action: string): string {
       return '↻';
     case 'error':
       return '⚠';
+    case 'unresolved_next_hop':
+      // The hand-over worked; only the next step is unknown.
+      return '⇥';
     default:
       return '?';
   }
@@ -189,7 +207,7 @@ export default function PacketJourney({
   simulationResponse,
   onSimulate,
   disabled,
-  provenance = 'calculated',
+  provenance,
 }: PacketJourneyProps) {
   const [activeIndex, setActiveIndex] = useState(0);
 
@@ -198,10 +216,20 @@ export default function PacketJourney({
   const safeIndex = hops.length > 0 ? Math.min(activeIndex, hops.length - 1) : 0;
   const activeHop = hops[safeIndex];
 
+  /**
+   * What kind of answer this is.
+   *
+   * The backend will say so in the response's `provenance` field. Until it
+   * does, a journey from the routing table is calculated — which is what it
+   * is — and the fallback says so rather than guessing at a capture.
+   */
+  const kind: 'calculated' | 'captured' =
+    provenance ??
+    (simulationResponse?.provenance === 'captured' ? 'captured' : 'calculated');
+
   const outcome = useMemo(() => classifyOutcome(hops), [hops]);
   const presentation = OUTCOME_PRESENTATION[outcome];
-  const stateLabels =
-    provenance === 'captured' ? CAPTURED_LABELS : CALCULATED_LABELS;
+  const stateLabels = kind === 'captured' ? CAPTURED_LABELS : CALCULATED_LABELS;
 
   // A new result starts at the first hop.
   useEffect(() => {
@@ -221,15 +249,15 @@ export default function PacketJourney({
       {/* What kind of answer this is. This is the first thing shown, because
           it changes how every other word on the panel should be read. */}
       <div
-        className={`journey-provenance ${provenance}`}
+        className={`journey-provenance ${kind}`}
         role="status"
         aria-live="polite"
       >
         <span className="journey-provenance-tag">
-          {provenance === 'captured' ? 'Captured' : 'Calculated'}
+          {kind === 'captured' ? 'Captured' : 'Calculated'}
         </span>
         <span className="journey-provenance-text">
-          {provenance === 'captured'
+          {kind === 'captured'
             ? 'Every hop below was observed on the wire. A packet really was sent.'
             : 'Every hop below was worked out from the routing table. No packet was sent, and nothing was observed on the wire.'}
         </span>
@@ -244,7 +272,7 @@ export default function PacketJourney({
         {labError && <span className="journey-state-error">{labError}</span>}
         {isBusy && (
           <span className="journey-state-note">
-            {provenance === 'captured'
+            {kind === 'captured'
               ? 'The packet is on its way.'
               : 'The routing table is being worked through.'}
           </span>
@@ -260,7 +288,7 @@ export default function PacketJourney({
             onClick={onSimulate}
             disabled={disabled}
           >
-            {provenance === 'captured'
+            {kind === 'captured'
               ? 'Send a packet and capture it'
               : 'Trace the packet journey'}
           </button>
@@ -438,7 +466,11 @@ export default function PacketJourney({
               </span>
             </div>
             <div className="summary-item">
-              <span className="summary-label">Started at</span>
+              <span className="summary-label">
+                {looksLikeAddress(simulationResponse.source_ip)
+                  ? 'Source address'
+                  : 'Started at'}
+              </span>
               <span className="summary-value">
                 {simulationResponse.source_ip || '—'}
               </span>
@@ -452,7 +484,7 @@ export default function PacketJourney({
             <div className="summary-item">
               <span className="summary-label">Evidence</span>
               <span className="summary-value muted">
-                {provenance === 'captured'
+                {kind === 'captured'
                   ? 'observed on the wire'
                   : 'calculated from the routing table'}
               </span>

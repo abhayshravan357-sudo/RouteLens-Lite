@@ -150,17 +150,11 @@ function readTestResult(response: SimulateResponse): TestOutcome {
   }
 
   if (response.capture_verified) {
-    const details = response.verification_details;
-    const parts: string[] = [];
-    if (details?.ttl_decremented) parts.push('the TTL was decremented');
-    if (details?.checksum_valid) parts.push('the checksum was valid');
-    if (details?.route_matched) parts.push('the route matched');
     return {
       outcome: 'captured',
       label: 'Captured',
-      detail: parts.length
-        ? `The capture was verified: ${parts.join(', ')}.`
-        : 'The capture was verified by the backend.',
+      detail:
+        'The capture was verified. Each check below says whether it was read from the capture or only deduced.',
       tone: 'success',
     };
   }
@@ -174,6 +168,18 @@ function readTestResult(response: SimulateResponse): TestOutcome {
     tone: 'warning',
   };
 }
+
+/**
+ * The three checks the lab runs, with the label the student reads.
+ */
+const VERIFICATION_CHECKS: {
+  key: 'ttl_decremented' | 'checksum_valid' | 'route_matched';
+  label: string;
+}[] = [
+  { key: 'ttl_decremented', label: 'TTL was decremented' },
+  { key: 'checksum_valid', label: 'Checksum is valid' },
+  { key: 'route_matched', label: 'Route matched' },
+];
 
 /**
  * The addresses the virtual router lab actually accepts.
@@ -702,6 +708,51 @@ export default function VirtualLabPanel({
                 <span className="detail-label">TTL</span>
                 <span className="detail-value">{testResult.packet.ttl}</span>
               </div>
+            </div>
+          )}
+
+          {/* Each check, with the evidence behind it.
+              The backend reports whether a check was observed from the
+              capture or only inferred, and the student sees which. */}
+          {testResult?.verification_details && (
+            <div className="lab-verification">
+              <h4 className="lab-verification-title">The checks</h4>
+              <ul className="lab-verification-list">
+                {VERIFICATION_CHECKS.map((check) => {
+                  const field = testResult.verification_details?.[check.key];
+                  if (!field) return null;
+                  const provenance = field.provenance ?? 'unknown';
+                  return (
+                    <li
+                      key={check.key}
+                      className={`lab-verification-item ${field.value ? 'passed' : 'failed'} prov-${provenance}`}
+                    >
+                      <span className="lab-verification-mark" aria-hidden="true">
+                        {field.value ? '✓' : '✕'}
+                      </span>
+                      <span className="lab-verification-label">
+                        {check.label}
+                      </span>
+                      <span
+                        className={`lab-verification-provenance prov-${provenance}`}
+                        title={field.details || undefined}
+                      >
+                        {provenance}
+                      </span>
+                      {field.details && (
+                        <span className="lab-verification-details">
+                          {field.details}
+                        </span>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+              <p className="lab-verification-legend">
+                <strong>observed</strong> was read from the capture.{' '}
+                <strong>inferred</strong> was only deduced from the ping
+                succeeding. A check can pass and still be only inferred.
+              </p>
             </div>
           )}
         </div>

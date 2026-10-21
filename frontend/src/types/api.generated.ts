@@ -15,7 +15,7 @@ export interface paths {
          * Check virtual router lab availability
          * @description Check if the virtual router lab is available and ready.
          *
-         *     Returns lab status, router interfaces, and routing table when available.
+         *     Returns lab status, router interfaces, routing table, and any blockers.
          */
         get: operations["get_lab_status_api_lab_status_get"];
         put?: never;
@@ -40,7 +40,8 @@ export interface paths {
          * @description Simulate a packet transmission through the virtual router.
          *
          *     Transmits a real packet and captures it for verification.
-         *     Returns verification details including TTL decrement, checksum, and route matching.
+         *     Returns verification details including TTL decrement, checksum, and route matching
+         *     with provenance (observed/inferred/simulated/unknown) for each check.
          */
         post: operations["simulate_packet_api_lab_simulate_post"];
         delete?: never;
@@ -2226,12 +2227,21 @@ export interface components {
         };
         /** VerificationDetailsModel */
         VerificationDetailsModel: {
-            /** Ttl Decremented */
-            ttl_decremented: boolean;
-            /** Checksum Valid */
-            checksum_valid: boolean;
-            /** Route Matched */
-            route_matched: boolean;
+            ttl_decremented: components["schemas"]["VerificationFieldModel"];
+            checksum_valid: components["schemas"]["VerificationFieldModel"];
+            route_matched: components["schemas"]["VerificationFieldModel"];
+        };
+        /** VerificationFieldModel */
+        VerificationFieldModel: {
+            /** Value */
+            value: boolean;
+            /** Provenance */
+            provenance: string;
+            /**
+             * Details
+             * @default
+             */
+            details: string;
         };
         /**
          * Provenance

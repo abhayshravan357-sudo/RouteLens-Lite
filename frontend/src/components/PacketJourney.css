@@ -449,3 +449,30 @@
     gap: var(--space-2);
   }
 }
+
+/* ==========================================================================
+   The hand-off that worked
+   --------------------------------------------------------------------------
+   "unresolved_next_hop" is not a failure. The packet reached the next
+   router; only that router's own table is missing. It is therefore shown in
+   the information colour, never the error colour.
+   ========================================================================== */
+
+.journey-timeline-action.unresolved_next_hop {
+  background: var(--info-soft);
+  color: var(--info-text);
+}
+
+.journey-hop-action.unresolved_next_hop {
+  background: var(--info-soft);
+  color: var(--info-text);
+}
+
+.journey-timeline-entry.unresolved_next_hop {
+  border-left: 2px solid var(--color-info);
+}
+
+.journey-timeline-entry.unresolved_next_hop .journey-timeline-number {
+  background: var(--info-soft);
+  color: var(--info-text);
+}

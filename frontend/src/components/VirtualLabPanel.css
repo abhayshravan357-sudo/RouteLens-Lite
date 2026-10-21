@@ -704,3 +704,127 @@
   padding: 1px 5px;
   border-radius: var(--radius-sm);
 }
+
+/* ==========================================================================
+   The checks, and where each answer came from
+   --------------------------------------------------------------------------
+   The backend reports, per check, whether it was observed from the capture
+   or only inferred. A check that passed but was only inferred is shown
+   differently from one that was actually read off the wire.
+   ========================================================================== */
+
+.lab-verification {
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-border);
+}
+
+.lab-verification-title {
+  margin: 0 0 var(--space-2) 0;
+  font-family: var(--font-mono);
+  font-size: 0.5625rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.lab-verification-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.lab-verification-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  padding: 5px var(--space-3);
+  background: var(--surface-subtle);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+}
+
+.lab-verification-item.passed {
+  border-color: var(--success-border);
+}
+
+.lab-verification-item.failed {
+  border-color: var(--error-border);
+}
+
+.lab-verification-mark {
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.lab-verification-item.passed .lab-verification-mark {
+  color: var(--success-text);
+}
+
+.lab-verification-item.failed .lab-verification-mark {
+  color: var(--error-text);
+}
+
+.lab-verification-label {
+  color: var(--color-text);
+}
+
+.lab-verification-provenance {
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  cursor: help;
+}
+
+.lab-verification-provenance.prov-observed {
+  background: var(--success-soft);
+  color: var(--success-text);
+  border: 1px solid var(--success-border);
+}
+
+.lab-verification-provenance.prov-inferred {
+  background: var(--warning-soft);
+  color: var(--warning-text);
+  border: 1px solid var(--warning-border);
+}
+
+.lab-verification-provenance.prov-simulated {
+  background: var(--info-soft);
+  color: var(--info-text);
+  border: 1px solid var(--info-border);
+}
+
+.lab-verification-provenance.prov-unknown {
+  background: var(--surface-active);
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
+}
+
+.lab-verification-details {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  flex: 1;
+  min-width: 180px;
+  overflow-wrap: anywhere;
+}
+
+.lab-verification-legend {
+  margin: var(--space-2) 0 0 0;
+  font-size: var(--text-xs);
+  line-height: 1.6;
+  color: var(--color-text-muted);
+}
+
+.lab-verification-legend strong {
+  color: var(--color-text);
+}

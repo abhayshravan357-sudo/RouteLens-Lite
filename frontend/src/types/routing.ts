@@ -1,6 +1,12 @@
 /**
  * Type definitions matching the FastAPI backend models.
+ *
+ * Where the backend publishes a response model, the type comes from the
+ * generated OpenAPI types in ./api.generated.ts, so the two cannot drift
+ * apart. Run `npm run generate:api` after a backend change.
  */
+
+import type { components } from './api.generated';
 
 export type NextHopType = 'gateway' | 'direct';
 
@@ -109,37 +115,27 @@ export interface SimulateRequest {
   next_hop: string | null;
 }
 
-export interface ForwardingInfoResponse {
-  ingress_interface: string;
-  egress_interface: string;
-  next_hop: string;
-  route_matched: string;
-  action: string;
-}
+/**
+ * Packet Lab response types.
+ *
+ * These are taken from the generated OpenAPI types rather than written by
+ * hand, so the frontend and the backend cannot disagree about them. The
+ * backend reports, for each verification, not just whether it passed but
+ * where the answer came from.
+ */
 
-export interface PacketResponse {
-  source_ip: string;
-  destination_ip: string;
-  protocol: string;
-  ttl: number;
-  length: number;
-  forwarding_info: ForwardingInfoResponse;
-}
+/** One verification result, with the evidence behind it. */
+export type VerificationField = components['schemas']['VerificationFieldModel'];
 
-export interface VerificationDetails {
-  ttl_decremented: boolean;
-  checksum_valid: boolean;
-  route_matched: boolean;
-}
+/** The three checks the lab runs over a captured packet. */
+export type VerificationDetails = components['schemas']['VerificationDetailsModel'];
 
-export interface SimulateResponse {
-  state: LabState;
-  message: string;
-  packet: PacketResponse | null;
-  capture_verified: boolean;
-  verification_details: VerificationDetails | null;
-  error: string | null;
-}
+export type ForwardingInfoResponse =
+  components['schemas']['ForwardingInfoModel'];
+
+export type PacketResponse = components['schemas']['PacketResponseModel'];
+
+export type SimulateResponse = components['schemas']['SimulateResponseModel'];
 
 /**
  * Network Collector types - matching the FastAPI backend Pydantic models exactly.
@@ -318,7 +314,21 @@ export interface PacketHopResponse {
   hop_number: number;
   current_device: string;
   destination_ip: string;
-  action: string;
+  /**
+   * What the forwarding device did.
+   *
+   * "unresolved_next_hop" means the hand-off to the next router succeeded
+   * but that router's own table was not available, so the next decision
+   * could not be worked out.
+   */
+  action:
+    | 'forward'
+    | 'deliver'
+    | 'drop'
+    | 'loop'
+    | 'error'
+    | 'unresolved_next_hop'
+    | (string & {});
   explanation: string;
   matched_route?: {
     destination: string;
@@ -336,6 +346,14 @@ export interface PacketJourneyResponse {
   hops: PacketHopResponse[];
   success: boolean;
   error: string | null;
+  /**
+   * Whether this journey was calculated or captured.
+   *
+   * The backend adds this when the endpoint publishes a response model.
+   * Until then the frontend falls back to treating every journey from the
+   * routing table as calculated, which is what it is.
+   */
+  provenance?: 'calculated' | 'captured' | (string & {});
 }
 
 export type LabState =
@@ -456,6 +474,7 @@ export type JourneyOutcome =
   | 'loop'
   | 'hop_limit_exceeded'
   | 'no_route'
+  | 'unresolved_next_hop'
   | 'invalid_input'
   | 'in_progress';
 
@@ -712,7 +731,6 @@ export interface DiscoveryAuditEntry {
  * than the teaching sample the RouteCore engine works on. The table itself
  * is OBSERVED; the conclusion drawn from it is INFERRED.
  */
-
 export interface RouteCandidate {
   destination: string;
   prefix_length: number;
