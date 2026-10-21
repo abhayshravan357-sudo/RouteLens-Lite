@@ -652,7 +652,12 @@ class TestDnsResolution:
 
         page.locator("#dns-hostname").fill("google.com")
         page.click("button:has-text('Resolve')")
-        page.wait_for_timeout(4000)
+
+        # Wait for the outcome rather than for a fixed number of seconds.
+        # A real DNS lookup on a busy machine can take longer than a sleep
+        # would allow, and a check that fails because the machine was slow
+        # is not a check of anything.
+        page.get_by_text(re.compile("Resolved")).first.wait_for(timeout=30000)
 
         card = result_card(page)
         text = card.inner_text()
@@ -673,7 +678,12 @@ class TestDnsResolution:
 
         page.locator("#dns-hostname").fill("this-name-does-not-exist-12345.invalid")
         page.click("button:has-text('Resolve')")
-        page.wait_for_timeout(4000)
+
+        # Wait for the failure to be reported, with the same reasoning as
+        # the resolving case above.
+        page.get_by_text(re.compile("not found|failed|could not", re.I)).first.wait_for(
+            timeout=30000
+        )
 
         body = page.inner_text("body")
         assert "[object Object]" not in body, (
