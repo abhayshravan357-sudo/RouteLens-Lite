@@ -661,3 +661,82 @@ produces no test result and no claim that a packet was sent.
 None of this proves that real namespaces or a real capture work. This
 machine cannot create them, so the lab is genuinely unavailable here and
 every step is genuinely refused. That is the state the checks require.
+
+---
+
+## 11. Findings from the third pass
+
+### QA-27 — A browser check was timing the machine rather than the code — **Medium** (fixed here)
+
+`TestDnsResolution` slept for four seconds after pressing "Resolve" and
+then read the panel:
+
+```python
+page.click("button:has-text('Resolve')")
+page.wait_for_timeout(4000)
+card = result_card(page)
+text = card.inner_text()
+assert "Resolved" in text
+```
+
+On a busy machine, or on a network whose resolver is slow, the answer had
+not arrived yet and the check failed for a reason that had nothing to do
+with the application. It failed intermittently — twice in one afternoon,
+and passed on the same commit minutes later.
+
+**Now** both DNS checks wait for the *outcome* rather than for a fixed
+number of seconds, with a thirty-second timeout. This is not a weakened
+assertion: the same thing is asserted, and it is asserted for longer. It
+stops timing the machine.
+
+This is worth recording as a class of defect in its own right. A check
+that sleeps and then asserts is a check that fails for reasons outside the
+code, and on a busy machine those failures are indistinguishable from
+regressions.
+
+### QA-28 — The machine changed network, and three backend tests depended on it — **not a regression** (already fixed in the integration branch)
+
+Three tests in `backend/tests/test_neighbour_names.py` failed on this
+branch:
+
+```
+assert neighbors[0].name_provenance == "inferred"   # got "unknown"
+assert by_address[REAL_ADDRESS_WITH_NAME].hostname == REAL_NAME  # got None
+assert summary.found == 1                           # got 0
+```
+
+They are **not** caused by anything in this branch. The machine moved from
+`192.168.0.102/24` to `10.22.229.39/24` during the work, so the neighbour
+cache no longer contains the hard-coded `192.168.0.1` the tests expected,
+and that address's PTR record no longer resolves to `_gateway` here.
+
+The integration branch has already fixed this, in `543b5e7`
+("test(names): do not depend on the machine's reverse DNS"), by patching
+`NetworkCollector._lookup_name_blocking` with a deterministic resolver and
+exercising the live one only in a test that tolerates either answer. This
+branch was simply behind that fix.
+
+After rebasing, the backend suite is green: **682 passed, 2 skipped**.
+
+### QA-29 — The browser suite needs the application, not just the backend — **Medium** (fixed here)
+
+See QA-23 above. The fixture is now `app_available`, checks both halves,
+and skips with a message naming which half is missing. The distinction the
+repair milestone asked for is in place and was verified both ways:
+
+```
+# the frontend down
+SKIPPED: The application is not running, so these checks cannot say
+anything about it: the frontend at http://127.0.0.1:5999 is not reachable
+(<urlopen error [Errno 111] Connection refused>).
+
+# the backend down
+SKIPPED: The application is not running, so these checks cannot say
+anything about it: the backend at http://127.0.0.1:8999/health is not
+reachable (<urlopen error [Errno 111] Connection refused>).
+```
+
+A missing **application** skips. A missing **feature** fails. The guards
+converted from skips to failures in the previous round are still plain
+assertions, and none of them can be reached unless the application
+answered.
