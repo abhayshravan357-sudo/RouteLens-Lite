@@ -151,9 +151,9 @@ python -m pytest -q --ignore=tests/test_e2e_browser.py
 
 The counts move as the work lands, so run the command rather than trusting
 a number in this file. When this README was written, the backend suite was
-`682 passed, 1 skipped`, and the single skip is a test that needs a kernel
-interface this machine does not have — it skips on every machine for the
-same reason.
+`683 passed, 2 skipped`. Both skips say why: one is a test that needs a
+kernel interface this machine does not have, and one needs root to build
+network namespaces.
 
 **Frontend** — type check and production build:
 
@@ -182,20 +182,16 @@ ROUTELENS_HEALTH=http://127.0.0.1:8000/health \
 python -m pytest tests/test_e2e_browser.py -q -p no:cacheprovider
 ```
 
-When this README was written the browser file was `91 passed, 2 xfailed`.
-The counts move as the work lands, so run the command rather than trusting
-a number in this file. The two `xfail`s are for API-contract gaps in
-schemas another stream owns, listed in
-[`docs/qa-gap-report.md`](docs/qa-gap-report.md).
-
-Every check runs against the real application in a real browser.
+When this README was written the browser file was `93 passed`, with no
+expected failures. The counts move as the work lands, so run the command
+rather than trusting a number in this file.
 
 A check that cannot fail is not a check, so none of these are written as
-"skip if the element is missing" — a missing required element is a failure.
-The only skips left are for the application not running at all: if either
-half is not answering, the whole file is skipped with a message naming which
-half is missing, so "the app is not running" can never be mistaken for "the
-app is broken".
+"skip if the element is missing" — a missing required element is a failure
+that says what was missing. The only skips left are for the application not
+running at all: if either half is not answering, the whole file is skipped
+with a message naming which half is missing, so "the app is not running" can
+never be mistaken for "the app is broken".
 
 These checks **skip cleanly** if Playwright is not installed or either half
 of the application is not running, so an ordinary `pytest` run is never

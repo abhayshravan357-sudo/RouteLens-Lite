@@ -315,7 +315,11 @@ class LabAdapter:
         status.exists = await self.check_namespace_exists(namespace)
 
         if not status.exists:
-            status.error = f"Namespace {namespace} does not exist"
+            # The component is an enum, and str() of an enum member gives
+            # "LabComponent.CLIENT" rather than the namespace it stands
+            # for. The reader wants the namespace.
+            name = namespace.value if hasattr(namespace, "value") else namespace
+            status.error = f"Namespace {name} does not exist"
             return status
 
         # Check accessibility and get interfaces
