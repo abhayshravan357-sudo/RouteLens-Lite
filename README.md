@@ -89,10 +89,14 @@ that needs it, because it creates real network namespaces:
 - the **`ip`** command from `iproute2`
 - the **`ping`** command
 
-Without those, the lab reports itself as unavailable and the reason:
+Without those, the lab says so, and says which part is missing. Building it
+is refused with the reason:
 
 > needs root: network namespaces require CAP_SYS_ADMIN. Run the backend with
 > sudo only for lab use.
+
+And the status endpoint names the namespaces it could not find, so the reason
+is specific rather than a general "not ready".
 
 Everything else — the routing analysis, the scenario lab, the diagnostics, the
 capture importer, the exercises and the report — works without root. Only run
