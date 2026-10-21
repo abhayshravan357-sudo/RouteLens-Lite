@@ -83,8 +83,23 @@ class TestDiscoveryAPI:
         assert discovery_service.audit_trail[-1].outcome.value == "refused"
 
     @pytest.mark.asyncio
-    async def test_running_with_a_matching_confirmation_is_allowed(self):
-        """A matching confirmation lets the scan run."""
+    async def test_running_with_a_matching_confirmation_is_allowed(self, monkeypatch):
+        """
+        A matching confirmation lets the scan run.
+
+        The probe is mocked. This test is about the confirmation gate, and a
+        college project's test suite should not emit real ICMP probes at the
+        network to prove that. The probe itself is exercised separately, in
+        test_discovery.py, against a local reader.
+        """
+        probed = []
+
+        async def fake_probe(self, address, timeout):
+            probed.append(address)
+            return None
+
+        monkeypatch.setattr(type(discovery_service), "_probe", fake_probe)
+
         async with _client() as client:
             response = await client.post(
                 "/api/discovery/run",
@@ -104,6 +119,8 @@ class TestDiscoveryAPI:
         # The run is recorded as confirmed.
         assert discovery_service.audit_trail[-1].outcome.value == "completed"
         assert discovery_service.audit_trail[-1].confirmed is True
+        # The gate let the scan through, and the scan used the mocked probe.
+        assert probed, "the confirmed scan did not probe anything"
 
     @pytest.mark.asyncio
     async def test_audit_trail_is_readable(self):

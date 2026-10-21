@@ -27,8 +27,11 @@ from app.scenarios_data import SCENARIOS
 
 #: What this tool cannot do, stated plainly.
 LIMITATIONS = [
-    "Only the routing table shown here is simulated. It is a teaching "
-    "example, not this machine's real table.",
+    "Two parts of this report are modelled, not measured: the teaching "
+    "routing table, and the scenario networks a packet can be traced "
+    "through. Every other section was read from the machine running the "
+    "backend. Each evidence item says which it is, and the sections are "
+    "titled so the two cannot be confused.",
     "Interfaces, routes and neighbours are read from the machine running "
     "the backend, not from the network the student is exploring.",
     "A packet journey is a simulation against a scenario. No packet left "
@@ -39,6 +42,9 @@ LIMITATIONS = [
     "physical device or the complete path.",
     "A neighbour entry proves a device answered on that link. It does not "
     "prove what cable it is on, or what is between the two ends.",
+    "A neighbour's name came from a reverse DNS query, not from the "
+    "kernel. The address and its link-layer address are observed; the name "
+    "is inferred, and the name's provenance is recorded with it.",
     "Nothing here can discover campus switches, VLANs or cabling. Those "
     "need the network's own inventory.",
 ]
@@ -52,6 +58,10 @@ class EvidenceItem(BaseModel):
     source: str = Field(..., description="The command or endpoint it came from")
     provenance: str = Field(..., description="observed, inferred, simulated or unknown")
     collected_at: str
+    family: Optional[str] = Field(
+        default=None,
+        description="The address family this was read from, when it matters",
+    )
 
 
 class ReportSection(BaseModel):
@@ -105,6 +115,8 @@ class Report(BaseModel):
                 lines.append("")
                 lines.append(f"- **Value:** {rendered}")
                 lines.append(f"- **Provenance:** {item.provenance}")
+                if item.family:
+                    lines.append(f"- **Family:** {item.family}")
                 lines.append(f"- **Source:** `{item.source}`")
                 lines.append(f"- **Collected:** {item.collected_at}")
                 lines.append("")
@@ -182,91 +194,124 @@ async def build_report() -> Report:
             )
         )
 
-    try:
-        routes = await collector.collect_routes()
-        if routes.success and routes.data:
-            for route in routes.data:
+    # The kernel keeps the two families in separate tables, so both are read.
+    # Reporting only one would make a reader conclude the machine has no
+    # IPv6 routes when it does.
+    for family in ("ipv4", "ipv6"):
+        try:
+            routes = await collector.collect_routes(family)
+            if routes.success and routes.data:
+                for route in routes.data:
+                    network_evidence.append(
+                        EvidenceItem(
+                            label=f"Route {route.destination}",
+                            value={
+                                "gateway": route.gateway,
+                                "interface": route.interface,
+                                "metric": route.metric,
+                                "protocol": route.proto,
+                                "scope": route.scope,
+                            },
+                            source=routes.command,
+                            provenance="observed",
+                            collected_at=routes.timestamp,
+                            family=family,
+                        )
+                    )
+            else:
+                # A table that was read and is empty is not a table that
+                # could not be read. Saying so would make a reader think
+                # the collection failed.
                 network_evidence.append(
                     EvidenceItem(
-                        label=f"Route {route.destination}",
-                        value={
-                            "gateway": route.gateway,
-                            "interface": route.interface,
-                            "metric": route.metric,
-                            "protocol": route.proto,
-                            "scope": route.scope,
-                        },
+                        label=f"Routing table ({family})",
+                        value=(
+                            "no routes in this table"
+                            if routes.success
+                            else routes.error or "not collected"
+                        ),
                         source=routes.command,
-                        provenance="observed",
+                        provenance="observed" if routes.success else "unknown",
                         collected_at=routes.timestamp,
+                        family=family,
                     )
                 )
-        else:
+        except Exception as exc:
             network_evidence.append(
                 EvidenceItem(
-                    label="Routing table",
-                    value=routes.error or "not collected",
-                    source=routes.command,
+                    label=f"Routing table ({family})",
+                    value=f"collection failed: {exc}",
+                    source=f"ip -j route show ({family})",
                     provenance="unknown",
-                    collected_at=routes.timestamp,
+                    collected_at=now,
+                    family=family,
                 )
             )
-    except Exception as exc:
-        network_evidence.append(
-            EvidenceItem(
-                label="Routing table",
-                value=f"collection failed: {exc}",
-                source="ip -j route show",
-                provenance="unknown",
-                collected_at=now,
-            )
-        )
 
-    try:
-        neighbors = await collector.collect_neighbors()
-        if neighbors.success and neighbors.data:
-            for neighbor in neighbors.data:
+    for family in ("ipv4", "ipv6"):
+        try:
+            # The names are looked up by the collector; they are useful
+            # evidence, so they are kept rather than thrown away. The name
+            # is inferred, the address is observed, and the item says which
+            # is which.
+            neighbors = await collector.collect_neighbors(family)
+            if neighbors.success and neighbors.data:
+                for neighbor in neighbors.data:
+                    network_evidence.append(
+                        EvidenceItem(
+                            label=f"Neighbour {neighbor.ip_address}",
+                            value={
+                                "interface": neighbor.interface,
+                                "mac": neighbor.mac_address,
+                                "state": neighbor.state,
+                                "is_router": neighbor.is_router,
+                                "hostname": neighbor.hostname,
+                                "name_provenance": neighbor.name_provenance,
+                                "name_error": neighbor.name_error,
+                            },
+                            source=neighbors.command,
+                            provenance="observed",
+                            collected_at=neighbors.timestamp,
+                            family=family,
+                        )
+                    )
+            else:
+                # As with the routing table: an empty cache that was read
+                # successfully is not a cache that could not be read.
                 network_evidence.append(
                     EvidenceItem(
-                        label=f"Neighbour {neighbor.ip_address}",
-                        value={
-                            "interface": neighbor.interface,
-                            "mac": neighbor.mac_address,
-                            "state": neighbor.state,
-                            "is_router": neighbor.is_router,
-                        },
+                        label=f"Neighbours ({family})",
+                        value=(
+                            "no neighbours in this cache"
+                            if neighbors.success
+                            else neighbors.error or "not collected"
+                        ),
                         source=neighbors.command,
-                        provenance="observed",
+                        provenance="observed" if neighbors.success else "unknown",
                         collected_at=neighbors.timestamp,
+                        family=family,
                     )
                 )
-        else:
+        except Exception as exc:
             network_evidence.append(
                 EvidenceItem(
-                    label="Neighbours",
-                    value=neighbors.error or "not collected",
-                    source=neighbors.command,
+                    label=f"Neighbours ({family})",
+                    value=f"collection failed: {exc}",
+                    source=f"ip -j neigh show ({family})",
                     provenance="unknown",
-                    collected_at=neighbors.timestamp,
+                    collected_at=now,
+                    family=family,
                 )
             )
-    except Exception as exc:
-        network_evidence.append(
-            EvidenceItem(
-                label="Neighbours",
-                value=f"collection failed: {exc}",
-                source="ip -j neigh show",
-                provenance="unknown",
-                collected_at=now,
-            )
-        )
 
     sections.append(
         ReportSection(
             title="This machine",
             description=(
                 "Read directly from the host running the backend. These are "
-                "measurements, not examples."
+                "measurements, not examples. The IPv4 and IPv6 tables are "
+                "separate in the kernel, so both are reported, and each "
+                "item names the family it came from."
             ),
             evidence=network_evidence,
         )
