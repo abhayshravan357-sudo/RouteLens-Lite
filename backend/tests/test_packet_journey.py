@@ -13,7 +13,9 @@ which route should be chosen at each hop and why.
 """
 
 import pytest
+from fastapi.testclient import TestClient
 
+from app.main import app
 from app.routing import NextHopType, Provenance, RoutingEntry
 from app.routing_logic import trace_packet_path
 
@@ -597,6 +599,197 @@ class TestShippedSampleTable:
         assert hops[0].action == "deliver"
         assert hops[0].matched_route_destination == "10.0.0.0/8"
         assert hops[0].matched_route_interface == "eth2"
+
+
+class TestPacketJourneyEndpoint:
+    """
+    The HTTP endpoint, not just the function.
+
+    The false loop survived for so long because nothing tested the
+    endpoint itself. These tests go through the API so the contract is
+    protected, not just the algorithm behind it.
+    """
+
+    @pytest.fixture
+    def client(self):
+        """A test client for the application."""
+        return TestClient(app)
+
+    def test_a_gateway_destination_no_longer_reports_a_false_loop(self, client):
+        """
+        The case that used to be broken, through the API.
+
+        A journey through a gateway used to end in a loop, because the
+        second hop reused the first router's table.
+        """
+        response = client.post(
+            "/packet-journey",
+            json={"source_ip": "192.168.1.10", "destination_ip": "192.168.1.0"},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+
+        actions = [hop["action"] for hop in data["hops"]]
+        assert "loop" not in actions
+        assert actions == ["forward", "unresolved_next_hop"]
+
+        first = data["hops"][0]
+        assert first["hop_number"] == 1
+        assert first["current_device"] == "Device(192.168.1.10)"
+        assert first["destination_ip"] == "192.168.1.0"
+        assert first["matched_route"] == {
+            "destination": "192.168.1.0/25",
+            "next_hop": "10.0.0.2",
+            "interface": "eth1",
+            "metric": 20,
+        }
+        assert first["next_hop_ip"] == "10.0.0.2"
+        assert first["egress_interface"] == "eth1"
+
+        second = data["hops"][1]
+        assert second["hop_number"] == 2
+        assert second["action"] == "unresolved_next_hop"
+        assert "10.0.0.2" in second["explanation"]
+        # A hop that matched no route has no route to report.
+        assert "matched_route" not in second
+        assert "next_hop_ip" not in second
+        assert "egress_interface" not in second
+
+    def test_a_directly_connected_destination_is_delivered(self, client):
+        """A destination on a connected network arrives at the first hop."""
+        response = client.post(
+            "/packet-journey",
+            json={"source_ip": "192.168.1.10", "destination_ip": "10.5.5.5"},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+
+        assert data["success"] is True
+        assert data["error"] is None
+        assert [hop["action"] for hop in data["hops"]] == ["deliver"]
+        assert data["hops"][0]["matched_route"]["destination"] == "10.0.0.0/8"
+        assert data["hops"][0]["matched_route"]["interface"] == "eth2"
+
+    def test_a_cross_family_destination_is_rejected(self, client):
+        """The endpoint refuses an address it cannot use."""
+        response = client.post(
+            "/packet-journey",
+            json={"source_ip": "192.168.1.10", "destination_ip": "2001:db8::1"},
+        )
+
+        assert response.status_code == 400
+        assert "Invalid IP address" in response.json()["detail"]
+
+    def test_the_response_carries_the_addresses_not_the_device_names(self, client):
+        """source_ip is an address, not a label such as Device(192.168.1.10)."""
+        response = client.post(
+            "/packet-journey",
+            json={"source_ip": "192.168.1.10", "destination_ip": "192.168.1.0"},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["source_ip"] == "192.168.1.10"
+        assert data["destination_ip"] == "192.168.1.0"
+
+    def test_the_response_says_how_it_was_worked_out(self, client):
+        """The journey is calculated from a table, and says so."""
+        response = client.post(
+            "/packet-journey",
+            json={"source_ip": "192.168.1.10", "destination_ip": "10.5.5.5"},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["provenance"] == "simulated"
+
+    def test_the_error_field_explains_why_the_journey_stopped(self, client):
+        """A journey that did not arrive says why."""
+        response = client.post(
+            "/packet-journey",
+            json={"source_ip": "192.168.1.10", "destination_ip": "192.168.1.0"},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is False
+        assert data["error"] is not None
+        assert "10.0.0.2" in data["error"]
+
+    def test_the_response_model_is_declared(self, client):
+        """The endpoint's schema is not empty, so the contract can be checked."""
+        schema = client.get("/openapi.json").json()
+        response_schema = schema["paths"]["/packet-journey"]["post"]["responses"][
+            "200"
+        ]["content"]["application/json"]["schema"]
+
+        reference = response_schema.get("$ref", "")
+        assert reference, "the 200 response must reference a declared model"
+        name = reference.rsplit("/", 1)[-1]
+        assert name == "PacketJourneyResponse"
+
+        properties = schema["components"]["schemas"][name]["properties"]
+        assert set(properties) >= {
+            "source_ip",
+            "destination_ip",
+            "hops",
+            "success",
+            "error",
+            "provenance",
+        }
+
+    def test_the_hop_model_lists_the_actions_it_can_carry(self, client):
+        """The action set is stated in the schema, not only in prose."""
+        schema = client.get("/openapi.json").json()
+        hop_schema = schema["components"]["schemas"]["PacketHopResponse"]
+        actions = hop_schema["properties"]["action"]["description"]
+
+        for action in (
+            "forward",
+            "deliver",
+            "drop",
+            "loop",
+            "unresolved_next_hop",
+            "error",
+        ):
+            assert action in actions
+
+    def test_the_hop_field_names_are_unchanged(self, client):
+        """The interface renders these names, so they must not move."""
+        response = client.post(
+            "/packet-journey",
+            json={"source_ip": "192.168.1.10", "destination_ip": "10.5.5.5"},
+        )
+
+        data = response.json()
+        hop = data["hops"][0]
+        assert set(hop) == {
+            "hop_number",
+            "current_device",
+            "destination_ip",
+            "action",
+            "explanation",
+            "matched_route",
+            "egress_interface",
+        }
+        assert set(hop["matched_route"]) == {
+            "destination",
+            "next_hop",
+            "interface",
+            "metric",
+        }
+
+    def test_a_gateway_hop_carries_the_next_hop_and_egress(self, client):
+        """A forwarding hop names the address and the interface used."""
+        response = client.post(
+            "/packet-journey",
+            json={"source_ip": "192.168.1.10", "destination_ip": "192.168.1.0"},
+        )
+
+        hop = response.json()["hops"][0]
+        assert hop["next_hop_ip"] == "10.0.0.2"
+        assert hop["egress_interface"] == "eth1"
 
 
 if __name__ == "__main__":

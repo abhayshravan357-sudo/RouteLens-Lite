@@ -15,7 +15,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from app.routing import RouteLookupResult, RoutingEntry, SAMPLE_ROUTES, PacketJourneyRequest, PacketJourneyResponse
+from app.routing import (
+    MatchedRoute,
+    PacketHopResponse,
+    PacketJourneyRequest,
+    PacketJourneyResponse,
+    RouteLookupResult,
+    RoutingEntry,
+    SAMPLE_ROUTES,
+)
 from app.routing_logic import lookup_route, trace_packet_path
 from app.routing_table import get_routing_table, InvalidRouteError, IndexOutOfRangeError
 from app.packet_lab_routes import router as packet_lab_router
@@ -327,13 +335,31 @@ async def analyse_main_table(destination: Optional[str] = None):
     }
 
 
-@app.post("/packet-journey", tags=["Packet Journey"])
+@app.post("/packet-journey", response_model=PacketJourneyResponse, tags=["Packet Journey"])
 async def trace_packet_journey(request: PacketJourneyRequest):
     """
     Trace the path a packet would take from source to destination through the routing table.
 
     This endpoint traces the packet's path hop by hop through the routing table,
     showing each routing decision made at each hop.
+
+    Each hop is a decision made by the router holding the packet at that moment,
+    using that router's own table. The teaching table describes one router, so a
+    journey that reaches another router stops there with the action
+    'unresolved_next_hop': the packet was forwarded, but that router's table is
+    not part of this one, so its forwarding cannot be worked out. The Scenario Lab
+    traces the full path through a network where every router has a table.
+
+    The action on each hop is one of:
+      forward             - the router handed the packet to a next hop
+      deliver             - the packet reached the destination
+      drop                - the packet was discarded: no route, or the hop limit ran out
+      loop                - the packet came back to a router it had already been at
+      unresolved_next_hop - the packet was forwarded to a router whose table is unknown
+      error               - the request, or a routing table, could not be read
+
+    Nothing is transmitted. The journey is calculated from a routing table, which
+    is what the response's 'provenance' field says.
 
     Args:
         request: PacketJourneyRequest with source and destination IPs
@@ -359,44 +385,46 @@ async def trace_packet_journey(request: PacketJourneyRequest):
     # Convert hops to response format
     hops_data = []
     for hop in hops:
-        hop_data = {
-            "hop_number": hop.hop_number,
-            "current_device": hop.current_device,
-            "destination_ip": hop.destination_ip,
-            "action": hop.action,
-            "explanation": hop.explanation,
-        }
+        hop_data = PacketHopResponse(
+            hop_number=hop.hop_number,
+            current_device=hop.current_device,
+            destination_ip=hop.destination_ip,
+            action=hop.action,
+            explanation=hop.explanation,
+        )
         if hop.matched_route_destination:
-            hop_data["matched_route"] = {
-                "destination": hop.matched_route_destination,
-                "next_hop": hop.matched_route_next_hop,
-                "interface": hop.matched_route_interface,
-                "metric": hop.matched_route_metric,
-            }
+            hop_data.matched_route = MatchedRoute(
+                destination=hop.matched_route_destination,
+                next_hop=hop.matched_route_next_hop,
+                interface=hop.matched_route_interface,
+                metric=hop.matched_route_metric,
+            )
         if hop.next_hop_ip:
-            hop_data["next_hop_ip"] = hop.next_hop_ip
+            hop_data.next_hop_ip = hop.next_hop_ip
         if hop.egress_interface:
-            hop_data["egress_interface"] = hop.egress_interface
-        hop_data["action"] = hop.action
-        hop_data["explanation"] = hop.explanation
+            hop_data.egress_interface = hop.egress_interface
         hops_data.append(hop_data)
 
     # Determine overall success
     success = any(h.action == "deliver" for h in hops)
     error = None
-    if not any(h.action == "deliver" for h in hops):
-        # Find the failure reason
+    if not success:
+        # Find the reason the journey did not reach the destination.
         for hop in hops:
-            if hop.action in ("drop", "loop", "error"):
+            if hop.action in ("drop", "loop", "error", "unresolved_next_hop"):
                 error = hop.explanation
                 break
 
     return PacketJourneyResponse(
-        source_ip=hops[0].current_device if hops else "",
-        destination_ip=hops[-1].destination_ip if hops else "",
+        # The addresses the packet travelled between. The device names are
+        # in each hop's current_device, where they belong.
+        source_ip=request.source_ip,
+        destination_ip=request.destination_ip,
         hops=hops_data,
         success=success,
         error=error,
+        # The path is calculated from a table. No packet is sent.
+        provenance="simulated",
     )
 
 

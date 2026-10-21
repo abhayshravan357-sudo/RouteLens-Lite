@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from ipaddress import IPv4Address, IPv4Network, IPv6Address, IPv6Network
 from typing import Optional, List, Union
 
-from app.routing import RouteLookupResult, RoutingEntry, IPVersion
+from app.routing import IPVersion, RouteLookupResult, RoutingEntry
 
 
 def find_matching_routes(destination_ip: str, routes: list[RoutingEntry]) -> list[RoutingEntry]:
@@ -227,6 +227,9 @@ def trace_packet_path(
     trace stops there. The packet was handed over successfully; we simply
     cannot work out what that router would do next, and saying so is
     better than inventing an answer.
+
+    The action recorded on each hop is one of the values listed in
+    app.routing.PACKET_JOURNEY_ACTIONS, which says what each one means.
 
     Args:
         source_ip: Source IP address (IPv4 or IPv6)

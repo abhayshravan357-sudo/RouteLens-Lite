@@ -157,6 +157,32 @@ class RouteLookupResult(BaseModel):
     transmitted: bool = False
 
 
+# The actions a hop of a packet journey can carry. This is the
+# authoritative list; the endpoint docstring and the response model both
+# point at it.
+#
+#   forward             - the router handed the packet to a next hop
+#   deliver             - the packet reached the destination
+#   drop                - the packet was discarded: no route to the
+#                         destination, or the hop limit ran out
+#   loop                - the packet came back to a router it had
+#                         already been at
+#   unresolved_next_hop - the packet was handed to a router whose own
+#                         routing table is not part of the table being
+#                         traced, so the journey stops there. The packet
+#                         was not discarded; it was forwarded
+#   error               - the request, or a routing table, could not be
+#                         read
+PACKET_JOURNEY_ACTIONS = (
+    "forward",
+    "deliver",
+    "drop",
+    "loop",
+    "unresolved_next_hop",
+    "error",
+)
+
+
 @dataclass
 class PacketHop:
     """Represents a single hop in the packet journey."""
@@ -169,7 +195,8 @@ class PacketHop:
     matched_route_metric: Optional[int] = None
     next_hop_ip: Optional[str] = None
     egress_interface: Optional[str] = None
-    action: str = "forward"  # forward, deliver, drop
+    # One of PACKET_JOURNEY_ACTIONS.
+    action: str = "forward"
     explanation: str = ""
 
 
@@ -179,13 +206,94 @@ class PacketJourneyRequest(BaseModel):
     destination_ip: str = Field(..., description="Destination IPv4 or IPv6 address")
 
 
+class MatchedRoute(BaseModel):
+    """
+    The route a router selected at one hop of a journey.
+
+    Attributes:
+        destination: The network that matched, in CIDR notation
+        next_hop: The next hop address, or None for a direct route
+        interface: The outgoing interface the packet left by
+        metric: The cost of the route
+    """
+
+    destination: str
+    next_hop: Optional[str] = None
+    interface: str
+    metric: int
+
+
+class PacketHopResponse(BaseModel):
+    """
+    One hop of a packet journey.
+
+    The fields are exactly the ones the interface renders. A field that
+    does not apply to this hop is left out of the response entirely,
+    rather than sent as null, so the shape of the data says what
+    happened.
+
+    Attributes:
+        hop_number: Which hop this is, counting from 1
+        current_device: The device making the decision at this hop
+        destination_ip: The destination the packet is travelling towards
+        action: One of PACKET_JOURNEY_ACTIONS
+        explanation: A plain-language account of the decision
+        matched_route: The route that was selected, when one was
+        next_hop_ip: The address the packet was handed to
+        egress_interface: The interface the packet left by
+    """
+
+    hop_number: int
+    current_device: str
+    destination_ip: str
+    action: str = Field(
+        ...,
+        description=(
+            "What happened at this hop. One of: "
+            + ", ".join(PACKET_JOURNEY_ACTIONS)
+        ),
+    )
+    explanation: str
+    matched_route: Optional[MatchedRoute] = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    next_hop_ip: Optional[str] = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    egress_interface: Optional[str] = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+
+
 class PacketJourneyResponse(BaseModel):
-    """Response model for packet journey trace."""
+    """
+    Response model for packet journey trace.
+
+    The journey is worked out from a routing table. No packet is sent,
+    so the answer is a calculated decision rather than an observation of
+    traffic, and `provenance` says so.
+
+    Attributes:
+        source_ip: The address the packet started from
+        destination_ip: The address the packet was heading for
+        hops: Each forwarding decision, in order
+        success: Whether the packet was shown reaching the destination
+        error: Why the journey did not reach the destination, if it did not
+        provenance: How this answer was arrived at
+    """
+
     source_ip: str
     destination_ip: str
-    hops: list[dict]
+    hops: list[PacketHopResponse]
     success: bool
     error: Optional[str] = None
+    provenance: str = Field(
+        "simulated",
+        description=(
+            "How this journey was worked out. 'simulated' because the path is "
+            "calculated from a routing table; no packet is transmitted."
+        ),
+    )
 
 
 # Sample routing table entries for testing and demonstration
