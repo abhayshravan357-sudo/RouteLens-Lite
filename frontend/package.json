@@ -7,7 +7,7 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "lint": "tsc --noEmit",
-    "generate:api": "npx --yes openapi-typescript@7 http://127.0.0.1:8000/openapi.json -o src/types/api.generated.ts",
+    "generate:api": "npx --yes openapi-typescript@7 http://127.0.0.1:8000/openapi.json -o src/types/api.generated.ts && node scripts/snapshot-schema.mjs",
     "check:api": "node scripts/check-api-contract.mjs"
   },
   "dependencies": {

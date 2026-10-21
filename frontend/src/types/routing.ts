@@ -1,6 +1,12 @@
 /**
  * Type definitions matching the FastAPI backend models.
+ *
+ * Where the backend publishes a response model, the type comes from the
+ * generated OpenAPI types in ./api.generated.ts, so the two cannot drift
+ * apart. Run `npm run generate:api` after a backend change.
  */
+
+import type { components } from './api.generated';
 
 export type NextHopType = 'gateway' | 'direct';
 
@@ -109,37 +115,27 @@ export interface SimulateRequest {
   next_hop: string | null;
 }
 
-export interface ForwardingInfoResponse {
-  ingress_interface: string;
-  egress_interface: string;
-  next_hop: string;
-  route_matched: string;
-  action: string;
-}
+/**
+ * Packet Lab response types.
+ *
+ * These are taken from the generated OpenAPI types rather than written by
+ * hand, so the frontend and the backend cannot disagree about them. The
+ * backend reports, for each verification, not just whether it passed but
+ * where the answer came from.
+ */
 
-export interface PacketResponse {
-  source_ip: string;
-  destination_ip: string;
-  protocol: string;
-  ttl: number;
-  length: number;
-  forwarding_info: ForwardingInfoResponse;
-}
+/** One verification result, with the evidence behind it. */
+export type VerificationField = components['schemas']['VerificationFieldModel'];
 
-export interface VerificationDetails {
-  ttl_decremented: boolean;
-  checksum_valid: boolean;
-  route_matched: boolean;
-}
+/** The three checks the lab runs over a captured packet. */
+export type VerificationDetails = components['schemas']['VerificationDetailsModel'];
 
-export interface SimulateResponse {
-  state: LabState;
-  message: string;
-  packet: PacketResponse | null;
-  capture_verified: boolean;
-  verification_details: VerificationDetails | null;
-  error: string | null;
-}
+export type ForwardingInfoResponse =
+  components['schemas']['ForwardingInfoModel'];
+
+export type PacketResponse = components['schemas']['PacketResponseModel'];
+
+export type SimulateResponse = components['schemas']['SimulateResponseModel'];
 
 /**
  * Network Collector types - matching the FastAPI backend Pydantic models exactly.
@@ -318,7 +314,21 @@ export interface PacketHopResponse {
   hop_number: number;
   current_device: string;
   destination_ip: string;
-  action: string;
+  /**
+   * What the forwarding device did.
+   *
+   * "unresolved_next_hop" means the hand-off to the next router succeeded
+   * but that router's own table was not available, so the next decision
+   * could not be worked out.
+   */
+  action:
+    | 'forward'
+    | 'deliver'
+    | 'drop'
+    | 'loop'
+    | 'error'
+    | 'unresolved_next_hop'
+    | (string & {});
   explanation: string;
   matched_route?: {
     destination: string;
@@ -336,6 +346,14 @@ export interface PacketJourneyResponse {
   hops: PacketHopResponse[];
   success: boolean;
   error: string | null;
+  /**
+   * Whether this journey was calculated or captured.
+   *
+   * The backend adds this when the endpoint publishes a response model.
+   * Until then the frontend falls back to treating every journey from the
+   * routing table as calculated, which is what it is.
+   */
+  provenance?: 'calculated' | 'captured' | (string & {});
 }
 
 export type LabState =
@@ -426,12 +444,53 @@ export interface ScenarioTraceRequest {
 }
 
 export interface LabRunResult {
-  status: 'dry_run' | 'ok' | 'failed' | 'unavailable';
+  /**
+   * "dry_run" means the commands were reported but not run.
+   * "ok" means they ran. "failed" means one of them failed — see `failed_at`.
+   * "unavailable" means the lab could not be run at all — see `reason`.
+   */
+  status: 'dry_run' | 'ok' | 'failed' | 'unavailable' | (string & {});
   log?: { cmd: string; rc: number; stdout?: string; stderr?: string }[];
+  /** The commands that would run, or that ran. */
   commands?: string[];
+  /** Why the lab could not run. Present when status is "unavailable". */
   reason?: string;
-  failed_at?: string[];
+  /** The index of the command that failed. */
+  failed_at?: number | string[] | null;
+  /** The failure message, when the backend included one. */
+  error?: string | null;
 }
+
+/**
+ * The terminal outcome of a packet journey.
+ *
+ * The backend reports this as a hop `action` plus an `explanation`. The
+ * three ways a journey can fail are distinguished here so the interface can
+ * say which one happened. The backend's own explanation is always shown
+ * alongside, so the student reads the real reason rather than a paraphrase.
+ */
+export type JourneyOutcome =
+  | 'delivered'
+  | 'loop'
+  | 'hop_limit_exceeded'
+  | 'no_route'
+  | 'unresolved_next_hop'
+  | 'invalid_input'
+  | 'in_progress';
+
+/**
+ * How a lab test result should be read.
+ *
+ * "captured" means packets were really observed. "calculated" means the
+ * routing table was only reasoned about. They are never mixed.
+ */
+export type LabTestOutcome =
+  | 'captured'
+  | 'calculated'
+  | 'failed'
+  | 'timeout'
+  | 'unavailable'
+  | 'not_run';
 
 export interface LabProbeResult {
   status: 'delivered' | 'failed' | 'timeout' | 'unavailable' | 'error';
@@ -672,7 +731,6 @@ export interface DiscoveryAuditEntry {
  * than the teaching sample the RouteCore engine works on. The table itself
  * is OBSERVED; the conclusion drawn from it is INFERRED.
  */
-
 export interface RouteCandidate {
   destination: string;
   prefix_length: number;
