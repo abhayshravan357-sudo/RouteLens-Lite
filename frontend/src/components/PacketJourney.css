@@ -312,3 +312,140 @@
     width: 100%;
   }
 }
+
+/* ==========================================================================
+   What kind of answer this is
+   --------------------------------------------------------------------------
+   Shown first, because it changes how every other word on the panel should
+   be read. A calculated path is never dressed up as a capture.
+   ========================================================================== */
+
+.journey-provenance {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background: var(--surface-inset);
+}
+
+.journey-provenance.calculated {
+  border-color: var(--info-border);
+  background: var(--info-soft);
+}
+
+.journey-provenance.captured {
+  border-color: var(--success-border);
+  background: var(--success-soft);
+}
+
+.journey-provenance-tag {
+  flex-shrink: 0;
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.journey-provenance.calculated .journey-provenance-tag {
+  background: var(--info-soft);
+  color: var(--info-text);
+  border: 1px solid var(--info-border);
+}
+
+.journey-provenance.captured .journey-provenance-tag {
+  background: var(--success-soft);
+  color: var(--success-text);
+  border: 1px solid var(--success-border);
+}
+
+.journey-provenance-text {
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  color: var(--color-text);
+}
+
+/* ==========================================================================
+   The outcome, in words
+   ========================================================================== */
+
+.journey-outcome {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  border-left: 2px solid var(--color-border-strong);
+  background: var(--surface-subtle);
+}
+
+.journey-outcome.success {
+  border-left-color: var(--color-success);
+  background: var(--success-soft);
+}
+
+.journey-outcome.error {
+  border-left-color: var(--color-error);
+  background: var(--error-soft);
+}
+
+.journey-outcome.warning {
+  border-left-color: var(--color-warning);
+  background: var(--warning-soft);
+}
+
+.journey-outcome.info {
+  border-left-color: var(--color-info);
+  background: var(--info-soft);
+}
+
+.journey-outcome-label {
+  font-size: var(--text-md);
+  font-weight: 650;
+  color: var(--color-text);
+}
+
+.journey-outcome-detail {
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  color: var(--color-text);
+}
+
+.journey-outcome-reason {
+  margin-top: 4px;
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  color: var(--color-text-muted);
+}
+
+/* The backend puts a device label in the source field. */
+.journey-source-note {
+  margin: var(--space-3) 0 0 0;
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}
+
+.journey-source-note code {
+  font-family: var(--font-mono);
+  color: var(--color-text);
+  background: var(--surface-subtle);
+  padding: 1px 5px;
+  border-radius: var(--radius-sm);
+}
+
+.journey-summary .summary-value.muted {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+@media (max-width: 768px) {
+  .journey-provenance {
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+}

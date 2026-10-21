@@ -426,12 +426,52 @@ export interface ScenarioTraceRequest {
 }
 
 export interface LabRunResult {
-  status: 'dry_run' | 'ok' | 'failed' | 'unavailable';
+  /**
+   * "dry_run" means the commands were reported but not run.
+   * "ok" means they ran. "failed" means one of them failed — see `failed_at`.
+   * "unavailable" means the lab could not be run at all — see `reason`.
+   */
+  status: 'dry_run' | 'ok' | 'failed' | 'unavailable' | (string & {});
   log?: { cmd: string; rc: number; stdout?: string; stderr?: string }[];
+  /** The commands that would run, or that ran. */
   commands?: string[];
+  /** Why the lab could not run. Present when status is "unavailable". */
   reason?: string;
-  failed_at?: string[];
+  /** The index of the command that failed. */
+  failed_at?: number | string[] | null;
+  /** The failure message, when the backend included one. */
+  error?: string | null;
 }
+
+/**
+ * The terminal outcome of a packet journey.
+ *
+ * The backend reports this as a hop `action` plus an `explanation`. The
+ * three ways a journey can fail are distinguished here so the interface can
+ * say which one happened. The backend's own explanation is always shown
+ * alongside, so the student reads the real reason rather than a paraphrase.
+ */
+export type JourneyOutcome =
+  | 'delivered'
+  | 'loop'
+  | 'hop_limit_exceeded'
+  | 'no_route'
+  | 'invalid_input'
+  | 'in_progress';
+
+/**
+ * How a lab test result should be read.
+ *
+ * "captured" means packets were really observed. "calculated" means the
+ * routing table was only reasoned about. They are never mixed.
+ */
+export type LabTestOutcome =
+  | 'captured'
+  | 'calculated'
+  | 'failed'
+  | 'timeout'
+  | 'unavailable'
+  | 'not_run';
 
 export interface LabProbeResult {
   status: 'delivered' | 'failed' | 'timeout' | 'unavailable' | 'error';

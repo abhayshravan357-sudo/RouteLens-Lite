@@ -1,5 +1,27 @@
-import { useEffect, useState } from 'react';
-import type { LabState, PacketJourneyResponse } from '../types/routing';
+/**
+ * PacketJourney
+ *
+ * Shows the path a packet took, hop by hop, and why each hop happened.
+ *
+ * The most important thing this component does is tell the truth about what
+ * kind of answer it is holding:
+ *
+ *   - A *calculated* journey is the routing table being reasoned about. No
+ *     packet was sent. It is the right answer to "what would a router do",
+ *     and the wrong answer to "was a packet seen".
+ *   - A *captured* journey is what was really observed on the wire.
+ *
+ * The two are never presented the same way, and the wording of every state
+ * follows the kind of answer.
+ */
+
+import { useEffect, useMemo, useState } from 'react';
+import type {
+  LabState,
+  PacketHopResponse,
+  PacketJourneyResponse,
+  JourneyOutcome,
+} from '../types/routing';
 import './PacketJourney.css';
 
 interface PacketJourneyProps {
@@ -8,18 +30,39 @@ interface PacketJourneyProps {
   simulationResponse: PacketJourneyResponse | null;
   onSimulate: () => void;
   disabled: boolean;
+  /**
+   * What kind of answer this journey is.
+   *
+   * The default is "calculated", because that is what a routing-table
+   * trace is. It is only "captured" when the response says a capture was
+   * verified.
+   */
+  provenance?: 'calculated' | 'captured';
 }
 
-const STATE_LABELS: Record<LabState, string> = {
-  idle: 'Ready to simulate',
+const CALCULATED_LABELS: Record<LabState, string> = {
+  idle: 'Ready to calculate',
+  ready: 'Routing table loaded',
+  simulating: 'Calculating the decision',
+  transmitting: 'Calculating the next hop',
+  capturing: 'Calculating the delivery',
+  verifying: 'Checking the result',
+  completed: 'Calculation complete',
+  error: 'Calculation failed',
+  timeout: 'Calculation timed out',
+  unavailable: 'Lab unavailable',
+};
+
+const CAPTURED_LABELS: Record<LabState, string> = {
+  idle: 'Ready to send',
   ready: 'Lab ready',
-  simulating: 'Simulating decision',
+  simulating: 'Preparing the packet',
   transmitting: 'Transmitting packet',
   capturing: 'Capturing response',
   verifying: 'Verifying capture',
-  completed: 'Simulation complete',
-  error: 'Simulation failed',
-  timeout: 'Simulation timed out',
+  completed: 'Capture complete',
+  error: 'Transmission failed',
+  timeout: 'Transmission timed out',
   unavailable: 'Lab unavailable',
 };
 
@@ -44,12 +87,84 @@ const ACTION_LABELS: Record<string, string> = {
   error: 'Error',
 };
 
-const ACTIVE_STATES: LabState[] = [
-  'simulating',
-  'transmitting',
-  'capturing',
-  'verifying',
-];
+const OUTCOME_PRESENTATION: Record<
+  JourneyOutcome,
+  { label: string; tone: string; detail: string }
+> = {
+  delivered: {
+    label: 'Delivered',
+    tone: 'success',
+    detail: 'The packet reached the destination.',
+  },
+  loop: {
+    label: 'Routing loop',
+    tone: 'error',
+    detail:
+      'The packet came back to a device it had already been at. Forwarding will continue until the hop limit stops it.',
+  },
+  hop_limit_exceeded: {
+    label: 'Hop limit reached',
+    tone: 'error',
+    detail:
+      'The packet was forwarded more times than the hop limit allows, so it was discarded before arriving.',
+  },
+  no_route: {
+    label: 'No route',
+    tone: 'error',
+    detail:
+      'No route in the table covers the destination, so the packet could not be forwarded.',
+  },
+  invalid_input: {
+    label: 'Invalid address',
+    tone: 'error',
+    detail: 'The address could not be read, so no path was calculated.',
+  },
+  in_progress: {
+    label: 'In progress',
+    tone: 'info',
+    detail: 'The path is still being calculated.',
+  },
+};
+
+/**
+ * Work out how the journey ended.
+ *
+ * The backend reports a hop `action` and an `explanation`. The three ways a
+ * journey can fail are all reported as "drop" apart from the loop, so the
+ * explanation is consulted to tell them apart. The explanation itself is
+ * always shown as well, so the student reads the backend's own words rather
+ * than this summary.
+ */
+function classifyOutcome(hops: PacketHopResponse[]): JourneyOutcome {
+  if (hops.length === 0) return 'in_progress';
+
+  const last = hops[hops.length - 1];
+  const explanation = (last.explanation ?? '').toLowerCase();
+
+  if (last.action === 'deliver') return 'delivered';
+  if (last.action === 'loop') return 'loop';
+  if (last.action === 'error') return 'invalid_input';
+  if (hops.some((hop) => hop.action === 'loop')) return 'loop';
+
+  if (last.action === 'drop') {
+    if (
+      explanation.includes('hop count') ||
+      explanation.includes('maximum hop') ||
+      explanation.includes('hop limit') ||
+      explanation.includes('ttl')
+    ) {
+      return 'hop_limit_exceeded';
+    }
+    return 'no_route';
+  }
+
+  return 'in_progress';
+}
+
+/** Whether a value looks like an address rather than a device name. */
+function looksLikeAddress(value: string): boolean {
+  return /^[0-9a-f:.]+$/i.test(value.trim()) && /[.:]/.test(value);
+}
 
 function getActionIcon(action: string): string {
   switch (action) {
@@ -74,17 +189,19 @@ export default function PacketJourney({
   simulationResponse,
   onSimulate,
   disabled,
+  provenance = 'calculated',
 }: PacketJourneyProps) {
   const [activeIndex, setActiveIndex] = useState(0);
 
   const hops = simulationResponse?.hops ?? [];
-  const isActive = ACTIVE_STATES.includes(labState);
-  const isTerminal = ['completed', 'error', 'timeout', 'unavailable'].includes(
-    labState
-  );
   const hasResult = simulationResponse !== null;
   const safeIndex = hops.length > 0 ? Math.min(activeIndex, hops.length - 1) : 0;
   const activeHop = hops[safeIndex];
+
+  const outcome = useMemo(() => classifyOutcome(hops), [hops]);
+  const presentation = OUTCOME_PRESENTATION[outcome];
+  const stateLabels =
+    provenance === 'captured' ? CAPTURED_LABELS : CALCULATED_LABELS;
 
   // A new result starts at the first hop.
   useEffect(() => {
@@ -92,37 +209,60 @@ export default function PacketJourney({
   }, [simulationResponse]);
 
   const canStep = hops.length > 0;
+  const isBusy = ['simulating', 'transmitting', 'capturing', 'verifying'].includes(
+    labState
+  );
+  const isTerminal = ['completed', 'error', 'timeout', 'unavailable'].includes(
+    labState
+  );
 
   return (
     <div className="packet-journey">
-      {/* State strip */}
-      <div className="journey-state" role="status" aria-live="polite">
-        <span
-          className={`status-badge ${STATE_TONE[labState] ?? 'neutral'}`}
-        >
-          <span className="dot" aria-hidden="true" />
-          {STATE_LABELS[labState] ?? labState}
+      {/* What kind of answer this is. This is the first thing shown, because
+          it changes how every other word on the panel should be read. */}
+      <div
+        className={`journey-provenance ${provenance}`}
+        role="status"
+        aria-live="polite"
+      >
+        <span className="journey-provenance-tag">
+          {provenance === 'captured' ? 'Captured' : 'Calculated'}
         </span>
-        {labError && (
-          <span className="journey-state-error">{labError}</span>
-        )}
-        {isActive && (
+        <span className="journey-provenance-text">
+          {provenance === 'captured'
+            ? 'Every hop below was observed on the wire. A packet really was sent.'
+            : 'Every hop below was worked out from the routing table. No packet was sent, and nothing was observed on the wire.'}
+        </span>
+      </div>
+
+      {/* State strip */}
+      <div className="journey-state">
+        <span className={`status-badge ${STATE_TONE[labState] ?? 'neutral'}`}>
+          <span className="dot" aria-hidden="true" />
+          {stateLabels[labState] ?? labState}
+        </span>
+        {labError && <span className="journey-state-error">{labError}</span>}
+        {isBusy && (
           <span className="journey-state-note">
-            The engine is working through the route table.
+            {provenance === 'captured'
+              ? 'The packet is on its way.'
+              : 'The routing table is being worked through.'}
           </span>
         )}
       </div>
 
       {/* Controls */}
       <div className="journey-actions">
-        {!hasResult && !isActive && !isTerminal && (
+        {!hasResult && !isBusy && !isTerminal && (
           <button
             type="button"
             className="btn btn-primary"
             onClick={onSimulate}
             disabled={disabled}
           >
-            Trace packet journey
+            {provenance === 'captured'
+              ? 'Send a packet and capture it'
+              : 'Trace the packet journey'}
           </button>
         )}
 
@@ -174,6 +314,19 @@ export default function PacketJourney({
         )}
       </div>
 
+      {/* The outcome, in words, before the hops. */}
+      {hasResult && (
+        <div className={`journey-outcome ${presentation.tone}`} role="status">
+          <span className="journey-outcome-label">{presentation.label}</span>
+          <span className="journey-outcome-detail">{presentation.detail}</span>
+          {simulationResponse?.error && (
+            <span className="journey-outcome-reason">
+              {simulationResponse.error}
+            </span>
+          )}
+        </div>
+      )}
+
       {/* Hop timeline */}
       {canStep && (
         <ol className="journey-timeline" aria-label="Packet journey hops">
@@ -219,17 +372,17 @@ export default function PacketJourney({
 
           <div className="journey-hop-grid">
             <div className="detail-item">
-              <span className="detail-label">From</span>
+              <span className="detail-label">Forwarding device</span>
               <span className="detail-value">{activeHop.current_device}</span>
             </div>
             <div className="detail-item">
-              <span className="detail-label">To</span>
+              <span className="detail-label">Destination address</span>
               <span className="detail-value">{activeHop.destination_ip}</span>
             </div>
             {activeHop.matched_route && (
               <>
                 <div className="detail-item">
-                  <span className="detail-label">Matched route</span>
+                  <span className="detail-label">Route selected</span>
                   <span className="detail-value">
                     {activeHop.matched_route.destination}
                   </span>
@@ -256,7 +409,7 @@ export default function PacketJourney({
             )}
             {activeHop.next_hop_ip && (
               <div className="detail-item">
-                <span className="detail-label">Next hop IP</span>
+                <span className="detail-label">Next hop address</span>
                 <span className="detail-value">{activeHop.next_hop_ip}</span>
               </div>
             )}
@@ -279,32 +432,42 @@ export default function PacketJourney({
               <span className="summary-value">{hops.length}</span>
             </div>
             <div className="summary-item">
-              <span className="summary-label">Status</span>
-              <span
-                className={`summary-value ${
-                  simulationResponse.success ? 'success' : 'error'
-                }`}
-              >
-                {simulationResponse.success ? 'Delivered' : 'Failed'}
+              <span className="summary-label">Outcome</span>
+              <span className={`summary-value ${presentation.tone}`}>
+                {presentation.label}
               </span>
             </div>
             <div className="summary-item">
-              <span className="summary-label">Source</span>
-              <span className="summary-value">{simulationResponse.source_ip}</span>
+              <span className="summary-label">Started at</span>
+              <span className="summary-value">
+                {simulationResponse.source_ip || '—'}
+              </span>
             </div>
             <div className="summary-item">
-              <span className="summary-label">Destination</span>
+              <span className="summary-label">Destination address</span>
               <span className="summary-value">
                 {simulationResponse.destination_ip}
               </span>
             </div>
-            {simulationResponse.error && (
-              <div className="summary-item error">
-                <span className="summary-label">Error</span>
-                <span className="summary-value">{simulationResponse.error}</span>
-              </div>
-            )}
+            <div className="summary-item">
+              <span className="summary-label">Evidence</span>
+              <span className="summary-value muted">
+                {provenance === 'captured'
+                  ? 'observed on the wire'
+                  : 'calculated from the routing table'}
+              </span>
+            </div>
           </div>
+
+          {/* The backend puts a device label in the source field. It is
+              shown as a device, and never as an address. */}
+          {simulationResponse.source_ip &&
+            !looksLikeAddress(simulationResponse.source_ip) && (
+              <p className="journey-source-note">
+                The backend names the starting point by device, not by
+                address: <code>{simulationResponse.source_ip}</code>
+              </p>
+            )}
         </div>
       )}
     </div>
