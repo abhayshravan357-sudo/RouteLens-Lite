@@ -10,6 +10,11 @@ than the read-only diagnostics:
 - The caller must confirm the scope, quoting it back, before a scan
   runs. This is a deliberate second step, not a formality.
 - Every request, including refused ones, is written to the audit trail.
+  The trail is bounded, so it cannot grow without limit, but refusals are
+  never dropped to make room.
+- A run is rate limited per client, because a single run probes up to a
+  few hundred addresses with real packets and the endpoint is
+  unauthenticated.
 """
 
 from __future__ import annotations
@@ -17,7 +22,7 @@ from __future__ import annotations
 import uuid
 from typing import List, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app.discovery import (
@@ -27,6 +32,7 @@ from app.discovery import (
     discovery_service,
     validate_scope,
 )
+from app.security import client_key, discovery_limiter
 
 router = APIRouter(prefix="/api/discovery", tags=["discovery"])
 
@@ -77,13 +83,15 @@ def get_audit_trail():
 
 
 @router.post("/scope", response_model=dict)
-def preview_scope(request: DiscoveryRequest):
+def preview_scope(request: DiscoveryRequest, http_request: Request):
     """
     Check a scope and describe it, without probing anything.
 
     This is the step before confirmation: it shows exactly what would be
     probed so the operator can agree to it.
     """
+    discovery_limiter.check(client_key(http_request, "discovery-scope"))
+
     try:
         scope = validate_scope(
             target=request.target,
@@ -108,14 +116,20 @@ def preview_scope(request: DiscoveryRequest):
 
 
 @router.post("/run", response_model=DiscoveryResponse)
-async def run_discovery(request: DiscoveryRequest):
+async def run_discovery(request: DiscoveryRequest, http_request: Request):
     """
     Run an authorised discovery.
 
     The scope is validated, then the operator's confirmation is checked.
     Without a matching confirmation nothing is probed, and the refusal
     is recorded.
+
+    A run probes real addresses with real packets, so it is rate limited
+    per client. The limit is its own, not the diagnostic one, so a burst
+    of lookups cannot use up a student's discovery allowance.
     """
+    discovery_limiter.check(client_key(http_request, "discovery-run"))
+
     try:
         scope = validate_scope(
             target=request.target,
@@ -169,6 +183,17 @@ async def run_discovery(request: DiscoveryRequest):
 
 @router.post("/cancel")
 def cancel_discovery(scan_id: str):
-    """Ask a running scan to stop."""
+    """
+    Ask a running scan to stop.
+
+    A scan id that is not running is reported as such rather than being
+    recorded as cancelled. Claiming a cancellation that never happened
+    would be a false account of what the machine did.
+    """
     ok = discovery_service.cancel(scan_id)
+    if not ok:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No scan is running with that id. There was nothing to cancel.",
+        )
     return {"cancelled": ok, "scan_id": scan_id}

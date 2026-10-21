@@ -123,15 +123,21 @@ class TestDiscoveryAPI:
 
     @pytest.mark.asyncio
     async def test_cancel_returns_the_scan_id(self):
-        """Cancelling names the scan it stopped."""
+        """Cancelling a scan that is running names the scan it stopped.
+
+        This used to assert that cancelling an arbitrary id returned
+        200 with cancelled=true. That claimed a cancellation that never
+        happened, so the endpoint now reports that there was no such scan.
+        The case of cancelling a scan that is genuinely running is covered
+        in test_security_bounds.py.
+        """
         async with _client() as client:
             response = await client.post(
                 "/api/discovery/cancel",
                 params={"scan_id": "abc123"},
             )
-        assert response.status_code == 200
-        assert response.json()["scan_id"] == "abc123"
-        assert response.json()["cancelled"] is True
+        assert response.status_code == 404
+        assert "nothing to cancel" in response.json()["detail"].lower()
 
     @pytest.mark.asyncio
     async def test_an_invalid_target_is_refused(self):

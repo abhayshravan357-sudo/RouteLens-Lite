@@ -22,10 +22,11 @@ import asyncio
 import ipaddress
 import json
 import time
+from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Dict, List, Optional
+from typing import Deque, Dict, List, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -43,6 +44,14 @@ MAX_DURATION = 300.0
 
 #: Probes per address, at most this many.
 MAX_PROBES_PER_HOST = 3
+
+#: The most audit entries kept. Once the trail is full the oldest entry is
+#: dropped to make room.
+#:
+#: The trail has to be bounded, because the endpoint that records a
+#: refusal is unauthenticated and can be called without limit. Refusals are
+#: still recorded; only how many are kept is capped.
+MAX_AUDIT_ENTRIES = 500
 
 
 class DiscoveryStatus(str, Enum):
@@ -212,14 +221,18 @@ class DiscoveryService:
     """
 
     def __init__(self) -> None:
-        self._audit: List[DiscoveryAuditEntry] = []
+        # Bounded: the oldest entry is dropped once the trail is full.
+        self._audit: Deque[DiscoveryAuditEntry] = deque(maxlen=MAX_AUDIT_ENTRIES)
+        # Only scans that are actually running are here, so a cancellation
+        # request for a scan that does not exist is not remembered.
         self._cancelled: Dict[str, bool] = {}
+        self._running: set[str] = set()
 
     # -- audit ----------------------------------------------------------
 
     @property
     def audit_trail(self) -> List[DiscoveryAuditEntry]:
-        """Every request, in order."""
+        """Every request still in the trail, in order."""
         return list(self._audit)
 
     def record(
@@ -247,7 +260,16 @@ class DiscoveryService:
         )
 
     def cancel(self, scan_id: str) -> bool:
-        """Ask a running scan to stop."""
+        """
+        Ask a running scan to stop.
+
+        Returns whether a scan was actually marked. A scan id that is not
+        running is not recorded: remembering it would let anyone grow the
+        map without limit, and it would claim a cancellation that never
+        happened.
+        """
+        if scan_id not in self._running:
+            return False
         self._cancelled[scan_id] = True
         return True
 
@@ -299,8 +321,26 @@ class DiscoveryService:
         """
         Probe every address in the scope, at the configured rate.
 
+        The scan is marked as running for as long as it is, so that a
+        cancellation only applies to a scan that exists. When it ends, the
+        mark and any cancellation are forgotten.
+
         Returns a result describing what was found and what was covered.
         """
+        self._running.add(scan_id)
+        try:
+            return await self._run_scan(scope, scan_id, max_probes)
+        finally:
+            self._running.discard(scan_id)
+            self._cancelled.pop(scan_id, None)
+
+    async def _run_scan(
+        self,
+        scope: DiscoveryScope,
+        scan_id: str,
+        max_probes: int,
+    ) -> dict:
+        """The scan itself. See `discover` for the bookkeeping around it."""
         started = time.monotonic()
         addresses = scope.addresses()
         hosts: List[DiscoveredHost] = []

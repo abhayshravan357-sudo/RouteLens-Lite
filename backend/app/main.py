@@ -36,6 +36,7 @@ from app.network_collector import get_network_collector
 from app.route_analysis import analyse_destination, analyse_table, RouteAnalysisReport
 from app.security import (
     TargetValidationError,
+    client_key,
     diagnostic_limiter,
     validate_target,
 )
@@ -650,7 +651,7 @@ class DnsResolveResponse(BaseModel):
 
 
 @app.post("/network/dns-resolve", response_model=DnsResolveResponse, tags=["Network"])
-async def resolve_dns(request: DnsResolveRequest):
+async def resolve_dns(request: DnsResolveRequest, http_request: Request):
     """
     Resolve a hostname to IP addresses using the system's DNS resolver.
 
@@ -669,7 +670,7 @@ async def resolve_dns(request: DnsResolveRequest):
     if not request.hostname or not request.hostname.strip():
         raise HTTPException(status_code=400, detail="Hostname is required")
 
-    diagnostic_limiter.check("dns")
+    diagnostic_limiter.check(client_key(http_request, "dns"))
 
     try:
         hostname = validate_target(request.hostname)
@@ -761,7 +762,7 @@ class ConnectivityResponse(BaseModel):
 
 
 @app.post("/network/connectivity", response_model=ConnectivityResponse, tags=["Network"])
-async def check_connectivity(request: ConnectivityRequest):
+async def check_connectivity(request: ConnectivityRequest, http_request: Request):
     """
     Check connectivity to a target using ICMP ping or TCP connect.
 
@@ -786,7 +787,7 @@ async def check_connectivity(request: ConnectivityRequest):
     if request.protocol.lower() == "tcp" and request.port is None:
         raise HTTPException(status_code=400, detail="Port is required for TCP protocol")
 
-    diagnostic_limiter.check("connectivity")
+    diagnostic_limiter.check(client_key(http_request, "connectivity"))
 
     try:
         target = validate_target(request.target)
@@ -870,7 +871,7 @@ class TracerouteResponse(BaseModel):
 
 
 @app.post("/network/traceroute", response_model=TracerouteResponse, tags=["Network"])
-async def trace_route(request: TracerouteRequest):
+async def trace_route(request: TracerouteRequest, http_request: Request):
     """
     Perform traceroute to a target using the system traceroute command.
 
@@ -889,7 +890,7 @@ async def trace_route(request: TracerouteRequest):
     if not request.target or not request.target.strip():
         raise HTTPException(status_code=400, detail="Target is required")
 
-    diagnostic_limiter.check("traceroute")
+    diagnostic_limiter.check(client_key(http_request, "traceroute"))
 
     try:
         target = validate_target(request.target)
