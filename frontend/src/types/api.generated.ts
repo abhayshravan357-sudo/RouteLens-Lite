@@ -434,6 +434,10 @@ export interface paths {
          *     The scope is validated, then the operator's confirmation is checked.
          *     Without a matching confirmation nothing is probed, and the refusal
          *     is recorded.
+         *
+         *     A run probes real addresses with real packets, so it is rate limited
+         *     per client. The limit is its own, not the diagnostic one, so a burst
+         *     of lookups cannot use up a student's discovery allowance.
          */
         post: operations["run_discovery_api_discovery_run_post"];
         delete?: never;
@@ -454,6 +458,10 @@ export interface paths {
         /**
          * Cancel Discovery
          * @description Ask a running scan to stop.
+         *
+         *     A scan id that is not running is reported as such rather than being
+         *     recorded as cancelled. Claiming a cancellation that never happened
+         *     would be a false account of what the machine did.
          */
         post: operations["cancel_discovery_api_discovery_cancel_post"];
         delete?: never;
@@ -1471,10 +1479,7 @@ export interface components {
             state: string;
             /** Message */
             message: string;
-            /** Router Info */
-            router_info?: {
-                [key: string]: unknown;
-            } | null;
+            router_info?: components["schemas"]["RouterInfoModel"] | null;
             /** Error */
             error?: string | null;
         };
@@ -1980,6 +1985,37 @@ export interface components {
             routes: {
                 [key: string]: unknown;
             }[];
+        };
+        /**
+         * RouterInfoModel
+         * @description What the lab router looks like from the outside.
+         *
+         *     This was a free-form dictionary, so the schema said nothing about it
+         *     and nothing kept the frontend's stricter type and the backend's
+         *     free-form one agreeing. They agree today; making it a model keeps
+         *     them agreeing.
+         */
+        RouterInfoModel: {
+            /** Interfaces */
+            interfaces: string[];
+            /** Routing Table */
+            routing_table: components["schemas"]["RouterRouteEntryModel"][];
+            /** Client Ip */
+            client_ip?: string | null;
+            /** Server Ip */
+            server_ip?: string | null;
+        };
+        /**
+         * RouterRouteEntryModel
+         * @description One route in the lab router's table.
+         */
+        RouterRouteEntryModel: {
+            /** Destination */
+            destination: string;
+            /** Next Hop */
+            next_hop?: string | null;
+            /** Interface */
+            interface: string;
         };
         /**
          * RoutingEntry

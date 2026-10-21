@@ -776,7 +776,7 @@
           "discovery"
         ],
         "summary": "Run Discovery",
-        "description": "Run an authorised discovery.\n\nThe scope is validated, then the operator's confirmation is checked.\nWithout a matching confirmation nothing is probed, and the refusal\nis recorded.",
+        "description": "Run an authorised discovery.\n\nThe scope is validated, then the operator's confirmation is checked.\nWithout a matching confirmation nothing is probed, and the refusal\nis recorded.\n\nA run probes real addresses with real packets, so it is rate limited\nper client. The limit is its own, not the diagnostic one, so a burst\nof lookups cannot use up a student's discovery allowance.",
         "operationId": "run_discovery_api_discovery_run_post",
         "requestBody": {
           "content": {
@@ -818,7 +818,7 @@
           "discovery"
         ],
         "summary": "Cancel Discovery",
-        "description": "Ask a running scan to stop.",
+        "description": "Ask a running scan to stop.\n\nA scan id that is not running is reported as such rather than being\nrecorded as cancelled. Claiming a cancellation that never happened\nwould be a false account of what the machine did.",
         "operationId": "cancel_discovery_api_discovery_cancel_post",
         "parameters": [
           {
@@ -2458,14 +2458,12 @@
           "router_info": {
             "anyOf": [
               {
-                "additionalProperties": true,
-                "type": "object"
+                "$ref": "#/components/schemas/RouterInfoModel"
               },
               {
                 "type": "null"
               }
-            ],
-            "title": "Router Info"
+            ]
           },
           "error": {
             "anyOf": [
@@ -3545,6 +3543,83 @@
         ],
         "title": "RouteUpdate",
         "description": "Replacement route list for a node."
+      },
+      "RouterInfoModel": {
+        "properties": {
+          "interfaces": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Interfaces"
+          },
+          "routing_table": {
+            "items": {
+              "$ref": "#/components/schemas/RouterRouteEntryModel"
+            },
+            "type": "array",
+            "title": "Routing Table"
+          },
+          "client_ip": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Ip"
+          },
+          "server_ip": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Server Ip"
+          }
+        },
+        "type": "object",
+        "required": [
+          "interfaces",
+          "routing_table"
+        ],
+        "title": "RouterInfoModel",
+        "description": "What the lab router looks like from the outside.\n\nThis was a free-form dictionary, so the schema said nothing about it\nand nothing kept the frontend's stricter type and the backend's\nfree-form one agreeing. They agree today; making it a model keeps\nthem agreeing."
+      },
+      "RouterRouteEntryModel": {
+        "properties": {
+          "destination": {
+            "type": "string",
+            "title": "Destination"
+          },
+          "next_hop": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Hop"
+          },
+          "interface": {
+            "type": "string",
+            "title": "Interface"
+          }
+        },
+        "type": "object",
+        "required": [
+          "destination",
+          "interface"
+        ],
+        "title": "RouterRouteEntryModel",
+        "description": "One route in the lab router's table."
       },
       "RoutingEntry-Input": {
         "properties": {

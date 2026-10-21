@@ -91,18 +91,15 @@ export interface LabStatusResponse {
   error: string | null;
 }
 
-export interface RouterInfo {
-  interfaces: string[];
-  routing_table: RouterRouteEntry[];
-  client_ip: string | null;
-  server_ip: string | null;
-}
-
-export interface RouterRouteEntry {
-  destination: string;
-  next_hop: string | null;
-  interface: string;
-}
+/**
+ * What the lab router looks like.
+ *
+ * Taken from the generated schema, so the backend and the interface
+ * cannot disagree about it. The backend used to declare this as a
+ * free-form dictionary, which meant the schema said nothing about it.
+ */
+export type RouterInfo = components['schemas']['RouterInfoModel'];
+export type RouterRouteEntry = components['schemas']['RouterRouteEntryModel'];
 
 export interface SimulateRequest {
   source_ip: string;

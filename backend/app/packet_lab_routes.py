@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi import status as http_status
 from pydantic import BaseModel, Field, field_validator
 from ipaddress import IPv4Address
+from typing import Optional
 
 from app.packet_lab import (
     PacketLab,
@@ -78,12 +79,39 @@ class VerificationDetailsModel(BaseModel):
     route_matched: VerificationFieldModel
 
 
+class RouterRouteEntryModel(BaseModel):
+    """One route in the lab router's table."""
+
+    destination: str
+    next_hop: Optional[str] = None
+    interface: str
+
+
+class RouterInfoModel(BaseModel):
+    """
+    What the lab router looks like from the outside.
+
+    This was a free-form dictionary, so the schema said nothing about it
+    and nothing kept the frontend's stricter type and the backend's
+    free-form one agreeing. They agree today; making it a model keeps
+    them agreeing.
+    """
+
+    # Both are always present when the router is reachable. Making them
+    # required says so in the schema, instead of saying they might be
+    # missing and leaving the interface to guess.
+    interfaces: list[str]
+    routing_table: list[RouterRouteEntryModel]
+    client_ip: Optional[str] = None
+    server_ip: Optional[str] = None
+
+
 class LabStatusResponse(BaseModel):
     available: bool
     state: str
     message: str
-    router_info: dict | None = None
-    error: str | None = None
+    router_info: Optional[RouterInfoModel] = None
+    error: Optional[str] = None
 
 
 class SimulateResponseModel(BaseModel):

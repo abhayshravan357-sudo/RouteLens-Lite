@@ -2272,14 +2272,6 @@ class TestNestedApiContracts:
         assert "status" in lab, "the lab result has no status"
         assert "reason" in lab, "the lab result has no reason to give"
 
-    @pytest.mark.xfail(
-        reason=(
-            "The backend declares router_info as a free-form dictionary and "
-            "the frontend as a strict RouterInfo. The shapes agree at runtime "
-            "but nothing keeps them agreeing. The backend owns that schema; "
-            "see docs/qa-gap-report.md."
-        ),
-    )
     def test_the_lab_router_info_has_a_defined_shape_in_the_schema(self, page, app_available):
         """
         The schema should say what router_info is.
@@ -2301,19 +2293,16 @@ class TestNestedApiContracts:
             "backend but a strict RouterInfo on the frontend"
         )
 
-    @pytest.mark.xfail(
-        reason=(
-            "CompareResult and DiscoveryResponse are not in the contract "
-            "checker's list, so even their top-level fields can drift "
-            "unnoticed. The frontend stream owns the checker."
-        ),
-    )
     def test_the_compare_and_discovery_schemas_are_checked_for_drift(self, page, app_available):
         """
         The contract checker should cover the schemas the frontend types.
 
-        CompareResult and DiscoveryResponse are not in its list at all, so
-        even their top-level fields can drift unnoticed.
+        CompareResult and DiscoveryResponse have no hand-written interface
+        to check against — the frontend uses the generated ones — so the
+        coverage comes from the checker comparing EVERY schema in the
+        backend against a committed snapshot, field by field. That is what
+        stops them drifting, and this asserts that they are covered and
+        that the comparison is not a hand-picked list.
         """
         open_page(page)
 
@@ -2322,14 +2311,25 @@ class TestNestedApiContracts:
         import pathlib
 
         repo = pathlib.Path(__file__).resolve().parents[2]
-        text = (repo / "frontend" / "scripts" / "check-api-contract.mjs").read_text()
-        missing = [
-            schema
-            for schema in ("CompareResult", "DiscoveryResponse")
-            if f"'{schema}'" not in text and f'"{schema}"' not in text
-        ]
-        assert not missing, (
-            f"these schemas are not in the contract checker's list: {missing}"
+        script = repo / "frontend" / "scripts" / "check-api-contract.mjs"
+        text = script.read_text()
+
+        snapshot = json.loads(
+            (repo / "frontend" / "src" / "types" / "openapi.snapshot.json").read_text()
+        )
+        schemas = (snapshot.get("components") or {}).get("schemas") or {}
+        for schema in ("CompareResult", "DiscoveryResponse"):
+            assert schema in schemas, (
+                f"{schema} is not in the committed schema snapshot, so a "
+                f"change to it would not be noticed"
+            )
+
+        # The comparison must cover every schema, not a list of names.
+        assert "Object.keys(liveSchemas)" in text and "Object.keys(snapSchemas)" in text, (
+            "the checker does not compare every schema in the backend"
+        )
+        assert "new in the backend, not in the snapshot" in text, (
+            "the checker does not report a schema the backend has added"
         )
 
 

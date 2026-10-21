@@ -46,6 +46,12 @@ const CONTRACTS = [
   ['RouteLookupResult', 'RouteLookupResult', [
     'matched', 'route', 'explanation', 'error', 'transmitted',
   ]],
+  ['RouterInfo', 'RouterInfoModel', [
+    'interfaces', 'routing_table', 'client_ip', 'server_ip',
+  ]],
+  ['RouterRouteEntry', 'RouterRouteEntryModel', [
+    'destination', 'next_hop', 'interface',
+  ]],
   ['LabStatusResponse', 'LabStatusResponse', [
     'available', 'state', 'message', 'router_info', 'error',
   ]],
@@ -123,8 +129,14 @@ const CONTRACTS = [
   ]],
 ];
 
-/** Fields the frontend has that the backend does not: usually fine. */
-const FRONTEND_ONLY_OK = new Set(['RouterInfo', 'RouterRouteEntry']);
+/**
+ * Fields the frontend has that the backend does not: usually fine.
+ *
+ * RouterInfo and RouterRouteEntry used to be here, because the backend
+ * declared router_info as a free-form dictionary. It is a model now, so
+ * the pair is checked like every other contract.
+ */
+const FRONTEND_ONLY_OK = new Set();
 
 function fail(message) {
   console.error(`\n✗ ${message}`);
