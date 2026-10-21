@@ -182,6 +182,38 @@ const VERIFICATION_CHECKS: {
 ];
 
 /**
+ * Read one check, whatever shape it arrives in.
+ *
+ * The backend now reports each check as an object saying whether the answer
+ * was observed or only inferred. A backend that predates that reports a
+ * bare boolean, and then the only honest thing to say is that the origin
+ * of the answer is not known — not that it was observed.
+ */
+function readVerificationField(field: unknown): {
+  value: boolean;
+  provenance: string;
+  details: string;
+} {
+  if (typeof field === 'boolean') {
+    return { value: field, provenance: 'unknown', details: '' };
+  }
+  if (field && typeof field === 'object') {
+    const record = field as {
+      value?: unknown;
+      provenance?: unknown;
+      details?: unknown;
+    };
+    return {
+      value: record.value === true,
+      provenance:
+        typeof record.provenance === 'string' ? record.provenance : 'unknown',
+      details: typeof record.details === 'string' ? record.details : '',
+    };
+  }
+  return { value: false, provenance: 'unknown', details: '' };
+}
+
+/**
  * The addresses the virtual router lab actually accepts.
  *
  * The lab validates the request against its own topology and refuses
@@ -719,13 +751,13 @@ export default function VirtualLabPanel({
               <h4 className="lab-verification-title">The checks</h4>
               <ul className="lab-verification-list">
                 {VERIFICATION_CHECKS.map((check) => {
-                  const field = testResult.verification_details?.[check.key];
-                  if (!field) return null;
-                  const provenance = field.provenance ?? 'unknown';
+                  const raw = testResult.verification_details?.[check.key];
+                  if (raw === undefined || raw === null) return null;
+                  const field = readVerificationField(raw);
                   return (
                     <li
                       key={check.key}
-                      className={`lab-verification-item ${field.value ? 'passed' : 'failed'} prov-${provenance}`}
+                      className={`lab-verification-item ${field.value ? 'passed' : 'failed'} prov-${field.provenance}`}
                     >
                       <span className="lab-verification-mark" aria-hidden="true">
                         {field.value ? '✓' : '✕'}
@@ -734,10 +766,10 @@ export default function VirtualLabPanel({
                         {check.label}
                       </span>
                       <span
-                        className={`lab-verification-provenance prov-${provenance}`}
+                        className={`lab-verification-provenance prov-${field.provenance}`}
                         title={field.details || undefined}
                       >
-                        {provenance}
+                        {field.provenance}
                       </span>
                       {field.details && (
                         <span className="lab-verification-details">
