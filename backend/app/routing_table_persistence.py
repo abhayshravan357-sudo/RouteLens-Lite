@@ -16,7 +16,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Optional
 
-from app.routing import RoutingEntry, SAMPLE_ROUTES
+from app.routing import Provenance, RoutingEntry, SAMPLE_ROUTES
 
 
 class PersistenceState(str, Enum):
@@ -114,6 +114,9 @@ class RoutingTablePersistence:
                 route.get_network()  # Validates CIDR
                 if route.next_hop:
                     route.get_next_hop()  # Validates next_hop IP
+                # A table written before routes carried their provenance
+                # still holds the teaching model, and says so now.
+                route.provenance = Provenance.SIMULATED
                 routes.append(route)
             except Exception as e:
                 raise ValueError(f"Route at index {i} is invalid: {e}") from e

@@ -196,6 +196,7 @@ SAMPLE_ROUTES = [
         interface="eth0",
         metric=10,
         next_hop_type=NextHopType.GATEWAY,
+        provenance=Provenance.SIMULATED,
     ),
     RoutingEntry(
         destination="192.168.1.0/25",
@@ -203,6 +204,7 @@ SAMPLE_ROUTES = [
         interface="eth1",
         metric=20,
         next_hop_type=NextHopType.GATEWAY,
+        provenance=Provenance.SIMULATED,
     ),
     RoutingEntry(
         destination="192.168.0.0/16",
@@ -210,6 +212,7 @@ SAMPLE_ROUTES = [
         interface="eth0",
         metric=5,
         next_hop_type=NextHopType.GATEWAY,
+        provenance=Provenance.SIMULATED,
     ),
     RoutingEntry(
         destination="10.0.0.0/8",
@@ -217,6 +220,7 @@ SAMPLE_ROUTES = [
         interface="eth2",
         metric=1,
         next_hop_type=NextHopType.DIRECT,
+        provenance=Provenance.SIMULATED,
     ),
     RoutingEntry(
         destination="0.0.0.0/0",
@@ -224,6 +228,7 @@ SAMPLE_ROUTES = [
         interface="eth0",
         metric=100,
         next_hop_type=NextHopType.GATEWAY,
+        provenance=Provenance.SIMULATED,
     ),
     # IPv6 sample routes
     RoutingEntry(
@@ -232,6 +237,7 @@ SAMPLE_ROUTES = [
         interface="eth0",
         metric=10,
         next_hop_type=NextHopType.GATEWAY,
+        provenance=Provenance.SIMULATED,
     ),
     RoutingEntry(
         destination="2001:db8:1::/48",
@@ -239,6 +245,7 @@ SAMPLE_ROUTES = [
         interface="eth0",
         metric=10,
         next_hop_type=NextHopType.GATEWAY,
+        provenance=Provenance.SIMULATED,
     ),
     RoutingEntry(
         destination="2001:db8:1::/64",
@@ -246,6 +253,7 @@ SAMPLE_ROUTES = [
         interface="eth1",
         metric=20,
         next_hop_type=NextHopType.GATEWAY,
+        provenance=Provenance.SIMULATED,
     ),
     RoutingEntry(
         destination="2001:db8::/32",
@@ -253,6 +261,7 @@ SAMPLE_ROUTES = [
         interface="eth2",
         metric=1,
         next_hop_type=NextHopType.DIRECT,
+        provenance=Provenance.SIMULATED,
     ),
     RoutingEntry(
         destination="::/0",
@@ -260,5 +269,6 @@ SAMPLE_ROUTES = [
         interface="eth0",
         metric=100,
         next_hop_type=NextHopType.GATEWAY,
+        provenance=Provenance.SIMULATED,
     ),
 ]

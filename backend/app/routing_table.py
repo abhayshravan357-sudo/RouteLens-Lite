@@ -128,6 +128,11 @@ class RoutingTable:
             InvalidRouteError: If the route is invalid
         """
         self._validate_route(route)
+        # Every route in this table is part of the teaching model, whether
+        # the sample one or one the reader typed in. The provenance is
+        # decided here rather than taken from the caller, so it is the same
+        # whichever door the route came in by.
+        route.provenance = Provenance.SIMULATED
         with self._lock:
             self._routes.append(deepcopy(route))
         self._save()
@@ -149,6 +154,9 @@ class RoutingTable:
             IndexOutOfRangeError: If the index is out of range
         """
         self._validate_route(route)
+        # The same reasoning as in add_route: a route in the teaching table
+        # is part of the model.
+        route.provenance = Provenance.SIMULATED
         with self._lock:
             if index < 0 or index >= len(self._routes):
                 raise IndexOutOfRangeError(f"Route index {index} out of range (0-{len(self._routes) - 1})")

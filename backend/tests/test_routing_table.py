@@ -54,6 +54,38 @@ class TestRoutingTableService:
         assert added.next_hop == "10.0.0.5"
         assert len(routing_table.get_routes()) == initial_count + 1
 
+    def test_every_route_in_the_table_is_simulated(self):
+        """
+        The table is a model, so every route in it is simulated.
+
+        The sample routes and the ones the reader typed in are both part
+        of the teaching model. The provenance is decided by the table
+        rather than taken from the caller, so it is the same whichever
+        door a route came in by.
+        """
+        routing_table = get_routing_table()
+
+        for route in routing_table.get_routes():
+            assert route.provenance == Provenance.SIMULATED, (
+                f"{route.destination} is marked {route.provenance.value}"
+            )
+
+        added = routing_table.add_route(
+            RoutingEntry(
+                provenance=Provenance.OBSERVED,
+                destination="172.16.0.0/12",
+                next_hop="10.0.0.5",
+                interface="eth3",
+                metric=15,
+                next_hop_type=NextHopType.GATEWAY,
+            )
+        )
+        assert added.provenance == Provenance.SIMULATED, (
+            "a route added to the teaching table was not marked as simulated"
+        )
+
+        routing_table.reset_routes()
+
     def test_add_route_gateway_without_next_hop(self):
         """Test that gateway route without next hop is rejected at service level."""
         routing_table = get_routing_table()
