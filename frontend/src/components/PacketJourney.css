@@ -476,3 +476,19 @@
   background: var(--info-soft);
   color: var(--info-text);
 }
+
+/* The backend's own word for how the journey was worked out. */
+.journey-provenance-word {
+  display: block;
+  margin-top: 4px;
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+
+.journey-provenance-word code {
+  font-family: var(--font-mono);
+  color: var(--color-text);
+  background: var(--surface-subtle);
+  padding: 1px 5px;
+  border-radius: var(--radius-sm);
+}

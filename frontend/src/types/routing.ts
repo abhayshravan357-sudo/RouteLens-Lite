@@ -310,51 +310,21 @@ export interface PacketJourneyRequest {
   destination_ip: string;
 }
 
-export interface PacketHopResponse {
-  hop_number: number;
-  current_device: string;
-  destination_ip: string;
-  /**
-   * What the forwarding device did.
-   *
-   * "unresolved_next_hop" means the hand-off to the next router succeeded
-   * but that router's own table was not available, so the next decision
-   * could not be worked out.
-   */
-  action:
-    | 'forward'
-    | 'deliver'
-    | 'drop'
-    | 'loop'
-    | 'error'
-    | 'unresolved_next_hop'
-    | (string & {});
-  explanation: string;
-  matched_route?: {
-    destination: string;
-    next_hop: string | null;
-    interface: string;
-    metric: number;
-  };
-  next_hop_ip?: string;
-  egress_interface?: string;
-}
+/**
+ * Packet Journey types.
+ *
+ * Taken from the generated OpenAPI types, so the frontend and the backend
+ * cannot disagree about them. The backend's `provenance` is a plain string
+ * because the vocabulary is the project's own — observed / inferred /
+ * simulated / unknown — and the journey this endpoint returns is always
+ * "simulated": the path is worked out from a routing table and no packet is
+ * transmitted.
+ */
+export type PacketHopResponse = components['schemas']['PacketHopResponse'];
 
-export interface PacketJourneyResponse {
-  source_ip: string;
-  destination_ip: string;
-  hops: PacketHopResponse[];
-  success: boolean;
-  error: string | null;
-  /**
-   * Whether this journey was calculated or captured.
-   *
-   * The backend adds this when the endpoint publishes a response model.
-   * Until then the frontend falls back to treating every journey from the
-   * routing table as calculated, which is what it is.
-   */
-  provenance?: 'calculated' | 'captured' | (string & {});
-}
+export type MatchedRoute = components['schemas']['MatchedRoute'];
+
+export type PacketJourneyResponse = components['schemas']['PacketJourneyResponse'];
 
 export type LabState =
   | 'idle'

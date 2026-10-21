@@ -30,14 +30,6 @@ interface PacketJourneyProps {
   simulationResponse: PacketJourneyResponse | null;
   onSimulate: () => void;
   disabled: boolean;
-  /**
-   * What kind of answer this journey is.
-   *
-   * The default is "calculated", because that is what a routing-table
-   * trace is. It is only "captured" when the response says a capture was
-   * verified.
-   */
-  provenance?: 'calculated' | 'captured';
 }
 
 const CALCULATED_LABELS: Record<LabState, string> = {
@@ -207,7 +199,6 @@ export default function PacketJourney({
   simulationResponse,
   onSimulate,
   disabled,
-  provenance,
 }: PacketJourneyProps) {
   const [activeIndex, setActiveIndex] = useState(0);
 
@@ -219,13 +210,22 @@ export default function PacketJourney({
   /**
    * What kind of answer this is.
    *
-   * The backend will say so in the response's `provenance` field. Until it
-   * does, a journey from the routing table is calculated — which is what it
-   * is — and the fallback says so rather than guessing at a capture.
+   * The backend says so in the response's `provenance` field. It uses the
+   * project's own vocabulary, so a journey worked out from a routing table
+   * comes back as "simulated" — the path is simulated, not transmitted.
+   *
+   * A backend that does not send the field is tolerated: the answer is
+   * then taken from what the endpoint can actually do, which is calculate.
    */
-  const kind: 'calculated' | 'captured' =
-    provenance ??
-    (simulationResponse?.provenance === 'captured' ? 'captured' : 'calculated');
+  const kind: 'calculated' | 'captured' = useMemo(() => {
+    // Typed as string by the schema, but a backend may omit it, so the
+    // absence is handled rather than assumed away.
+    const reported: string | undefined = simulationResponse?.provenance;
+    return reported === 'captured' ? 'captured' : 'calculated';
+  }, [simulationResponse]);
+
+  const reportedProvenance: string | undefined =
+    simulationResponse?.provenance;
 
   const outcome = useMemo(() => classifyOutcome(hops), [hops]);
   const presentation = OUTCOME_PRESENTATION[outcome];
@@ -260,6 +260,12 @@ export default function PacketJourney({
           {kind === 'captured'
             ? 'Every hop below was observed on the wire. A packet really was sent.'
             : 'Every hop below was worked out from the routing table. No packet was sent, and nothing was observed on the wire.'}
+          {kind === 'calculated' && reportedProvenance && (
+            <span className="journey-provenance-word">
+              The backend calls this <code>{reportedProvenance}</code>: the path
+              is simulated from a table, not transmitted.
+            </span>
+          )}
         </span>
       </div>
 
