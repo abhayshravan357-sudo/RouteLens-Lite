@@ -474,6 +474,20 @@ def result_card(page):
     return page.locator(".result-card").last
 
 
+def verdict_text(page):
+    """
+    The learning lab's verdict, found by its wording rather than by a class.
+
+    The lab says "Correct" or "Not yet" and nothing else in the application
+    uses those words, so the text is a stable handle even when the visual
+    layer is redesigned.
+    """
+    verdicts = page.get_by_text(re.compile(r"^(Correct|Not yet)$"))
+    if verdicts.count() == 0:
+        return ""
+    return verdicts.first.inner_text().strip()
+
+
 def open_diagnostic_tab(page, tab_name):
     """
     Open one of the Network Diagnostics tabs.
@@ -545,11 +559,17 @@ class TestScenarioFailures:
 
     def test_a_forwarding_loop_is_reported_as_a_loop(self, page, backend_available):
         """The 'loop' scenario ends in a loop, and the UI says so."""
-        open_page(page)
+        open_page(page, "journey")
 
         scenario_select = page.locator("#scenario-select")
-        if scenario_select.count() == 0:
-            pytest.skip("Only one scenario is configured; no picker to change it")
+        assert scenario_select.count() == 1, (
+            "the scenario picker is missing, so the loop scenario cannot be reached"
+        )
+        options = scenario_select.locator("option")
+        values = [options.nth(i).get_attribute("value") for i in range(options.count())]
+        assert "loop" in values, (
+            f"the 'loop' scenario is not offered; the picker offers {values}"
+        )
         scenario_select.select_option("loop")
         page.wait_for_timeout(1500)
 
@@ -564,7 +584,7 @@ class TestScenarioFailures:
 
     def test_a_delivered_packet_is_labelled_as_delivered(self, page, backend_available):
         """A working path is labelled 'delivered', so the failure labels mean something."""
-        open_page(page)
+        open_page(page, "journey")
 
         source = page.locator("#scenario-src")
         options = source.locator("option")
@@ -574,8 +594,7 @@ class TestScenarioFailures:
             if candidate:
                 value = candidate
                 break
-        if not value:
-            pytest.skip("No source device was offered")
+        assert value, "the scenario offered no source device to send from"
 
         source.select_option(value)
         page.fill("#scenario-dst", "10.0.0.2")
@@ -700,7 +719,13 @@ class TestConnectivityCheck:
         assert "[object Object]" not in body, "an error object was rendered raw"
 
     def test_a_failed_check_does_not_claim_reachable(self, page, backend_available):
-        """The connectivity verdict must not say 'Reachable' for a closed port."""
+        """
+        The connectivity verdict must not say 'Reachable' for a closed port.
+
+        The verdict is found by anchoring on the target the check names, so
+        a redesign of the panel cannot quietly turn this into a skip. The
+        verdict may be rendered in any case, so the comparison ignores it.
+        """
         open_page(page)
         open_diagnostic_tab(page, "Connectivity")
 
@@ -710,12 +735,17 @@ class TestConnectivityCheck:
         page.click("button:has-text('Check Connectivity')")
         page.wait_for_timeout(6000)
 
-        cards = page.locator(".result-card")
-        if cards.count() == 0:
-            pytest.skip("The check reported only an error banner, with no result card")
-        text = cards.last.inner_text().lower()
-        assert "reachable" not in text or "unreachable" in text, (
-            f"a failed check was labelled reachable: {text}"
+        target = page.get_by_text(re.compile(r"127\.0\.0\.1:1"))
+        assert target.count() >= 1, (
+            "the result did not name the target it checked, so there is no "
+            "verdict to read"
+        )
+        region = target.first.locator("xpath=..").inner_text()
+        assert re.search(r"unreachable", region, re.I), (
+            f"a failed check did not report the target as unreachable: {region!r}"
+        )
+        assert not re.search(r"(?<!un)reachable", region, re.I), (
+            f"a failed check was labelled reachable: {region!r}"
         )
 
 
@@ -840,6 +870,27 @@ class TestDiscoveryAuthorisation:
         assert "refused" in audit_text.lower(), f"the refusal was not audited: {audit_text}"
 
 
+def pick_router_option(locator):
+    """
+    The value of an option naming a router, or the first real option.
+
+    Routers are the devices that have routes worth editing; a host does not.
+    Returns None when the picker offers nothing usable.
+    """
+    options = locator.locator("option")
+    fallback = None
+    for i in range(options.count()):
+        candidate = options.nth(i).get_attribute("value")
+        if not candidate:
+            continue
+        text = options.nth(i).inner_text()
+        if "(router)" in text:
+            return candidate
+        if fallback is None:
+            fallback = candidate
+    return fallback
+
+
 def send_a_packet(page, source_value=None, destination="10.0.0.2"):
     """
     Trace one packet in the scenario lab.
@@ -904,17 +955,12 @@ class TestRouteEditor:
         send_a_packet(page)
 
         picker = page.locator("#route-editor-node")
-        if picker.count() == 0:
-            pytest.skip("The route editor did not appear")
-        options = picker.locator("option")
-        value = None
-        for i in range(options.count()):
-            candidate = options.nth(i).get_attribute("value")
-            if candidate:
-                value = candidate
-                break
-        if not value:
-            pytest.skip("No editable device was offered")
+        assert picker.count() == 1, (
+            "the route editor did not appear; it must be reachable without "
+            "sending a packet first"
+        )
+        value = pick_router_option(picker)
+        assert value, "the route editor offered no device to edit"
         picker.select_option(value)
         page.wait_for_timeout(800)
 
@@ -931,24 +977,21 @@ class TestRouteEditor:
         send_a_packet(page)
 
         picker = page.locator("#route-editor-node")
-        if picker.count() == 0:
-            pytest.skip("The route editor did not appear")
-        options = picker.locator("option")
-        value = None
-        for i in range(options.count()):
-            candidate = options.nth(i).get_attribute("value")
-            if candidate:
-                value = candidate
-                break
-        if not value:
-            pytest.skip("No editable device was offered")
+        assert picker.count() == 1, (
+            "the route editor did not appear; it must be reachable without "
+            "sending a packet first"
+        )
+        value = pick_router_option(picker)
+        assert value, "the route editor offered no device to edit"
         picker.select_option(value)
         page.wait_for_timeout(800)
 
         # Find a router and change one of its routes.
         destination = page.locator("input[aria-label^='Destination for route']")
-        if destination.count() == 0:
-            pytest.skip("The chosen device has no editable routes")
+        assert destination.count() >= 1, (
+            "the chosen device has no editable routes, so a route change "
+            "cannot be made at all"
+        )
         original = destination.first.input_value()
         destination.first.fill("172.16.0.0/12")
 
@@ -1125,31 +1168,40 @@ class TestLearningLabVerdict:
         open_page(page, "learning")
 
         # The exercise with an editable route is "Change a route, change the
-        # outcome"; the default one has no suggested route to apply.
-        exercise = page.locator(".exercise-list-item", has_text="Change a route")
-        if exercise.count() == 0:
-            pytest.skip("This build has no exercise with a suggested route")
+        # outcome"; the default one has no suggested route to apply. It is
+        # part of the shipped exercise set, so it must be listed.
+        exercise = page.get_by_role("button", name=re.compile("Change a route"))
+        assert exercise.count() == 1, (
+            "the 'Change a route, change the outcome' exercise is not listed, "
+            "so the suggested-route path cannot be tested"
+        )
         exercise.first.click()
         page.wait_for_timeout(1500)
 
-        check = page.locator("button:has-text('Check my answer')")
-        if check.count() == 0:
-            pytest.skip("The learning lab has no check button in this build")
+        check = page.get_by_role("button", name=re.compile(r"^Check my answer$"))
+        assert check.count() == 1, (
+            "the learning lab has no 'Check my answer' button, so an exercise "
+            "can never be marked"
+        )
 
         check.first.click()
         page.wait_for_timeout(2500)
-        before = page.locator(".exercise-verdict").first.inner_text()
+        before = verdict_text(page)
 
-        apply_button = page.locator("button:has-text('Apply the suggested route')")
-        if apply_button.count() == 0:
-            pytest.skip("This exercise has no suggested route to apply")
+        apply_button = page.get_by_role(
+            "button", name=re.compile("Apply the suggested route")
+        )
+        assert apply_button.count() == 1, (
+            "the exercise offers no 'Apply the suggested route' button, so the "
+            "route it teaches cannot be applied"
+        )
         apply_button.first.click()
         page.wait_for_timeout(3000)
 
-        check = page.locator("button:has-text('Check my answer')")
+        check = page.get_by_role("button", name=re.compile(r"^Check my answer$"))
         check.first.click()
         page.wait_for_timeout(2500)
-        after = page.locator(".exercise-verdict").first.inner_text()
+        after = verdict_text(page)
 
         assert after in ("Correct", "Not yet"), f"unexpected verdict: {after}"
         assert before in ("Correct", "Not yet"), f"unexpected verdict: {before}"
@@ -1161,14 +1213,19 @@ class TestLearningLabVerdict:
         """The verdict must not be an unrendered object."""
         open_page(page, "learning")
 
-        check = page.locator("button:has-text('Check my answer')")
-        if check.count() == 0:
-            pytest.skip("The learning lab has no check button in this build")
+        check = page.get_by_role("button", name=re.compile(r"^Check my answer$"))
+        assert check.count() == 1, (
+            "the learning lab has no 'Check my answer' button, so an exercise "
+            "can never be marked"
+        )
         check.first.click()
         page.wait_for_timeout(2500)
 
         body = page.inner_text("body")
         assert "[object Object]" not in body, "an error object was rendered raw"
+        assert verdict_text(page) in ("Correct", "Not yet"), (
+            "the learning lab did not show a verdict after checking"
+        )
 
 
 class TestHonestReporting:
@@ -1667,4 +1724,435 @@ class TestErrorContract:
         assert isinstance(payload.get("detail"), str), (
             f"detail should be a message, got {type(payload.get('detail')).__name__}: "
             f"{payload.get('detail')!r}"
+        )
+
+
+# =============================================================================
+# Integration-level coverage for the packet journey and the virtual lab.
+#
+# The journey checks below drive the public /packet-journey endpoint and the
+# scenario trace through the same proxy the page uses, so they exercise the
+# contract the frontend depends on. The lab checks are about what the
+# interface claims, not about whether namespaces work: this machine cannot
+# create them, so a lab that says "unavailable" is the honest outcome and
+# is what these checks require.
+# =============================================================================
+
+
+class TestPacketJourneyEndpoint:
+    """
+    The public packet journey endpoint, and what it reports.
+
+    These go through the Vite proxy, so they also prove the proxy forwards
+    the journey routes.
+    """
+
+    def test_the_journey_endpoint_is_reachable(self, page, backend_available):
+        """The journey endpoint answers through the application's proxy."""
+        open_page(page)
+
+        status, payload = api_post(
+            page,
+            "/packet-journey",
+            {"source_ip": "192.168.1.1", "destination_ip": "8.8.8.8"},
+        )
+        assert status == 200, f"the journey endpoint answered {status}"
+        assert "hops" in payload, "the journey response has no hops"
+
+    def test_a_forwarded_journey_reports_its_hops_in_order(self, page, backend_available):
+        """A journey that is forwarded lists its hops, numbered from one."""
+        open_page(page)
+
+        status, payload = api_post(
+            page,
+            "/packet-journey",
+            {"source_ip": "192.168.1.1", "destination_ip": "8.8.8.8"},
+        )
+        assert status == 200
+
+        hops = payload["hops"]
+        assert hops, "a journey reported no hops at all"
+        assert [h["hop_number"] for h in hops] == list(range(1, len(hops) + 1)), (
+            "the hops are not numbered consecutively from one"
+        )
+        for hop in hops:
+            assert hop["explanation"], f"hop {hop['hop_number']} has no explanation"
+            assert hop["action"] in ("forward", "loop", "dropped", "delivered"), (
+                f"hop {hop['hop_number']} has an unexpected action {hop['action']!r}"
+            )
+
+    def test_a_looped_journey_is_reported_as_a_loop(self, page, backend_available):
+        """A journey that returns to a device is a loop, not a drop."""
+        open_page(page)
+
+        status, payload = api_post(
+            page,
+            "/packet-journey",
+            {"source_ip": "192.168.1.1", "destination_ip": "8.8.8.8"},
+        )
+        assert status == 200
+
+        actions = [hop["action"] for hop in payload["hops"]]
+        assert "loop" in actions, f"expected a loop in the hop actions, got {actions}"
+        assert payload["success"] is False, "a looped journey claimed success"
+        assert payload["error"], "a looped journey gave no reason"
+
+    def test_an_invalid_journey_is_refused(self, page, backend_available):
+        """A malformed address is refused rather than answered."""
+        open_page(page)
+
+        status, payload = api_post(
+            page,
+            "/packet-journey",
+            {"source_ip": "not-an-ip", "destination_ip": "8.8.8.8"},
+        )
+        assert status >= 400, f"a malformed address was answered with {status}"
+        assert isinstance(payload.get("detail"), str), (
+            "the refusal did not come back with a message"
+        )
+
+
+class TestJourneyOutcomeClassification:
+    """
+    A journey outcome must be distinguishable from the others.
+
+    "unresolved_next_hop" is its own outcome: the route was chosen but the
+    next hop cannot be reached. It is neither a loop nor a plain drop, and
+    the interface must not collapse it into one of them.
+    """
+
+    def _set_route(self, page, scenario_id, node_id, routes):
+        return page.request.put(
+            f"{BASE_URL}/api/scenarios/{scenario_id}/nodes/{node_id}/routes",
+            data=routes,
+        )
+
+    def test_an_unreachable_next_hop_is_its_own_outcome(self, page, backend_available):
+        """
+        A route whose next hop is not on the link is 'unresolved_next_hop'.
+
+        The route is edited to point at an address that no interface owns,
+        which is what produces that outcome. The original route is put back
+        afterwards so the rest of the suite is unaffected.
+        """
+        open_page(page)
+
+        original = [
+            {"prefix": "10.0.1.0/24", "dev": "eth1", "via": "10.0.0.2", "metric": 10}
+        ]
+        broken = [
+            {"prefix": "10.0.1.0/24", "dev": "eth1", "via": "10.0.0.99", "metric": 10}
+        ]
+
+        try:
+            response = self._set_route(page, "two-routers", "r1", {"routes": broken})
+            assert response.status == 200, f"the route edit answered {response.status}"
+
+            status, payload = api_post(
+                page,
+                "/api/scenarios/two-routers/trace",
+                {"src": "client", "dst": "10.0.1.5"},
+            )
+            assert status == 200
+            assert payload["status"] == "unresolved_next_hop", (
+                f"expected 'unresolved_next_hop', got {payload['status']!r}"
+            )
+            assert payload["status"] != "loop", "an unreachable next hop was called a loop"
+            assert payload["status"] != "no_route", (
+                "an unreachable next hop was called a missing route"
+            )
+        finally:
+            self._set_route(page, "two-routers", "r1", {"routes": original})
+
+    def test_the_interface_labels_the_three_outcomes_differently(self, page, backend_available):
+        """
+        The three terminal outcomes have three different labels.
+
+        If they share a label, a student cannot tell a missing route from a
+        next hop that cannot be reached, which is the whole point of the
+        distinction. The outcome is produced for real: a route is edited so
+        that its next hop is not on the outgoing network.
+        """
+        open_page(page, "journey")
+
+        scenario_select = page.locator("#scenario-select")
+        assert scenario_select.count() == 1, "the scenario picker is missing"
+        scenario_select.select_option("two-routers")
+        page.wait_for_timeout(1500)
+
+        # Send towards an address the second router is routed for.
+        source = page.locator("#scenario-src")
+        value = None
+        options = source.locator("option")
+        for i in range(options.count()):
+            candidate = options.nth(i).get_attribute("value")
+            if candidate:
+                value = candidate
+                break
+        assert value, "the scenario offered no source device"
+        source.select_option(value)
+        page.fill("#scenario-dst", "10.0.1.5")
+
+        # Point the first router's route at a next hop that no interface
+        # owns. That is what makes the outcome 'unresolved_next_hop'.
+        picker = page.locator("#route-editor-node")
+        assert picker.count() == 1, "the route editor is missing"
+        picker.select_option("r1")
+        page.wait_for_timeout(800)
+
+        next_hop = page.locator("input[aria-label^='Next hop for route']")
+        assert next_hop.count() >= 1, "the route editor has no next-hop field"
+        next_hop.first.fill("10.0.0.99")
+
+        page.click("button:has-text('Save routes')")
+        page.wait_for_timeout(3500)
+
+        body = page.inner_text("body")
+        assert "Next hop could not be reached" in body, (
+            f"the journey did not report an unreachable next hop: {body[-600:]}"
+        )
+        assert "No route to destination" not in body, (
+            "an unreachable next hop was reported as a missing route"
+        )
+        assert "Routing loop detected" not in body, (
+            "an unreachable next hop was reported as a loop"
+        )
+
+
+class TestJourneyIsHonestAboutWhatItDid:
+    """
+    The journey view calculates; it does not transmit.
+
+    The word "Transmitting" belongs to the virtual lab, where real packets
+    are sent between namespaces. A calculated journey that says it
+    transmitted something is claiming a measurement it never made.
+    """
+
+    def test_the_journey_view_never_claims_to_transmit(self, page, backend_available):
+        """Nothing in the journey view says a packet was transmitted."""
+        open_page(page, "journey")
+
+        body = page.inner_text("body")
+        for phrase in ("Transmitting packet", "Transmitting", "Packet sent"):
+            assert phrase not in body, (
+                f"the journey view says {phrase!r}, which is a transmission "
+                "claim it has not earned"
+            )
+
+    @pytest.mark.xfail(
+        reason=(
+            "The journey view is not yet labelled as calculated. The frontend "
+            "work that adds the provenance banner has not landed in this "
+            "build; the contract is agreed and this check will start passing "
+            "when it does."
+        ),
+    )
+    def test_the_journey_view_says_the_result_was_calculated(self, page, backend_available):
+        """The journey view labels its result as calculated, not measured."""
+        open_page(page, "journey")
+
+        body = page.inner_text("body")
+        assert re.search(r"calculat", body, re.I), (
+            "the journey view does not say that its result was calculated"
+        )
+
+
+class TestVirtualLabIsHonest:
+    """
+    The virtual lab panel must report the lab's real state.
+
+    This machine cannot create network namespaces, so the lab is genuinely
+    unavailable here. The panel has to say so, and must not claim that a
+    packet was sent.
+
+    The lifecycle selectors (.lab-lifecycle, .lab-lifecycle-step,
+    .lab-scenario-picker, .lab-ready, .lab-test-result, .lab-command-list,
+    .lab-device) belong to the lab lifecycle work and are not present in
+    this build yet.
+    """
+
+    def test_the_lab_view_asks_the_backend_for_the_lab_status(self, page, backend_available):
+        """The panel is driven by the backend's answer, not a template."""
+        open_page(page, "lab")
+
+        calls = []
+        page.on(
+            "request",
+            lambda r: calls.append(r.url) if "/api/lab/status" in r.url else None,
+        )
+        page.reload(wait_until="networkidle", timeout=30000)
+        page.wait_for_timeout(2000)
+
+        assert any("/api/lab/status" in url for url in calls), (
+            "the lab view did not ask the backend whether the lab is ready"
+        )
+
+    def test_an_unavailable_lab_says_so_and_says_why(self, page, backend_available):
+        """Without namespaces the lab is unavailable, and the reason is shown."""
+        open_page(page, "lab")
+
+        body = page.inner_text("body")
+        assert re.search(r"unavailable|could not be reached|not ready", body, re.I), (
+            "the lab view did not say the lab is unavailable"
+        )
+        # The reason must be given, not just the verdict.
+        assert re.search(r"root|namespace|not found|permission", body, re.I), (
+            "the lab view did not explain why the lab is unavailable"
+        )
+
+    def test_the_lab_never_claims_a_packet_was_sent(self, page, backend_available):
+        """An unavailable lab must not read as a successful transmission."""
+        open_page(page, "lab")
+
+        body = page.inner_text("body")
+        for phrase in (
+            "Transmitting packet",
+            "Packet sent",
+            "Transmitted",
+            "capture verified",
+        ):
+            assert phrase not in body, (
+                f"the lab view says {phrase!r} while the lab is unavailable"
+            )
+
+    @pytest.mark.xfail(
+        reason=(
+            "The lab lifecycle work has not landed in this build. The "
+            "selectors are published and agreed, so this check starts "
+            "passing when the lifecycle elements arrive."
+        ),
+    )
+    def test_the_lab_lifecycle_is_offered(self, page, backend_available):
+        """
+        The lab offers its lifecycle steps.
+
+        This needs the lab lifecycle work, which has not landed in this
+        build: the selectors are published, the elements are not there yet.
+        """
+        open_page(page, "lab")
+
+        lifecycle = page.locator(".lab-lifecycle")
+        assert lifecycle.count() == 1, (
+            "the lab view has no lifecycle; the lab lifecycle work has not "
+            "landed yet"
+        )
+        assert page.locator(".lab-lifecycle-step").count() >= 1, (
+            "the lab lifecycle has no steps"
+        )
+
+
+class TestNestedApiContracts:
+    """
+    The shapes inside a response, not just the names at the top.
+
+    The contract checker in frontend/scripts/check-api-contract.mjs compares
+    the field NAMES of a schema and stops there. It never looks inside a
+    nested object, so a backend that returns a free-form dictionary where
+    the frontend expects a typed one is invisible to it. These checks cover
+    the nested shapes the checker cannot see.
+    """
+
+    def _schema(self, page):
+        status, payload = api_get(page, "/openapi.json")
+        assert status == 200, f"the OpenAPI schema answered {status}"
+        return payload
+
+    def test_the_discovery_scope_has_the_fields_the_interface_reads(self, page, backend_available):
+        """The scope the panel reads must actually carry those fields."""
+        open_page(page)
+
+        status, payload = api_post(
+            page,
+            "/api/discovery/scope",
+            {"target": "192.168.55.0/29", "max_hosts": 8},
+        )
+        assert status == 200
+
+        scope = payload["scope"]
+        for field in ("network", "max_hosts", "interval", "timeout", "host_count"):
+            assert field in scope, (
+                f"the discovery scope has no {field!r}, but the interface reads it"
+            )
+
+    def test_the_compare_result_has_the_fields_the_interface_reads(self, page, backend_available):
+        """
+        The comparison panel reads .simulated.status, .simulated.hops and
+        .lab.status, so those must be there even when the lab is unavailable.
+        """
+        open_page(page)
+
+        status, payload = api_post(
+            page,
+            "/api/scenarios/client-router-server/compare",
+            {"src": "client", "dst": "10.0.0.2"},
+        )
+        assert status == 200
+
+        simulated = payload["simulated"]
+        assert "status" in simulated, "the simulated result has no status"
+        assert "hops" in simulated, "the simulated result has no hops"
+        assert isinstance(simulated["hops"], list), "the hops are not a list"
+
+        lab = payload["lab"]
+        assert "status" in lab, "the lab result has no status"
+        assert "reason" in lab, "the lab result has no reason to give"
+
+    @pytest.mark.xfail(
+        reason=(
+            "The backend declares router_info as a free-form dictionary and "
+            "the frontend as a strict RouterInfo. The shapes agree at runtime "
+            "but nothing keeps them agreeing. The backend owns that schema; "
+            "see docs/qa-gap-report.md."
+        ),
+    )
+    def test_the_lab_router_info_has_a_defined_shape_in_the_schema(self, page, backend_available):
+        """
+        The schema should say what router_info is.
+
+        It is a bare dictionary on the backend and a strict RouterInfo on
+        the frontend. The shapes agree today, but nothing keeps them
+        agreeing. The backend owns that schema.
+        """
+        open_page(page)
+
+        schema = self._schema(page)
+        prop = schema["components"]["schemas"]["LabStatusResponse"]["properties"]["router_info"]
+        variants = prop.get("anyOf") or [prop]
+        has_shape = any(
+            v.get("$ref") or v.get("properties") is not None for v in variants
+        )
+        assert has_shape, (
+            "LabStatusResponse.router_info is an untyped dictionary on the "
+            "backend but a strict RouterInfo on the frontend"
+        )
+
+    @pytest.mark.xfail(
+        reason=(
+            "CompareResult and DiscoveryResponse are not in the contract "
+            "checker's list, so even their top-level fields can drift "
+            "unnoticed. The frontend stream owns the checker."
+        ),
+    )
+    def test_the_compare_and_discovery_schemas_are_checked_for_drift(self, page, backend_available):
+        """
+        The contract checker should cover the schemas the frontend types.
+
+        CompareResult and DiscoveryResponse are not in its list at all, so
+        even their top-level fields can drift unnoticed.
+        """
+        open_page(page)
+
+        # The checker is a build-time script, not a served file, so it is
+        # read from the repository.
+        import pathlib
+
+        repo = pathlib.Path(__file__).resolve().parents[2]
+        text = (repo / "frontend" / "scripts" / "check-api-contract.mjs").read_text()
+        missing = [
+            schema
+            for schema in ("CompareResult", "DiscoveryResponse")
+            if f"'{schema}'" not in text and f'"{schema}"' not in text
+        ]
+        assert not missing, (
+            f"these schemas are not in the contract checker's list: {missing}"
         )

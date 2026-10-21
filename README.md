@@ -23,8 +23,9 @@ It is worth being clear about this, because the name invites the wrong idea.
   not a measurement of the network's behaviour under load.
 - **A route decision is not a measurement.** When RouteLens says a packet
   would be forwarded via a gateway, that is the routing engine reasoning over
-  a table. Nothing was sent. Only the virtual packet lab sends real packets,
-  and only inside network namespaces it creates.
+  a table. Nothing was sent. The only thing in this project that can send a
+  real packet is the virtual packet lab, and only inside network namespaces
+  it creates.
 
 ## What it does
 
@@ -34,8 +35,11 @@ It is worth being clear about this, because the name invites the wrong idea.
   lookup answer differently straight away.
 - **A packet journey traced hop by hop** through a modelled scenario, with
   each hop's routing decision shown in full.
-- **An isolated virtual packet lab** that sends real packets between network
-  namespaces, with the capture checked afterwards.
+- **A virtual packet lab** that can send real packets between network
+  namespaces and check the capture afterwards. The backend can do this; the
+  page cannot yet drive it — the lab's *status* is shown, and the comparison
+  view asks the lab to run a scenario, but there are no controls to set the
+  lab up, send a packet or tear it down. See **Limitations**.
 - **Network diagnostics read from the host** — interfaces, routing table,
   neighbour cache, DNS resolution, connectivity checks and traceroute.
 - **A capture file importer** that reads a PCAP or PCAPNG and extracts ports,
@@ -137,11 +141,24 @@ python -m pytest -q
 ```
 
 ```
-661 passed, 3 skipped, 1 warning in 391.55s
+607 passed, 1 skipped, 1 warning in 9.12s
 ```
 
-(The three skipped checks are the browser ones, which skip cleanly when
-Playwright is not installed.)
+That run includes the browser checks, which **skip** unless a backend is
+already answering on port 8000 — so on a machine where something else is
+using that port they will run and the suite will take several minutes
+instead. To run just the backend:
+
+```bash
+python -m pytest -q --ignore=tests/test_e2e_browser.py
+```
+
+```
+607 passed, 1 skipped, 1 warning in 9.12s
+```
+
+The one skip is a test that needs a kernel interface this machine does not
+have; it is skipped for the same reason on every machine.
 
 **Frontend** — type check and production build:
 
@@ -171,12 +188,20 @@ python -m pytest tests/test_e2e_browser.py -q -p no:cacheprovider
 ```
 
 ```
-62 passed, 0 failed
+82 passed, 4 xfailed
 ```
 
-Every check runs against the real application in a real browser. There are no
-expected failures: the gaps the independent review found are either fixed or
-covered by a check that says so.
+Every check runs against the real application in a real browser. The four
+`xfail`s are for things that are known and recorded rather than silently
+skipped:
+
+- two are for the lab lifecycle and the journey provenance banner, whose
+  frontend work has not landed yet;
+- two are for API-contract gaps in schemas another stream owns, listed in
+  [`docs/qa-gap-report.md`](docs/qa-gap-report.md).
+
+A check that cannot fail is not a check, so none of these are written as
+"skip if the element is missing" — a missing required element is a failure.
 
 These checks **skip cleanly** if Playwright or the backend is not there, so an
 ordinary `pytest` run is never blocked by them.
@@ -226,6 +251,10 @@ The project tries not to claim more than it does, and these are the real ones:
 - **The routing decision is inferred, not observed.** It is what the kernel's
   table implies, not a packet that was sent. Only the virtual lab sends real
   packets, and only inside namespaces it creates.
+- **The page cannot drive the virtual lab.** The lab's status is shown and the
+  comparison view asks it to run a scenario, but there are no controls to set
+  the lab up, send a packet or tear it down. The backend can do all of that;
+  the interface cannot yet.
 - **Only the main routing table is read.** The kernel keeps local and
   broadcast routes in separate tables, so an address this host owns may have
   no entry of its own in what you see.
@@ -233,8 +262,23 @@ The project tries not to claim more than it does, and these are the real ones:
   handshakes, DNS names and ARP out of a PCAP, and the panel shows all of it —
   but each packet's facts are collapsed until you open it, so the summary
   looks thinner than the data behind it.
+- **The capture importer does not check checksums.** It decodes headers and
+  reads ports, flags and names from the bytes; it does not verify that the
+  IP or TCP checksum is correct, so a corrupted packet is reported as
+  corrupt-looking data rather than as a checksum failure.
+- **IPv6 extension headers are not decoded.** An IPv6 packet carrying
+  extension headers is read as though the header after the IPv6 one were the
+  transport header, so such packets are misread rather than skipped.
 - **Fragments, VLAN tags and DNS over TCP are not decoded.** The importer says
   so in its own limitations rather than guessing.
+- **The diagnostics are rate limited.** DNS, connectivity and traceroute each
+  allow 20 requests a minute; past that they are refused with a 429 and a
+  `Retry-After`, and the panel says so.
+- **A traceroute that finished is not a traceroute that arrived.** The
+  `completed` field means the trace ended, which includes running out of hops
+  and the traceroute command simply stopping. There is no separate field
+  saying the destination was reached, so you have to read whether the last
+  hop is the target yourself.
 - **The scenario lab is a model.** Its routes are the ones you gave it, not
   a reading of any real network.
 - **Discovery needs authorisation.** It asks for the scope to be confirmed

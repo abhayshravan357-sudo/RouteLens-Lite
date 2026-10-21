@@ -372,3 +372,160 @@ cd backend && ROUTELENS_URL=http://127.0.0.1:5199 \
 
 The checks skip cleanly when Playwright or the backend is not available, so an
 ordinary `pytest tests/` run is never blocked by them.
+
+---
+
+## 9. Findings from the repair milestone
+
+These are from the second pass, after the routing, frontend and capture work
+had been integrated. They are numbered from QA-11 so they do not collide with
+the findings above.
+
+### QA-11 — The report's first limitation was false about its own contents — **High** (fixed here)
+
+- **Was**: `backend/app/report.py:30-31`
+
+  > "Only the routing table shown here is simulated. It is a teaching
+  > example, not this machine's real table."
+
+  Six of the twelve evidence items were `simulated`, across **two** sections
+  ("The teaching routing table" and "Simulated networks"). "Only" was false
+  and "the routing table" understated it.
+
+- **Now**: the limitation names both modelled parts, says that everything
+  else was read from the machine, and points at the per-item provenance and
+  the section titles. A reader can tell from the limitations alone which
+  parts are measured and which are modelled.
+
+- **Fixed in**: `backend/app/report.py` (LIMITATIONS[0]).
+
+### QA-12 — The report showed only the IPv4 routing table — **High** (fixed here)
+
+- **Was**: `backend/app/report.py:186` and `:226` called `collect_routes()` and
+  `collect_neighbors()` with the default `ip_version="ipv4"`. This machine's
+  IPv6 route (`fe80::/64`) was absent from the export, and nothing said the
+  table was IPv4 only, so a reader would conclude the machine has no IPv6
+  routes.
+
+- **Now**: both families are collected and reported, and every network
+  evidence item carries a `family` field, rendered as `- **Family:** ipv6`
+  in the Markdown. The report panel renders the Markdown, so no frontend
+  change was needed.
+
+- One detail worth keeping: a table that was **read successfully and is
+  empty** is now reported as "no neighbours in this cache" with
+  `provenance: observed`, not as "not collected" with `provenance: unknown`.
+  This machine has an empty IPv6 neighbour cache, and the old wording told
+  the reader the collection had failed.
+
+- **Fixed in**: `backend/app/report.py`, with tests in
+  `backend/tests/test_report.py`.
+
+### QA-13 — Building a report threw away the names it had resolved — **Medium** (fixed here)
+
+- **Was**: `backend/app/report.py:226` called `collect_neighbors()` with the
+  default `resolve_names=True`, so every report build performed reverse DNS
+  queries and then discarded the answers. The evidence dict had no hostname.
+
+- **Now**: the name is kept, together with `name_provenance` and
+  `name_error`, so a reader can see that the address is observed and the
+  name is inferred. A limitation says so.
+
+- **Fixed in**: `backend/app/report.py`.
+
+### QA-14 — A test in the suite sent real ICMP probes at the network — **Medium** (fixed here)
+
+- **Was**: `backend/tests/test_discovery_api.py::test_running_with_a_matching_confirmation_is_allowed`
+  ran a real discovery against `192.168.193.0/29`, emitting up to three
+  probes per address, one second each — about 19 seconds of real traffic.
+
+- **Now**: the probe is mocked, so the test exercises the confirmation gate
+  without touching the network. It runs in 1.4 seconds instead of 19. The
+  probe itself is still covered, by the clearly-labelled
+  `TestProbeSafety::test_the_probe_passes_the_address_after_a_double_dash`
+  in `backend/tests/test_discovery.py`, which mocks the subprocess.
+
+- **Fixed in**: `backend/tests/test_discovery_api.py`.
+
+### QA-15 — The API contract checker cannot see inside a response — **Medium** (reported, not fixed)
+
+- `frontend/scripts/check-api-contract.mjs:159-178` compares the field
+  **names** of a schema against a hand-maintained list and stops there. It
+  never looks inside a nested object, and it does not compare nullability,
+  required-versus-optional, or the shape of an error response.
+
+  Four backend fields are free-form dictionaries where the frontend expects
+  a typed object:
+
+  | Backend field | Frontend type | Frontend reads |
+  |---------------|---------------|----------------|
+  | `LabStatusResponse.router_info` | `RouterInfo` | `VirtualLabPanel.tsx:156` `info?.interfaces.length`, `:201` `info.routing_table.length` |
+  | `CompareResult.simulated` | `ScenarioTrace` | `ComparePanel.tsx:90-95` `.status`, `.hops.map(...)` |
+  | `CompareResult.lab` | `LabProbeResult` | `ComparePanel.tsx:48,129-132` `.status`, `.reason` |
+  | `DiscoveryResponse.scope` | `DiscoveryScope` | `DiscoveryPanel.tsx:224-226` `.network`, `.host_count` |
+
+  The shapes agree at runtime today — the backend builds exactly the keys
+  the frontend reads (`backend/app/packet_lab.py:151-156`) — but nothing
+  keeps them agreeing. A backend edit that dropped a key would crash the
+  panel on a length of `undefined` rather than show a message.
+
+  `CompareResult` and `DiscoveryResponse` are **not in the checker's list at
+  all**, so even their top-level fields can drift unnoticed.
+
+  The checker works around the first case by listing `RouterInfo` and
+  `RouterRouteEntry` in `FRONTEND_ONLY_OK` (line 112), which means it does
+  not even require them to exist in the backend.
+
+  **Not fixed here**: the backend owns those schemas and the frontend stream
+  owns the checker. Two checks in `backend/tests/test_e2e_browser.py` record
+  the gap as `xfail` so it cannot be forgotten.
+
+### QA-16 — The page cannot drive the virtual lab — **High** (reported, not fixed)
+
+`frontend/src/api/routing.ts` has `simulatePacket` (line 314),
+`applyScenarioLab` (line 489) and `teardownScenarioLab` (line 500), but **no
+component imports any of them**. The interface can read the lab's status and
+the comparison view asks the lab to run a scenario, but there are no
+controls to set the lab up, send a packet, or tear it down.
+
+This is what the lab lifecycle work is for. Until it lands, the README must
+not say the lab "sends real packets between network namespaces" as though a
+student could do that from the page. The README now says the backend can and
+the page cannot yet.
+
+### QA-17 — A test in the suite sent real packets from the discovery test — covered by QA-14
+
+Folded into QA-14 to keep the list short.
+
+### QA-18 — The capture parser does not verify checksums, and does not decode IPv6 extension headers — **Medium** (documented, not fixed)
+
+Neither is mentioned in the parser's own limitations list
+(`backend/app/pcap.py:836-846`). A packet with a bad IP or TCP checksum is
+reported as ordinary decoded data, and an IPv6 packet carrying extension
+headers is read as though the header after the IPv6 one were the transport
+header. Both are now stated in the README's limitations; the parser's own
+list should say them too. The parser is the capture stream's.
+
+### QA-19 — `pcap_routes.py` says PCAPNG is not parsed, and it is — **Low** (reported, not fixed)
+
+- **Was**: `backend/app/pcap_routes.py:158` — "PCAPNG (detected but not parsed)".
+- **Is**: `backend/app/pcap.py:469` implements `_parse_pcapng`, with the block
+  types at lines 253-256. PCAPNG is parsed.
+
+The docstring is stale. The file is the capture stream's.
+
+### QA-20 — A traceroute that finished is not one that arrived — **Low** (documented)
+
+`backend/app/network_collector.py:1270-1278` sets `completed = True` when the
+last hop is the target, when the hop limit was reached, **and** when the
+traceroute command stopped for other reasons. There is no separate field
+saying the destination was reached, so a reader has to compare the last hop
+with the target themselves. The README now says so. A `reached_destination`
+field would be better; the collector owns that.
+
+### QA-21 — The diagnostic rate limit is per endpoint, and the README implied it was shared — **Low** (fixed here)
+
+`backend/app/security.py:129` sets one limiter with 20 requests per 60
+seconds, and the endpoints use separate keys (`main.py:644` "dns", `:761`
+"connectivity", `:864` "traceroute"), so each has its own budget rather than
+sharing one. The README now says "each allow 20 requests a minute".
