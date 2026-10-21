@@ -11,7 +11,8 @@ traffic if the rate is not bounded.
 Rules enforced here:
 - Targets must be a literal IP address, or a hostname that looks like one.
 - A target may never start with "-", so it can never be read as an option.
-- Requests are rate limited per client.
+- Requests are rate limited per client and per operation, so one client
+  exhausting its allowance does not stop any other client.
 """
 
 from __future__ import annotations
@@ -19,10 +20,10 @@ from __future__ import annotations
 import ipaddress
 import re
 import time
-from collections import defaultdict, deque
+from collections import OrderedDict, deque
 from typing import Deque, Dict, Optional
 
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 
 
 #: Hostname shape: labels of letters/digits/hyphens separated by dots.
@@ -30,6 +31,14 @@ HOSTNAME_RE = re.compile(
     r"^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9-]{1,63}$",
     re.IGNORECASE,
 )
+
+#: The most distinct client keys the limiter will remember at once.
+#:
+#: The key map is keyed by client address, so an unauthenticated caller
+#: could otherwise grow it without limit simply by sending requests from
+#: many addresses. When the cap is reached the least recently used key is
+#: dropped to make room.
+MAX_TRACKED_CLIENTS = 1024
 
 
 class TargetValidationError(ValueError):
@@ -81,16 +90,41 @@ def validate_target(target: str) -> str:
 
 class RateLimiter:
     """
-    A simple sliding-window rate limiter.
+    A sliding-window rate limiter, keyed by client and operation.
 
-    Used to bound how many diagnostic requests a single client may make
-    in a given period.
+    Every distinct key gets its own budget, so one client exhausting its
+    allowance does not stop any other client from making requests. The key
+    for a request is built by `client_key`, which pairs the operation with
+    the peer's address. The operation is part of the key so that the limit
+    is not weakened: a client still gets its full allowance for each
+    operation rather than one shared allowance across all of them.
+
+    The number of keys is bounded. A key is forgotten once its window
+    empties, and if the map reaches its cap the least recently used key is
+    dropped to make room. Both bounds matter, because an unauthenticated
+    caller could otherwise grow the map without limit just by sending
+    requests from many addresses.
     """
 
-    def __init__(self, max_requests: int = 10, period_seconds: float = 60.0):
+    def __init__(
+        self,
+        max_requests: int = 10,
+        period_seconds: float = 60.0,
+        max_keys: int = MAX_TRACKED_CLIENTS,
+    ):
         self.max_requests = max_requests
         self.period_seconds = period_seconds
-        self._hits: Dict[str, Deque[float]] = defaultdict(deque)
+        self.max_keys = max_keys
+        self._hits: "OrderedDict[str, Deque[float]]" = OrderedDict()
+
+    def _expire(self, now: float) -> None:
+        """Drop hits that have aged out, and any key left with no hits."""
+        for key in list(self._hits.keys()):
+            window = self._hits[key]
+            while window and (now - window[0]) > self.period_seconds:
+                window.popleft()
+            if not window:
+                del self._hits[key]
 
     def check(self, key: str) -> None:
         """
@@ -100,9 +134,20 @@ class RateLimiter:
             HTTPException: 429 when the client has made too many requests.
         """
         now = time.monotonic()
-        window = self._hits[key]
-        while window and (now - window[0]) > self.period_seconds:
-            window.popleft()
+        self._expire(now)
+
+        window = self._hits.get(key)
+        if window is None:
+            if len(self._hits) >= self.max_keys:
+                # Make room by dropping the least recently used key. Its
+                # owner gets a fresh allowance rather than being refused,
+                # which is no worse than the alternative of turning new
+                # clients away.
+                self._hits.popitem(last=False)
+            window = deque()
+            self._hits[key] = window
+        else:
+            self._hits.move_to_end(key)
 
         if len(window) >= self.max_requests:
             retry_after = int(self.period_seconds - (now - window[0])) + 1
@@ -117,6 +162,11 @@ class RateLimiter:
 
         window.append(now)
 
+    @property
+    def tracked_keys(self) -> int:
+        """How many client keys are currently remembered."""
+        return len(self._hits)
+
     def reset(self, key: Optional[str] = None) -> None:
         """Forget recorded requests, for a key or entirely."""
         if key is None:
@@ -125,5 +175,39 @@ class RateLimiter:
             self._hits.pop(key, None)
 
 
+def client_key(request: Request, operation: str) -> str:
+    """
+    The rate limit key for a request: the operation and the peer's address.
+
+    The peer's address is taken from the connection, not from a header.
+
+    The X-Forwarded-For header is deliberately NOT trusted. Any client can
+    set it, so believing it would let anyone bypass the limit by varying
+    the header. The cost of that choice is that behind a reverse proxy
+    every request appears to come from the proxy, and all clients share
+    one budget again. A deployment behind a proxy would need an explicit
+    list of trusted proxy addresses before the header could be believed.
+    This tool has no such configuration, so it does not believe it.
+
+    Args:
+        request: The incoming request.
+        operation: The operation being limited, such as "dns".
+
+    Returns:
+        A key of the form "operation:address".
+    """
+    client = request.client
+    host = client.host if client is not None else "unknown"
+    return f"{operation}:{host}"
+
+
 #: Shared limiter for the diagnostic endpoints.
 diagnostic_limiter = RateLimiter(max_requests=20, period_seconds=60.0)
+
+#: Shared limiter for authorised discovery.
+#:
+#: Discovery is the most expensive thing this backend does: a single run
+#: probes up to a few hundred addresses with real packets. It gets its own
+#: limiter rather than sharing the diagnostic one, so that a burst of DNS
+#: lookups cannot use up a student's discovery allowance and vice versa.
+discovery_limiter = RateLimiter(max_requests=10, period_seconds=60.0)

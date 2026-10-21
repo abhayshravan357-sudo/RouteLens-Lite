@@ -158,15 +158,26 @@ class TestDiscovery:
 
     @pytest.mark.asyncio
     async def test_a_cancelled_scan_stops_early(self):
-        """A cancelled scan stops probing and says so."""
+        """A cancelled scan stops probing and says so.
+
+        The cancellation used to be set before the scan started, which
+        asked for a scan that did not exist yet. The endpoint now only
+        records a cancellation for a scan that is actually running, so the
+        test cancels from inside the scan instead. That is the scenario
+        the HTTP endpoint supports: run_discovery only hands the scan id
+        back once the run has finished, so a cancellation can only ever
+        arrive while the scan is in progress.
+        """
         service = DiscoveryService()
         scope = validate_scope("192.168.202.0/28", interval=0.05, timeout=0.2)
-        service.cancel("scan-3")
 
         probed = []
 
         async def counting_probe(address, timeout):
             probed.append(address)
+            # Cancel from inside the scan, which is the only moment a
+            # cancellation can be made.
+            service.cancel("scan-3")
             return None
 
         service._probe = counting_probe
@@ -174,7 +185,8 @@ class TestDiscovery:
         result = await service.discover(scope, "scan-3")
         assert result["status"] == DiscoveryStatus.CANCELLED.value
         assert result["cancelled"] is True
-        assert probed == []
+        # It stopped early rather than probing the whole network.
+        assert len(probed) < len(scope.addresses())
         # The cancellation is recorded.
         assert service.audit_trail[-1].outcome == AuditOutcome.CANCELLED
 
