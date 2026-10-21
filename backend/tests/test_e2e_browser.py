@@ -2238,7 +2238,11 @@ class TestNestedApiContracts:
     """
 
     def _schema(self, page):
-        status, payload = api_get(page, "/openapi.json")
+        # The schema is read from the backend, not through the proxy: the
+        # proxy forwards the paths the application uses, and /openapi.json
+        # is not one of them, so the proxy answers with the interface's
+        # own page instead of the schema.
+        status, payload = backend_get(page, "/openapi.json")
         assert status == 200, f"the OpenAPI schema answered {status}"
         return payload
 
