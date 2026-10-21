@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from ipaddress import IPv4Address, IPv4Network
+import re
 from typing import Any, Optional
 
 from app.lab_adapter import LabAdapter, get_lab_adapter, LabOperationResult, PingResult, PacketCaptureResult
@@ -25,6 +26,22 @@ class LabState(str, Enum):
     ERROR = "error"
     TIMEOUT = "timeout"
     UNAVAILABLE = "unavailable"
+
+
+# Provenance types following project convention
+class VerificationProvenance(str, Enum):
+    OBSERVED = "observed"      # Directly measured from packet capture
+    INFERRED = "inferred"      # Deduced from successful ping
+    SIMULATED = "simulated"    # From routing simulation
+    UNKNOWN = "unknown"        # Could not determine
+
+
+@dataclass
+class VerificationField:
+    """A verification result with its provenance."""
+    value: bool
+    provenance: VerificationProvenance
+    details: str = ""
 
 
 @dataclass
@@ -69,9 +86,15 @@ class PacketResponse:
 
 @dataclass
 class VerificationDetails:
-    ttl_decremented: bool
-    checksum_valid: bool
-    route_matched: bool
+    """Verification results with provenance tracking.
+
+    Each field reports whether it was OBSERVED (from packet capture),
+    INFERRED (deduced from ping success), SIMULATED (from routing decision),
+    or UNKNOWN (could not determine).
+    """
+    ttl_decremented: VerificationField
+    checksum_valid: VerificationField
+    route_matched: VerificationField
 
 
 @dataclass
@@ -89,6 +112,47 @@ LAB_CLIENT_IP = "192.168.10.2"
 LAB_SERVER_IP = "192.168.20.2"
 LAB_CLIENT_NETWORK = "192.168.10.0/24"
 LAB_SERVER_NETWORK = "192.168.20.0/24"
+
+
+def _parse_tcpdump_ttl(raw_output: str) -> tuple[Optional[int], VerificationProvenance]:
+    """
+    Parse tcpdump output to extract TTL values from IP headers.
+    
+    HEURISTIC WARNING: This function returns the FIRST "ttl N" match found in the
+    tcpdump -v output. The capture runs on the router's EGRESS interface (rlr0s),
+    where BOTH the forwarded echo request (TTL decremented by 1) and the echo
+    reply from the server (TTL 64) may appear. This function returns the FIRST
+    match, which may be either packet depending on capture timing. It does NOT
+    perform per-packet TTL analysis or correlate with specific ICMP types.
+    
+    Returns (ttl_value, provenance) where ttl_value is the first TTL found,
+    or None if not found. Provenance indicates how the value was determined.
+    """
+    # tcpdump -v output includes IP header fields like "ttl 64"
+    # Pattern: "IP ... > ...: ICMP ..., ttl 64, ..."
+    ttl_pattern = re.compile(r'ttl\s+(\d+)')
+    matches = ttl_pattern.findall(raw_output)
+    if matches:
+        # Return the first TTL found - HEURISTIC: this may be from either
+        # the forwarded echo request (TTL-1) or the echo reply (TTL 64)
+        return int(matches[0]), VerificationProvenance.OBSERVED
+    return None, VerificationProvenance.UNKNOWN
+
+
+def _parse_tcpdump_checksum(raw_output: str) -> tuple[Optional[bool], VerificationProvenance]:
+    """
+    Parse tcpdump output to check ICMP checksum.
+    
+    Returns (checksum_valid, provenance). tcpdump -v shows "checksum 0xXXXX (correct)"
+    or "checksum 0xXXXX (incorrect)".
+    """
+    # tcpdump -v shows: "checksum 0x1234 (correct)" or "checksum 0x1234 (incorrect)"
+    checksum_pattern = re.compile(r'checksum\s+0x[0-9a-fA-F]+\s+\((correct|incorrect)\)')
+    matches = checksum_pattern.findall(raw_output)
+    if matches:
+        # Return True if any checksum is marked correct
+        return matches[0].lower() == "correct", VerificationProvenance.OBSERVED
+    return None, VerificationProvenance.UNKNOWN
 
 
 class PacketLab:
@@ -143,17 +207,32 @@ class PacketLab:
                     "interface": route.interface,
                 })
 
+        # Report detailed readiness info
+        blockers = []
+        if readiness.missing_tools:
+            blockers.append(f"Missing tools: {', '.join(readiness.missing_tools)}")
+        if readiness.permission_issues:
+            blockers.append(f"Permission issues: {'; '.join(readiness.permission_issues)}")
+        # Check topology completeness
+        if not (router_ns and router_ns.accessible and client_ns and client_ns.accessible and server_ns and server_ns.accessible):
+            blockers.append("Lab topology incomplete")
+
+        message = "Packet lab is ready"
+        if blockers:
+            message = "Packet lab has issues: " + "; ".join(blockers)
+
         self._set_state(LabState.READY)
         return LabStatus(
-            available=True,
-            state=LabState.READY,
-            message="Packet lab is ready",
+            available=readiness.overall_ready,
+            state=LabState.READY if readiness.overall_ready else LabState.UNAVAILABLE,
+            message=message,
             router_info={
                 "interfaces": interfaces,
                 "routing_table": routing_table,
                 "client_ip": next((i.ipv4_address for i in client_ns.interfaces if i.name == "rlc0"), None) if client_ns else None,
                 "server_ip": next((i.ipv4_address for i in server_ns.interfaces if i.name == "rls0"), None) if server_ns else None,
             },
+            error=readiness.summary if not readiness.overall_ready else None,
         )
 
     def _validate_request(self, request: SimulateRequest) -> Optional[str]:
@@ -192,6 +271,8 @@ class PacketLab:
         Simulate packet transmission through the virtual router.
 
         Performs the full state machine progression and returns verified results.
+        Verification details include provenance (observed/inferred/simulated/unknown)
+        for each check so the caller knows what was actually measured vs deduced.
         """
         error = self._validate_request(request)
         if error:
@@ -255,17 +336,51 @@ class PacketLab:
         # Ping success/failure
         ping_success = ping_result.get("success", False)
 
-        # Verify TTL decremented (ping from client has TTL 64, received at server with TTL 63)
-        ttl_decremented = ping_success
-        # We can't easily verify checksum from ping output, assume valid if ping succeeded
-        checksum_valid = ping_success
+        # Parse tcpdump output for actual verification
+        capture_raw = capture_result.get("raw_output", "")
+        
+        # TTL verification
+        observed_ttl, ttl_provenance = _parse_tcpdump_ttl(capture_raw)
+        expected_ttl = max(1, request.ttl - 1)  # TTL after one router hop
+        ttl_decremented = False
+        if observed_ttl is not None:
+            ttl_decremented = observed_ttl == expected_ttl
+        else:
+            # Infer from ping success if we couldn't observe
+            ttl_decremented = ping_success
+            ttl_provenance = VerificationProvenance.INFERRED
+
+        # Checksum verification
+        checksum_valid, checksum_provenance = _parse_tcpdump_checksum(capture_raw)
+        if checksum_valid is None:
+            # Infer from ping success if we couldn't observe
+            checksum_valid = ping_success
+            checksum_provenance = VerificationProvenance.INFERRED
+
         # Route matched if we got packets on the egress interface
         route_matched_verified = packets_captured > 0
+        route_provenance = VerificationProvenance.OBSERVED if route_matched_verified else VerificationProvenance.UNKNOWN
 
         verification = VerificationDetails(
-            ttl_decremented=ttl_decremented,
-            checksum_valid=checksum_valid,
-            route_matched=route_matched_verified,
+            ttl_decremented=VerificationField(
+                value=ttl_decremented,
+                provenance=ttl_provenance,
+                details=(
+                    f"Observed TTL: {observed_ttl} (first 'ttl N' in tcpdump -v on {egress_interface}; "
+                    f"HEURISTIC: may be from forwarded echo request (TTL-1) or echo reply (TTL 64)); "
+                    f"Expected after 1 hop: {expected_ttl}"
+                ) if observed_ttl is not None else "Inferred from ping success (no TTL observed in capture)"
+            ),
+            checksum_valid=VerificationField(
+                value=checksum_valid,
+                provenance=checksum_provenance,
+                details="Parsed from tcpdump -v output (checksum correct/incorrect)" if checksum_provenance == VerificationProvenance.OBSERVED else "Inferred from ping success"
+            ),
+            route_matched=VerificationField(
+                value=route_matched_verified,
+                provenance=route_provenance,
+                details=f"Captured {packets_captured} packets on egress interface {egress_interface}" if route_matched_verified else "No packets captured on egress interface"
+            ),
         )
 
         # TTL in response should be original - 1 (for router hop)
