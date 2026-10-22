@@ -55,6 +55,51 @@ It is worth being clear about this, because the name invites the wrong idea.
   what was asked for and what was refused.
 - **An exportable report** listing every claim with its source, its time, and
   what could not be established.
+- **Router discovery** — finding the routers reachable from this machine and
+  reading their routing tables through their management interfaces. **This
+  one is not finished yet**; see [Router discovery](#router-discovery) below
+  for what exists and what does not.
+
+## Router discovery
+
+**Under construction. There is no usable feature here yet.** It is described
+so that you know what is coming, not so that you can use it.
+
+The idea is to find the routers reachable from this machine, learn what each
+one is connected to, and read the routing table each one holds — then show
+what was found with the evidence attached, distinguishing what was *observed*
+from what was *inferred*.
+
+One thing worth knowing before it lands, because it surprises people:
+**you cannot get a router's routing table by sending it a packet.** There is
+no packet that makes a router reply with its table. The routing table is the
+router's own state, and it is only readable through an interface the router
+offers to an administrator — an API, NETCONF, SNMP, or SSH with a vendor
+command. What *is* discoverable from the network is neighbour relationships:
+LLDP and CDP are meant to be heard on a link, and they tell you which
+devices are directly attached to which.
+
+The rules the feature keeps, which are why it is worth having at all:
+
+- **read-only** — every command is checked against an allowlist, and
+  anything that could change a device is refused;
+- **no shell** — a command is run as an argument vector, never through a
+  shell, so a command that starts with an allowed prefix but carries a
+  metacharacter or a newline is refused;
+- **a scope, enforced twice** — both before a collection and before a newly
+  discovered neighbour is queued, so one hop out of scope cannot walk out of
+  the allowed area;
+- **no credentials in a request, in a response, or in a log** — if the
+  server holds a credential it refers to it by name;
+- **a run is private to whoever started it**.
+
+The design and the test plan are in
+[`docs/router-discovery.md`](docs/router-discovery.md) and
+[`docs/router-discovery-test-plan.md`](docs/router-discovery-test-plan.md).
+
+This is also **not** the host sweep in the Network Diagnostics tab. That one
+pings a bounded range of addresses and reports which answered; this one
+talks to routers' management interfaces.
 
 ## Setup
 
@@ -155,7 +200,7 @@ python -m pytest -q --ignore=tests/test_e2e_browser.py
 
 The counts move as the work lands, so run the command rather than trusting
 a number in this file. When this README was written, the backend suite was
-`683 passed, 2 skipped`. Both skips say why: one is a test that needs a
+`684 passed, 2 skipped`. Both skips say why: one is a test that needs a
 kernel interface this machine does not have, and one needs root to build
 network namespaces.
 
@@ -186,9 +231,11 @@ ROUTELENS_HEALTH=http://127.0.0.1:8000/health \
 python -m pytest tests/test_e2e_browser.py -q -p no:cacheprovider
 ```
 
-When this README was written the browser file was `93 passed`, with no
-expected failures. The counts move as the work lands, so run the command
-rather than trusting a number in this file.
+When this README was written the browser file was `93 passed, 8 skipped`.
+The eight skips are the checks for the router-discovery view, which has not
+been built yet; they skip with a reason naming that, rather than passing
+vacuously. The counts move as the work lands, so run the command rather
+than trusting a number in this file.
 
 A check that cannot fail is not a check, so none of these are written as
 "skip if the element is missing" — a missing required element is a failure
