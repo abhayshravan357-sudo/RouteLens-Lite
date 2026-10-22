@@ -31,7 +31,7 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install dependencies
+      - name: Install backend dependencies
         working-directory: backend
         run: |
           python -m venv .venv
@@ -124,10 +124,10 @@ jobs:
             fi
             sleep 1
           done
-          curl -sf http://127.0.0.1:8000/health || {
+          if ! curl -sf http://127.0.0.1:8000/health; then
             cat /tmp/routelens-backend.log
             exit 1
-          }
+          fi
 
       - name: Start frontend
         working-directory: frontend
@@ -139,10 +139,10 @@ jobs:
             fi
             sleep 1
           done
-          curl -sf http://127.0.0.1:5173/ || {
+          if ! curl -sf http://127.0.0.1:5173/; then
             cat /tmp/routelens-frontend.log
             exit 1
-          }
+          fi
 
       - name: Run browser tests
         working-directory: backend
@@ -160,11 +160,24 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Check whitespace errors
-        if: github.event_name == 'pull_request'
-        run: git diff --check "${{ github.event.pull_request.base.sha }}" "${{ github.sha }}"
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
 
-      - name: Check pushed commit whitespace
-        if: github.event_name == 'push'
-        run: git diff --check "${{ github.event.before }}" "${{ github.sha }}"
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            git diff --check "${BASE_SHA}...${HEAD_SHA}"
+          elif [[ "$BEFORE_SHA" =~ ^0+$ ]]; then
+            echo "First push to branch; checking the latest commit."
+            git diff-tree --check --root -r "${HEAD_SHA}"
+          else
+            git diff --check "${BEFORE_SHA}" "${HEAD_SHA}"
+          fi
