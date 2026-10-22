@@ -1,0 +1,26 @@
+# Generated files
+.routelens/
+backend/backend.log
+# Byte-compiled files. The pattern has no leading slash, so it matches a
+# __pycache__ directory at any depth, not only the ones named below.
+__pycache__/
+*.py[cod]
+backend/.venv/
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/frontend.log
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local Python virtual environment
+.venv/

@@ -1,0 +1,555 @@
+/* Network Diagnostics Styles */
+
+.diagnostics-guidance {
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--info-border);
+  border-left: 4px solid var(--color-info);
+  border-radius: var(--radius-md);
+  background: var(--info-soft);
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  line-height: 1.55;
+}
+
+.diagnostics-guidance strong {
+  color: var(--info-text);
+}
+
+.diagnostics-section {
+  margin-bottom: 24px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.diagnostics-section:last-child {
+  border-bottom: none;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.section-header h3 {
+  margin: 0;
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.btn-sm {
+  padding: 8px 16px;
+  font-size: 0.8125rem;
+}
+
+.diagnostics-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 24px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.header-content {
+  flex: 1;
+  min-width: 280px;
+}
+
+.header-content h2 {
+  margin: 0 0 8px 0;
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.header-description {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+  line-height: 1.6;
+}
+
+.header-description code {
+  background: var(--color-bg);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  font-size: 0.8125rem;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.last-refreshed {
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+}
+
+.tab-navigation {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--color-border);
+  padding-bottom: 4px;
+  overflow-x: auto;
+}
+
+.tab-button {
+  padding: 10px 20px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -4px;
+  transition: all var(--transition);
+  white-space: nowrap;
+}
+
+.tab-button:hover {
+  color: var(--color-text);
+  background: var(--color-bg);
+}
+
+.tab-button.active {
+  color: var(--color-primary);
+  border-bottom-color: var(--color-primary);
+}
+
+.tab-panels {
+  animation: fadeIn 200ms ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.diagnostics-section {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+}
+
+.collection-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--color-border);
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+}
+
+.collection-meta code {
+  background: var(--color-bg);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  font-size: 0.75rem;
+}
+
+.network-interfaces,
+.network-routes,
+.network-neighbors {
+  width: 100%;
+}
+
+.network-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.network-table th,
+.network-table td {
+  padding: 12px 16px;
+  text-align: left;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.network-table th {
+  font-weight: 600;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 0.75rem;
+  background: var(--surface-subtle);
+}
+
+.network-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.network-table tbody tr:hover {
+  background: var(--surface-subtle);
+}
+
+.table-container {
+  overflow-x: auto;
+  margin-bottom: 16px;
+}
+
+.cell-name {
+  font-weight: 500;
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+}
+
+.cell-mtu,
+.cell-metric {
+  font-family: var(--font-mono);
+  font-weight: 500;
+  color: var(--color-primary);
+}
+
+.cell-mac {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+}
+
+.cell-gateway {
+  font-family: var(--font-mono);
+  color: var(--color-text-muted);
+}
+
+.cell-interface {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  background: var(--color-bg);
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+}
+
+.cell-ip {
+  font-family: var(--font-mono);
+  font-weight: 500;
+}
+
+.ip-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ip-network {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  background: var(--color-bg);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  display: inline-block;
+}
+
+.cell-flags {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
+
+.cell-destination {
+  font-family: var(--font-mono);
+  font-weight: 500;
+}
+
+.cell-prefsrc {
+  font-family: var(--font-mono);
+  color: var(--color-text-muted);
+}
+
+.type-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.state-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.router-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  background: var(--color-success);
+  color: white;
+  border-radius: 50%;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.error-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  background: var(--error-soft);
+  border: 1px solid var(--error-border);
+  border-radius: var(--radius-md);
+  color: var(--error-text);
+  font-size: 0.875rem;
+  margin-top: 16px;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 48px 24px;
+  color: var(--color-text-muted);
+}
+
+.empty-state-icon {
+  font-size: 3rem;
+  margin-bottom: 16px;
+  opacity: 0.5;
+}
+
+.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 32px;
+  color: var(--color-text-muted);
+}
+
+.spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--color-border);
+  border-top-color: var(--color-primary);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.error-message {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  background: var(--error-soft);
+  border: 1px solid var(--error-border);
+  border-radius: var(--radius-md);
+  color: var(--error-text);
+  font-size: 0.875rem;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .diagnostics-header {
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .header-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .tab-navigation {
+    flex-wrap: nowrap;
+  }
+
+  .tab-button {
+    padding: 8px 12px;
+    font-size: 0.8125rem;
+  }
+
+  .diagnostics-section {
+    padding: 16px;
+  }
+
+  .section-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .network-table th,
+  .network-table td {
+    padding: 10px 12px;
+  }
+
+  .collection-meta {
+    flex-direction: column;
+    gap: 8px;
+  }
+}
+/* --- Address family switch --- */
+
+.family-switch {
+  display: flex;
+  gap: 3px;
+  padding: 3px;
+  margin: 0 20px 16px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  width: fit-content;
+}
+
+.family-switch .family-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.family-missing {
+  font-family: var(--font-mono);
+  font-size: 0.5625rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+/* A tag showing which family a table came from. */
+.family-tag {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 7px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+
+.family-tag.ipv4 {
+  background: var(--primary-soft);
+  color: var(--color-primary);
+  border: 1px solid var(--color-border);
+}
+
+.family-tag.ipv6 {
+  background: var(--info-soft);
+  color: var(--info-text);
+  border: 1px solid var(--info-border);
+}
+
+/* --- Reverse name lookup --- */
+
+.name-lookup-summary {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+  padding: 10px 14px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+}
+
+.lookup-label {
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.lookup-cap {
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--warning-soft);
+  color: var(--warning-text);
+  font-size: 0.625rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.lookup-note {
+  margin-left: auto;
+  font-style: italic;
+  color: var(--text-faint);
+}
+
+/* --- Neighbour names --- */
+
+.cell-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  max-width: 260px;
+}
+
+.cell-hostname {
+  font-family: var(--font-mono);
+  color: var(--color-text);
+}
+
+.cell-no-name {
+  color: var(--text-faint);
+  font-style: italic;
+}
+
+.name-provenance {
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  cursor: help;
+}
+
+.name-provenance.inferred {
+  background: var(--warning-soft);
+  color: var(--warning-text);
+  border: 1px solid var(--warning-border);
+}
+
+.name-provenance.unknown,
+.name-provenance.not_looked_up {
+  background: var(--surface-active);
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
+}
+
+.name-error {
+  font-size: 0.6875rem;
+  color: var(--error-text);
+  cursor: help;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

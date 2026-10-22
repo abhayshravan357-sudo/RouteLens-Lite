@@ -1,0 +1,628 @@
+/* Evidence-based topology graph — React Flow renderer plus the list view */
+
+.topology-graph {
+  margin-top: 20px;
+  padding: 20px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+}
+
+.topology-loading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 24px;
+  color: var(--color-text-muted);
+  font-size: 0.875rem;
+}
+
+.topology-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.topology-header h3 {
+  margin: 0 0 4px 0;
+  font-size: 1.0625rem;
+  font-weight: 600;
+}
+
+.topology-explanation {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+  line-height: 1.6;
+  max-width: 70ch;
+}
+
+.topology-legend {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.topology-summary {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  background: var(--color-bg);
+  border-radius: var(--radius-md);
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+}
+
+.topology-summary strong {
+  color: var(--color-text);
+  font-family: var(--font-mono);
+}
+
+.topology-timestamp {
+  margin-left: auto;
+  font-family: var(--font-mono);
+}
+
+/* --- List | Graph switch --- */
+
+.topology-switch {
+  display: flex;
+  gap: 3px;
+  padding: 3px;
+  margin-bottom: 14px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  width: fit-content;
+}
+
+.view-chip {
+  padding: 5px 16px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-muted);
+  font-family: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color var(--transition), color var(--transition);
+}
+
+.view-chip:hover {
+  color: var(--color-text);
+}
+
+.view-chip:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.view-chip.active {
+  background: var(--primary-soft);
+  color: var(--color-primary);
+}
+
+/* --- Canvas --- */
+
+.topology-canvas {
+  height: 520px;
+  max-height: 65vh;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--color-bg);
+}
+
+/* React Flow asks that its attribution stays visible unless you are
+   subscribed to the Pro tier, so it is restyled rather than removed. */
+.topology-canvas .react-flow__attribution {
+  background: transparent;
+  color: var(--text-faint);
+  font-size: 9px;
+  padding: 2px 4px;
+}
+
+.topology-canvas .react-flow__attribution a {
+  color: var(--text-faint);
+  text-decoration: none;
+}
+
+.topology-canvas .react-flow__attribution a:hover {
+  color: var(--color-text-muted);
+  text-decoration: underline;
+}
+
+/* React Flow's own chrome, restyled to the charcoal palette. */
+.topology-canvas .react-flow__background pattern circle {
+  fill: rgba(138, 216, 255, 0.14);
+}
+
+.topology-canvas .react-flow__controls {
+  background: var(--color-panel);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  box-shadow: var(--shadow-md);
+}
+
+.topology-canvas .react-flow__controls-button {
+  background: var(--color-panel);
+  border-bottom: 1px solid var(--color-border);
+  fill: var(--color-text-muted);
+  width: 26px;
+  height: 26px;
+}
+
+.topology-canvas .react-flow__controls-button:hover {
+  background: var(--surface-active);
+  fill: var(--color-text);
+}
+
+.topology-canvas .react-flow__controls-button svg {
+  fill: currentColor;
+}
+
+.topology-canvas .react-flow__minimap {
+  background: var(--color-panel);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  width: 150px;
+  height: 96px;
+  opacity: 0.92;
+}
+
+.topology-canvas .react-flow__edge-textbg {
+  fill: var(--color-bg);
+}
+
+.topology-canvas .react-flow__edge.selected .react-flow__edge-path {
+  filter: drop-shadow(0 0 6px rgba(190, 235, 255, 0.6));
+}
+
+.topology-canvas .react-flow__node {
+  cursor: pointer;
+}
+
+.topology-canvas .react-flow__node:focus-visible {
+  outline: none;
+}
+
+.topology-canvas .react-flow__node:focus-visible .tnode {
+  box-shadow: var(--focus-ring);
+}
+
+/* --- Node card --- */
+
+.tnode {
+  position: relative;
+  width: 190px;
+  padding: 10px 12px;
+  background: var(--color-panel);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  transition: border-color var(--transition), box-shadow var(--transition),
+    opacity var(--transition);
+}
+
+.tnode:hover {
+  border-color: var(--color-border-strong);
+}
+
+.tnode.selected {
+  border-color: rgba(242, 251, 255, 0.7);
+  box-shadow: var(--shine-bloom);
+}
+
+.tnode.dimmed {
+  opacity: 0.32;
+}
+
+.tnode-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.tnode-glyph {
+  font-size: 13px;
+  line-height: 1;
+  color: var(--color-text-muted);
+}
+
+.tnode-kind {
+  font-family: var(--font-mono);
+  font-size: 0.5625rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.tnode-label {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-bottom: 3px;
+}
+
+.tnode-addresses {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+
+.tnode-address {
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: var(--color-bg);
+  color: var(--color-text-muted);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tnode-address-more {
+  color: var(--text-faint);
+}
+
+/* The provenance badge lives on the node, so a simulated device can never
+   be mistaken for an observed one. */
+.tnode-prov {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-family: var(--font-mono);
+  font-size: 0.5625rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.tnode-prov.prov-observed {
+  background: var(--success-soft);
+  color: var(--success-text);
+  border: 1px solid var(--success-border);
+}
+
+.tnode-prov.prov-inferred {
+  background: var(--warning-soft);
+  color: var(--warning-text);
+  border: 1px solid var(--warning-border);
+}
+
+.tnode-prov.prov-simulated {
+  background: var(--info-soft);
+  color: var(--info-text);
+  border: 1px solid var(--info-border);
+}
+
+.tnode-prov.prov-unknown {
+  background: var(--surface-active);
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
+}
+
+/* The kind of device colours the glyph, not the whole card, so the
+   provenance colour stays unambiguous. */
+.tnode-router .tnode-glyph {
+  color: var(--color-primary);
+}
+
+.tnode-gateway .tnode-glyph {
+  color: var(--color-warning);
+}
+
+.tnode-neighbor .tnode-glyph {
+  color: var(--color-success);
+}
+
+.tnode-handle {
+  width: 6px;
+  height: 6px;
+  background: var(--color-border-strong);
+  border: none;
+}
+
+.tnode-handle:hover {
+  background: var(--color-primary);
+}
+
+/* --- List view --- */
+
+.topology-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.topology-list-heading {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.topology-node-table,
+.topology-edge-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8125rem;
+}
+
+.topology-node-table th,
+.topology-node-table td,
+.topology-edge-table th,
+.topology-edge-table td {
+  padding: 8px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.topology-node-table th,
+.topology-edge-table th {
+  font-weight: 600;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 0.625rem;
+  background: var(--color-bg);
+  position: sticky;
+  top: 0;
+}
+
+.topology-node-table tbody tr:hover,
+.topology-edge-table tbody tr:hover {
+  background: var(--surface-subtle);
+}
+
+.topology-node-table tbody tr.selected,
+.topology-edge-table tbody tr.selected {
+  background: var(--primary-soft);
+}
+
+.topology-list-addresses {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  max-width: 320px;
+  overflow-wrap: anywhere;
+}
+
+.topology-node-button,
+.topology-edge-button {
+  padding: 2px 6px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text);
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: left;
+}
+
+.topology-node-button:hover,
+.topology-edge-button:hover {
+  background: var(--surface-active);
+  border-color: var(--color-border);
+}
+
+.topology-node-button:focus-visible,
+.topology-edge-button:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* --- Empty state --- */
+
+.topology-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 300px;
+  text-align: center;
+  color: var(--color-text-muted);
+}
+
+.topology-empty p {
+  margin: 0 0 8px 0;
+  font-size: 1rem;
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.topology-empty-hint {
+  font-size: 0.875rem !important;
+  max-width: 44ch;
+  font-weight: 400 !important;
+  color: var(--color-text-muted) !important;
+}
+
+/* --- Details panel --- */
+
+.topology-details-panel {
+  margin-top: 16px;
+  padding: 16px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.topology-detail h4 {
+  margin: 0 0 12px 0;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.topology-detail h5 {
+  margin: 16px 0 8px 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.topology-addresses {
+  margin: 0 0 8px 0;
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  color: var(--color-text);
+  overflow-wrap: anywhere;
+}
+
+.topology-node-note {
+  margin: 0 0 12px 0;
+  color: var(--color-text-muted);
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+
+.topology-connection-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.topology-connection-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-size: 0.8125rem;
+  color: var(--color-text);
+  flex-wrap: wrap;
+}
+
+.topology-connection-list .mono {
+  font-family: var(--font-mono);
+}
+
+.topology-connection-list .no-connections {
+  color: var(--color-text-muted);
+  font-style: italic;
+  justify-content: center;
+}
+
+.edge-detail {
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+  margin-left: auto;
+}
+
+/* --- Responsive --- */
+
+@media (max-width: 768px) {
+  .topology-timestamp {
+    margin-left: 0;
+    width: 100%;
+  }
+
+  .topology-canvas {
+    height: 400px;
+  }
+
+  .topology-list-addresses {
+    max-width: 180px;
+  }
+}
+
+/* --- The traced path --- */
+
+/* A device the traced packet actually visited. It is marked, not merely
+   coloured, so the path cannot be mistaken for a provenance class. */
+.tnode.on-path {
+  border-color: rgba(242, 251, 255, 0.75);
+  box-shadow: var(--shine-bloom-strong);
+}
+
+.tnode.on-path .tnode-kind {
+  color: var(--shining-dim);
+}
+
+.tnode-onpath {
+  margin-left: auto;
+  padding: 0 5px;
+  border-radius: 3px;
+  background: rgba(242, 251, 255, 0.16);
+  border: 1px solid rgba(242, 251, 255, 0.45);
+  color: var(--shining);
+  font-family: var(--font-mono);
+  font-size: 0.5rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.topology-canvas .react-flow__edge.on-path .react-flow__edge-path {
+  filter: drop-shadow(0 0 5px rgba(190, 235, 255, 0.55));
+}
+
+/* The legend entry for the path, shown only when a path exists. */
+.topology-path-legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  border-radius: var(--radius-pill);
+  background: rgba(242, 251, 255, 0.1);
+  border: 1px solid rgba(242, 251, 255, 0.4);
+  color: var(--shining);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.topology-path-legend::before {
+  content: '';
+  width: 14px;
+  height: 2px;
+  background: var(--shining);
+  box-shadow: 0 0 8px rgba(190, 235, 255, 0.8);
+}
+
+/* The path marker in the list view. */
+.list-path-flag {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 0 6px;
+  border-radius: var(--radius-sm);
+  background: rgba(242, 251, 255, 0.12);
+  border: 1px solid rgba(242, 251, 255, 0.4);
+  color: var(--shining);
+  font-family: var(--font-mono);
+  font-size: 0.5625rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  vertical-align: middle;
+}

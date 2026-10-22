@@ -1,0 +1,4394 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "RouteLens Lite API",
+    "description": "A simple IPv4 routing table analyzer for a college project",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/api/lab/status": {
+      "get": {
+        "tags": [
+          "PacketLab"
+        ],
+        "summary": "Check virtual router lab availability",
+        "description": "Check if the virtual router lab is available and ready.\n\nReturns lab status, router interfaces, routing table, and any blockers.\n\nNote: This endpoint reports on the rl260-* lab (rl260-client, rl260-router, rl260-server).\nThe application does not provide a method to create this lab; it must exist beforehand.",
+        "operationId": "get_lab_status_api_lab_status_get",
+        "responses": {
+          "200": {
+            "description": "Lab is available",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LabStatusResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Lab is unavailable"
+          }
+        }
+      }
+    },
+    "/api/lab/simulate": {
+      "post": {
+        "tags": [
+          "PacketLab"
+        ],
+        "summary": "Simulate packet transmission through virtual router",
+        "description": "Simulate a packet transmission through the virtual router.\n\nTransmits a real packet and captures it for verification.\nReturns verification details including TTL decrement, checksum, and route matching\nwith provenance (observed/inferred/simulated/unknown) for each check.\n\nNote: This endpoint requires the rl260-* lab (rl260-client, rl260-router, rl260-server)\nto exist and be accessible. The application does not provide a method to create this lab.",
+        "operationId": "simulate_packet_api_lab_simulate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SimulateRequestModel"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Packet transmitted and verified",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SimulateResponseModel"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "408": {
+            "description": "Capture timeout"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Lab unavailable"
+          }
+        }
+      }
+    },
+    "/api/scenarios": {
+      "get": {
+        "tags": [
+          "scenarios"
+        ],
+        "summary": "List Scenarios",
+        "description": "List all available scenarios.",
+        "operationId": "list_scenarios_api_scenarios_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ScenarioSummary"
+                  },
+                  "type": "array",
+                  "title": "Response List Scenarios Api Scenarios Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/scenarios/{sid}": {
+      "get": {
+        "tags": [
+          "scenarios"
+        ],
+        "summary": "Get Scenario",
+        "description": "Full definition of one scenario.",
+        "operationId": "get_scenario_api_scenarios__sid__get",
+        "parameters": [
+          {
+            "name": "sid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Sid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/scenarios/{sid}/trace": {
+      "post": {
+        "tags": [
+          "scenarios"
+        ],
+        "summary": "Trace Route",
+        "description": "Trace a packet from a source node to a destination address.\n\nThe trace is produced by the same scenario definition that the lab builder\nuses, so simulation and reality stay comparable.\n\nPassing a workspace id traces the edited copy, so a route change is\nreflected in the next simulation.",
+        "operationId": "trace_route_api_scenarios__sid__trace_post",
+        "parameters": [
+          {
+            "name": "sid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Sid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TraceRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TraceResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/scenarios/{sid}/nodes/{nid}/routes": {
+      "put": {
+        "tags": [
+          "scenarios"
+        ],
+        "summary": "Set Routes",
+        "description": "Replace the static routes of a node.\n\nWorks on a copy so that a malformed request cannot corrupt the shared\nscenario registry. The updated scenario is returned along with a\nworkspace id; pass that id to the trace endpoint to see the effect of\nthe edit.",
+        "operationId": "set_routes_api_scenarios__sid__nodes__nid__routes_put",
+        "parameters": [
+          {
+            "name": "sid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Sid"
+            }
+          },
+          {
+            "name": "nid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Nid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RouteUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/scenarios/{sid}/lab/apply": {
+      "post": {
+        "tags": [
+          "scenarios"
+        ],
+        "summary": "Apply Lab",
+        "description": "Create the namespaces for a scenario.\n\nDefaults to a dry run that only reports the commands. Executing for real\nrequires root and is refused otherwise.",
+        "operationId": "apply_lab_api_scenarios__sid__lab_apply_post",
+        "parameters": [
+          {
+            "name": "sid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Sid"
+            }
+          },
+          {
+            "name": "dry_run",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": true,
+              "title": "Dry Run"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LabResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/scenarios/{sid}/lab/teardown": {
+      "post": {
+        "tags": [
+          "scenarios"
+        ],
+        "summary": "Teardown Lab",
+        "description": "Remove the namespaces for a scenario.",
+        "operationId": "teardown_lab_api_scenarios__sid__lab_teardown_post",
+        "parameters": [
+          {
+            "name": "sid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Sid"
+            }
+          },
+          {
+            "name": "dry_run",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": true,
+              "title": "Dry Run"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LabResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/scenarios/{sid}/compare": {
+      "post": {
+        "tags": [
+          "scenarios"
+        ],
+        "summary": "Compare",
+        "description": "Compare the simulated trace with a real probe from the lab.\n\nWhen the lab is unavailable the agreement field is null; no result is\ninvented to make the comparison look conclusive.",
+        "operationId": "compare_api_scenarios__sid__compare_post",
+        "parameters": [
+          {
+            "name": "sid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Sid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TraceRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompareResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/scenarios/{sid}/topology": {
+      "get": {
+        "tags": [
+          "scenarios"
+        ],
+        "summary": "Get Topology",
+        "description": "Build a topology graph for a scenario from two kinds of evidence.\n\nThe scenario contributes simulated devices and links. The real host\ncontributes observed interfaces, routes and neighbours, plus the\nrelationships inferred between them.\n\nEvery node and edge carries its own provenance so the client can\ncolour them differently and the user can tell measured from modelled.",
+        "operationId": "get_topology_api_scenarios__sid__topology_get",
+        "parameters": [
+          {
+            "name": "sid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Sid"
+            }
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Workspace"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TopologyGraph"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/exercises": {
+      "get": {
+        "tags": [
+          "exercises"
+        ],
+        "summary": "List Exercises",
+        "description": "List the guided exercises.",
+        "operationId": "list_exercises_api_exercises_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/exercises/{exercise_id}": {
+      "get": {
+        "tags": [
+          "exercises"
+        ],
+        "summary": "Get Exercise",
+        "description": "The full explanation and instructions for one exercise.",
+        "operationId": "get_exercise_api_exercises__exercise_id__get",
+        "parameters": [
+          {
+            "name": "exercise_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Exercise Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/exercises/{exercise_id}/check": {
+      "post": {
+        "tags": [
+          "exercises"
+        ],
+        "summary": "Check Exercise",
+        "description": "Check whether an exercise has been completed.\n\nThe check runs the real routing engine against the scenario, so an\nexercise is only complete when the engine's own output satisfies it.\n\nA workspace may be supplied so the student's route edits are the\nones that get checked.",
+        "operationId": "check_exercise_api_exercises__exercise_id__check_post",
+        "parameters": [
+          {
+            "name": "exercise_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Exercise Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExerciseCheckRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExerciseState"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/host-exercises": {
+      "get": {
+        "tags": [
+          "exercises"
+        ],
+        "summary": "List Host Exercises",
+        "description": "List the exercises that work on the host's own routing table.",
+        "operationId": "list_host_exercises_api_host_exercises_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/host-exercises/{exercise_id}": {
+      "get": {
+        "tags": [
+          "exercises"
+        ],
+        "summary": "Get Host Exercise Detail",
+        "description": "The full explanation and instructions for one host exercise.",
+        "operationId": "get_host_exercise_detail_api_host_exercises__exercise_id__get",
+        "parameters": [
+          {
+            "name": "exercise_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Exercise Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/host-exercises/{exercise_id}/check": {
+      "post": {
+        "tags": [
+          "exercises"
+        ],
+        "summary": "Check Host Exercise",
+        "description": "Check a host exercise against the student's own routing table.\n\nThe table is read from the kernel with `ip -j route show` and is\nOBSERVED. The conclusion drawn from it is INFERRED. The two are reported\nseparately and never merged.\n\nWhen the machine's table does not have what the exercise needs, the\nresult says so plainly and points at what the student could look at\ninstead. It does not fall back to a modelled table, and it does not\npretend the exercise succeeded.",
+        "operationId": "check_host_exercise_api_host_exercises__exercise_id__check_post",
+        "parameters": [
+          {
+            "name": "exercise_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Exercise Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HostExerciseCheckRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/discovery/audit": {
+      "get": {
+        "tags": [
+          "discovery"
+        ],
+        "summary": "Get Audit Trail",
+        "description": "Every discovery request that has been made, in order.",
+        "operationId": "get_audit_trail_api_discovery_audit_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/discovery/scope": {
+      "post": {
+        "tags": [
+          "discovery"
+        ],
+        "summary": "Preview Scope",
+        "description": "Check a scope and describe it, without probing anything.\n\nThis is the step before confirmation: it shows exactly what would be\nprobed so the operator can agree to it.",
+        "operationId": "preview_scope_api_discovery_scope_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DiscoveryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Preview Scope Api Discovery Scope Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/discovery/run": {
+      "post": {
+        "tags": [
+          "discovery"
+        ],
+        "summary": "Run Discovery",
+        "description": "Run an authorised discovery.\n\nThe scope is validated, then the operator's confirmation is checked.\nWithout a matching confirmation nothing is probed, and the refusal\nis recorded.\n\nA run probes real addresses with real packets, so it is rate limited\nper client. The limit is its own, not the diagnostic one, so a burst\nof lookups cannot use up a student's discovery allowance.",
+        "operationId": "run_discovery_api_discovery_run_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DiscoveryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiscoveryResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/discovery/cancel": {
+      "post": {
+        "tags": [
+          "discovery"
+        ],
+        "summary": "Cancel Discovery",
+        "description": "Ask a running scan to stop.\n\nA scan id that is not running is reported as such rather than being\nrecorded as cancelled. Claiming a cancellation that never happened\nwould be a false account of what the machine did.",
+        "operationId": "cancel_discovery_api_discovery_cancel_post",
+        "parameters": [
+          {
+            "name": "scan_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Scan Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/report": {
+      "get": {
+        "tags": [
+          "report"
+        ],
+        "summary": "Get Report",
+        "description": "Build a report of what was observed.\n\nThe report records the evidence behind each claim, where it came\nfrom, when it was collected, and what could not be established.\n\nSet format=markdown for a plain-text report suitable for a file.",
+        "operationId": "get_report_api_report_get",
+        "parameters": [
+          {
+            "name": "format",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "json",
+              "title": "Format"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/pcap/analyze": {
+      "post": {
+        "tags": [
+          "PCAP"
+        ],
+        "summary": "Analyze a PCAP capture file",
+        "description": "Analyze a PCAP capture file.\n\nThe file is provided as base64-encoded bytes in the request body.\nNo file is written to disk - parsing happens entirely in memory.\n\nArgs:\n    request: PcapAnalyzeRequest with filename and base64 data\n    \nReturns:\n    PcapAnalyzeResponse with analysis results or error details\n    \nSupported formats:\n    - Classic PCAP (link type 1 - Ethernet)\n    - PCAPNG (detected but not parsed)\n    \nErrors:\n    - 400: Invalid base64, missing filename, empty body\n    - 413: File exceeds 32 MB limit\n    - 200 with parsed=false: Unsupported format, truncated file, invalid magic",
+        "operationId": "analyze_pcap_api_pcap_analyze_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PcapAnalyzeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Analysis complete (parsed or error)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PcapAnalyzeResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "413": {
+            "description": "File too large"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "tags": [
+          "Health"
+        ],
+        "summary": "Health Check",
+        "description": "Health check endpoint.\n\nReturns a simple JSON response indicating the service is running.\nThis is useful for:\n- Load balancers to check if the service is healthy\n- Monitoring systems\n- Quick verification during development\n\nReturns:\n    dict: A JSON object with status and service name",
+        "operationId": "health_check_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/lookup": {
+      "get": {
+        "tags": [
+          "Routing"
+        ],
+        "summary": "Route Lookup",
+        "description": "Look up the best route for a destination IPv4 address.\n\nUses the routing table to find the most specific matching route\nusing longest-prefix match, with metric as tiebreaker.\n\nArgs:\n    destination: The destination IPv4 address (e.g., \"192.168.1.50\")\n\nReturns:\n    RouteLookupResult with the matched route and explanation",
+        "operationId": "route_lookup_lookup_get",
+        "parameters": [
+          {
+            "name": "destination",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Destination IPv4 address to look up (e.g., 192.168.1.50)",
+              "title": "Destination"
+            },
+            "description": "Destination IPv4 address to look up (e.g., 192.168.1.50)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RouteLookupResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/routes": {
+      "get": {
+        "tags": [
+          "Routing"
+        ],
+        "summary": "List Routes",
+        "description": "List all routing table entries (live table).\n\nReturns:\n    List of routing entries",
+        "operationId": "list_routes_routes_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Routing"
+        ],
+        "summary": "Add Route",
+        "description": "Add a new route to the routing table.\n\nArgs:\n    route: The routing entry to add\n\nReturns:\n    The added routing entry\n\nRaises:\n    HTTPException: 400 if the route is invalid",
+        "operationId": "add_route_routes_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RoutingEntry-Input"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoutingEntry-Output"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/routes/{index}": {
+      "put": {
+        "tags": [
+          "Routing"
+        ],
+        "summary": "Update Route",
+        "description": "Update a route at the given index.\n\nArgs:\n    index: The index of the route to update\n    route: The new routing entry data\n\nReturns:\n    The updated routing entry\n\nRaises:\n    HTTPException: 400 if the route is invalid, 404 if index out of range",
+        "operationId": "update_route_routes__index__put",
+        "parameters": [
+          {
+            "name": "index",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Index"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RoutingEntry-Input"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoutingEntry-Output"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Routing"
+        ],
+        "summary": "Delete Route",
+        "description": "Delete a route at the given index.\n\nArgs:\n    index: The index of the route to delete\n\nRaises:\n    HTTPException: 404 if index out of range",
+        "operationId": "delete_route_routes__index__delete",
+        "parameters": [
+          {
+            "name": "index",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Index"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/routes/reset": {
+      "post": {
+        "tags": [
+          "Routing"
+        ],
+        "summary": "Reset Routes",
+        "description": "Reset the routing table to the original sample routes.\n\nReturns:\n    The restored routing table",
+        "operationId": "reset_routes_routes_reset_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/routes/summary": {
+      "get": {
+        "tags": [
+          "Routing"
+        ],
+        "summary": "Routes Summary",
+        "description": "Get a summary of the current routing table.\n\nReturns:\n    Dictionary with counts and statistics",
+        "operationId": "routes_summary_routes_summary_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/routes/analysis": {
+      "get": {
+        "tags": [
+          "Routing"
+        ],
+        "summary": "Analyse Main Table",
+        "description": "Explain what the editable routing table would do.\n\nThis is the table the Route Lookup works against, not the host's\nkernel table. The same analysis machinery that explains the kernel's\ntable is used here, so both are described in the same words.\n\nTwo claims are kept apart:\n- The table is what the student built. It is MODELLED.\n- The explanation is INFERRED from it.\n\nArgs:\n    destination: Optional destination address to explain. When omitted,\n        the table's own destinations are explained.\n\nReturns:\n    A report with the analysis for each destination, the candidates\n    each route beat, any shadowing found, and the limits of the answer.\n\nErrors:\n    - 400: The destination is not a valid IP address",
+        "operationId": "analyse_main_table_routes_analysis_get",
+        "parameters": [
+          {
+            "name": "destination",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Destination"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/packet-journey": {
+      "post": {
+        "tags": [
+          "Packet Journey"
+        ],
+        "summary": "Trace Packet Journey",
+        "description": "Trace the path a packet would take from source to destination through the routing table.\n\nThis endpoint traces the packet's path hop by hop through the routing table,\nshowing each routing decision made at each hop.\n\nEach hop is a decision made by the router holding the packet at that moment,\nusing that router's own table. The teaching table describes one router, so a\njourney that reaches another router stops there with the action\n'unresolved_next_hop': the packet was forwarded, but that router's table is\nnot part of this one, so its forwarding cannot be worked out. The Scenario Lab\ntraces the full path through a network where every router has a table.\n\nThe action on each hop is one of:\n  forward             - the router handed the packet to a next hop\n  deliver             - the packet reached the destination\n  drop                - the packet was discarded: no route, or the hop limit ran out\n  loop                - the packet came back to a router it had already been at\n  unresolved_next_hop - the packet was forwarded to a router whose table is unknown\n  error               - the request, or a routing table, could not be read\n\nNothing is transmitted. The journey is calculated from a routing table, which\nis what the response's 'provenance' field says.\n\nArgs:\n    request: PacketJourneyRequest with source and destination IPs\n\nReturns:\n    PacketJourneyResponse with hop-by-hop trace",
+        "operationId": "trace_packet_journey_packet_journey_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PacketJourneyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PacketJourneyResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/network/interfaces": {
+      "get": {
+        "tags": [
+          "Network"
+        ],
+        "summary": "Get Interfaces",
+        "description": "Get real network interfaces from the host system.\n\nUses `ip -j addr show` to collect interface information including:\n- Interface name, index, state, MTU\n- MAC address\n- IPv4 and IPv6 addresses and networks\n- Interface flags\n\nReturns:\n    CollectionResult with list of InterfaceInfo objects",
+        "operationId": "get_interfaces_network_interfaces_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/network/routes": {
+      "get": {
+        "tags": [
+          "Network"
+        ],
+        "summary": "Get Routes",
+        "description": "Get real routing table from the host system.\n\nUses `ip -j route show` to collect routing entries including:\n- Destination prefix\n- Gateway (next hop)\n- Interface\n- Metric\n- Protocol\n- Scope\n\nThe IPv4 and IPv6 tables are separate tables in the kernel, so the\nfamily is a parameter. The default is IPv4, which is what the table\nmost viewers expect; pass `ip_version=ipv6` to read the other one.\n\nArgs:\n    ip_version: Which table to read. \"ipv4\" (the default) or \"ipv6\".\n\nReturns:\n    CollectionResult with list of RouteInfo objects",
+        "operationId": "get_routes_network_routes_get",
+        "parameters": [
+          {
+            "name": "ip_version",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "ipv4",
+              "title": "Ip Version"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/network/routes/analysis": {
+      "get": {
+        "tags": [
+          "Network"
+        ],
+        "summary": "Get Routes Analysis",
+        "description": "Analyse the real routing table and explain what it would do.\n\nReads the host's routing table with `ip -j route show` (or `ip -j -6\nroute show` for IPv6), converts it into the same model the routing\nengine uses, and then explains, for a destination, which route would\nwin and which candidates it beat.\n\nTwo different claims are kept apart here:\n- The routing table is OBSERVED. It was read from the kernel.\n- The explanation is INFERRED. It is a reading of the table.\n\nNo packet is transmitted and no route is changed.\n\nArgs:\n    destination: Optional destination address to explain. When omitted, a\n        set of interesting destinations is chosen: this host's own\n        addresses, the default route's gateway, and a public address.\n    ip_version: Which routing table to read, \"ipv4\" or \"ipv6\". The kernel\n        keeps the two separately. When a destination is given, its own\n        family decides, because an IPv6 destination says nothing about\n        the IPv4 table.\n\nReturns:\n    RouteAnalysisReport with the analysis, the candidates each route beat,\n    any shadowing found, and the limits of the analysis.\n\nErrors:\n    - 400: The destination is not a valid IP address, or the family is\n      neither ipv4 nor ipv6\n    - 500: The routing table could not be read",
+        "operationId": "get_routes_analysis_network_routes_analysis_get",
+        "parameters": [
+          {
+            "name": "destination",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Destination"
+            }
+          },
+          {
+            "name": "ip_version",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "ipv4",
+              "title": "Ip Version"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RouteAnalysisReport"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/network/neighbors": {
+      "get": {
+        "tags": [
+          "Network"
+        ],
+        "summary": "Get Neighbors",
+        "description": "Get real ARP/IPv6 neighbor cache from the host system.\n\nUses `ip -j neigh show` to collect neighbor entries including:\n- IP address\n- Interface\n- MAC address (if available)\n- Neighbor state (REACHABLE, STALE, etc.)\n- Router flag\n- A reverse DNS name, when one could be looked up\n\nThe name is looked up with a reverse DNS query, which is INFERRED, while\nthe address itself is OBSERVED. The two are reported separately. A\nneighbour with no PTR record is reported as having no name, not with\nits own address repeated back as if it were a hostname.\n\nThe lookup is bounded: it has a short timeout, it runs concurrently, and\nonly a limited number of neighbours are looked up at all. A neighbour\nlist always comes back complete, with names absent if they could not be\nfound.\n\nArgs:\n    resolve_names: Whether to look up reverse DNS names. Turning this off\n        avoids the DNS traffic entirely.\n\nReturns:\n    CollectionResult with list of NeighborInfo objects",
+        "operationId": "get_neighbors_network_neighbors_get",
+        "parameters": [
+          {
+            "name": "resolve_names",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": true,
+              "title": "Resolve Names"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/network/all": {
+      "get": {
+        "tags": [
+          "Network"
+        ],
+        "summary": "Get All Network Info",
+        "description": "Get all network information in a single request.\n\nCollects interfaces, routes, and neighbors in parallel.\n\nReturns:\n    Object with interfaces, routes, and neighbors CollectionResults",
+        "operationId": "get_all_network_info_network_all_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/network/dns-resolve": {
+      "post": {
+        "tags": [
+          "Network"
+        ],
+        "summary": "Resolve Dns",
+        "description": "Resolve a hostname to IP addresses using the system's DNS resolver.\n\nUses the system's DNS resolver via asyncio.getaddrinfo() with configurable timeout.\nSupports both IPv4 (A) and IPv6 (AAAA) records.\n\nArgs:\n    request: DnsResolveRequest with hostname, timeout, and ipv6 options\n\nReturns:\n    DnsResolveResponse with resolved addresses, latency, and any error\n\nRaises:\n    HTTPException: 400 for invalid hostname, 429 when rate limited, 500 for internal errors",
+        "operationId": "resolve_dns_network_dns_resolve_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DnsResolveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DnsResolveResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/network/connectivity": {
+      "post": {
+        "tags": [
+          "Network"
+        ],
+        "summary": "Check Connectivity",
+        "description": "Check connectivity to a target using ICMP ping or TCP connect.\n\nSupports both ICMP ping (host reachability) and TCP connect (port reachability).\nUses system ping command for ICMP and asyncio.open_connection for TCP.\n\nArgs:\n    request: ConnectivityRequest with target, protocol, and options\n\nReturns:\n    ConnectivityResponse with reachability, latency, and any error\n\nRaises:\n    HTTPException: 400 for invalid input, 408 for timeout, 429 when rate limited, 500 for internal errors",
+        "operationId": "check_connectivity_network_connectivity_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectivityRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectivityResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/network/traceroute": {
+      "post": {
+        "tags": [
+          "Network"
+        ],
+        "summary": "Trace Route",
+        "description": "Perform traceroute to a target using the system traceroute command.\n\nTraces the path packets take to reach a destination by sending packets\nwith incrementing TTL values and collecting ICMP time-exceeded responses.\n\nArgs:\n    request: TracerouteRequest with target and options\n\nReturns:\n    TracerouteResponse with list of hops, each containing TTL, address, hostname, RTT\n\nRaises:\n    HTTPException: 400 for invalid input, 408 for timeout, 429 when rate limited, 500 for internal errors",
+        "operationId": "trace_route_network_traceroute_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TracerouteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TracerouteResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "CompareResult": {
+        "properties": {
+          "simulated": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Simulated"
+          },
+          "lab": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Lab"
+          },
+          "agree": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agree"
+          },
+          "note": {
+            "type": "string",
+            "title": "Note"
+          }
+        },
+        "type": "object",
+        "required": [
+          "simulated",
+          "lab",
+          "note"
+        ],
+        "title": "CompareResult",
+        "description": "Simulation compared against the real lab."
+      },
+      "ConnectivityRequest": {
+        "properties": {
+          "target": {
+            "type": "string",
+            "title": "Target",
+            "description": "Target hostname or IP address"
+          },
+          "port": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Port",
+            "description": "Port number for TCP connect (required for TCP protocol)"
+          },
+          "protocol": {
+            "type": "string",
+            "title": "Protocol",
+            "description": "Protocol: 'icmp' for ping, 'tcp' for TCP connect",
+            "default": "tcp"
+          },
+          "timeout": {
+            "type": "number",
+            "maximum": 30,
+            "minimum": 0.5,
+            "title": "Timeout",
+            "description": "Per-attempt timeout in seconds",
+            "default": 5
+          },
+          "count": {
+            "type": "integer",
+            "maximum": 10,
+            "minimum": 1,
+            "title": "Count",
+            "description": "Number of attempts (for ICMP ping)",
+            "default": 3
+          },
+          "interval": {
+            "type": "number",
+            "maximum": 5,
+            "minimum": 0.1,
+            "title": "Interval",
+            "description": "Interval between attempts in seconds",
+            "default": 0.2
+          }
+        },
+        "type": "object",
+        "required": [
+          "target"
+        ],
+        "title": "ConnectivityRequest",
+        "description": "Request model for connectivity check."
+      },
+      "ConnectivityResponse": {
+        "properties": {
+          "target": {
+            "type": "string",
+            "title": "Target"
+          },
+          "port": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Port"
+          },
+          "protocol": {
+            "type": "string",
+            "title": "Protocol"
+          },
+          "reachable": {
+            "type": "boolean",
+            "title": "Reachable"
+          },
+          "latency_ms": {
+            "type": "number",
+            "title": "Latency Ms"
+          },
+          "packets_sent": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Packets Sent"
+          },
+          "packets_received": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Packets Received"
+          },
+          "packet_loss_percent": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Packet Loss Percent"
+          },
+          "rtt_min_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rtt Min Ms"
+          },
+          "rtt_avg_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rtt Avg Ms"
+          },
+          "rtt_max_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rtt Max Ms"
+          },
+          "rtt_mdev_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rtt Mdev Ms"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          }
+        },
+        "type": "object",
+        "required": [
+          "target",
+          "port",
+          "protocol",
+          "reachable",
+          "latency_ms"
+        ],
+        "title": "ConnectivityResponse",
+        "description": "Response model for connectivity check."
+      },
+      "DestinationAnalysis": {
+        "properties": {
+          "destination": {
+            "type": "string",
+            "title": "Destination"
+          },
+          "matched": {
+            "type": "boolean",
+            "title": "Matched",
+            "default": false
+          },
+          "selected": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RoutingEntry-Output"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/RouteCandidate"
+            },
+            "type": "array",
+            "title": "Candidates"
+          },
+          "beaten": {
+            "items": {
+              "$ref": "#/components/schemas/RouteCandidate"
+            },
+            "type": "array",
+            "title": "Beaten"
+          },
+          "explanation": {
+            "type": "string",
+            "title": "Explanation",
+            "default": ""
+          },
+          "is_default_route": {
+            "type": "boolean",
+            "title": "Is Default Route",
+            "default": false
+          },
+          "shadowed_by": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ShadowFinding"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "provenance": {
+            "type": "string",
+            "title": "Provenance",
+            "default": "inferred"
+          },
+          "limitations": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Limitations"
+          }
+        },
+        "type": "object",
+        "required": [
+          "destination"
+        ],
+        "title": "DestinationAnalysis",
+        "description": "What the kernel's table says would happen to one destination."
+      },
+      "DiscoveryRequest": {
+        "properties": {
+          "target": {
+            "type": "string",
+            "title": "Target",
+            "description": "Network in CIDR notation, or a single address, to scan"
+          },
+          "max_hosts": {
+            "type": "integer",
+            "maximum": 1024,
+            "minimum": 1,
+            "title": "Max Hosts",
+            "description": "Most addresses to probe",
+            "default": 256
+          },
+          "interval": {
+            "type": "number",
+            "maximum": 10,
+            "minimum": 0.05,
+            "title": "Interval",
+            "description": "Seconds to wait between probes",
+            "default": 0.2
+          },
+          "timeout": {
+            "type": "number",
+            "maximum": 10,
+            "minimum": 0.1,
+            "title": "Timeout",
+            "description": "Seconds to wait for a reply",
+            "default": 1
+          },
+          "confirmed": {
+            "type": "boolean",
+            "title": "Confirmed",
+            "description": "Must be true, and the confirmation must quote the target, before the scan runs",
+            "default": false
+          },
+          "confirmation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confirmation",
+            "description": "The target the operator typed back to confirm the scope"
+          }
+        },
+        "type": "object",
+        "required": [
+          "target"
+        ],
+        "title": "DiscoveryRequest",
+        "description": "A request to discover hosts on a network."
+      },
+      "DiscoveryResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "hosts": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Hosts"
+          },
+          "addresses_probed": {
+            "type": "integer",
+            "title": "Addresses Probed",
+            "default": 0
+          },
+          "addresses_total": {
+            "type": "integer",
+            "title": "Addresses Total",
+            "default": 0
+          },
+          "scope": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Scope"
+          },
+          "duration_seconds": {
+            "type": "number",
+            "title": "Duration Seconds",
+            "default": 0
+          },
+          "cancelled": {
+            "type": "boolean",
+            "title": "Cancelled",
+            "default": false
+          },
+          "scan_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scan Id"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "DiscoveryResponse",
+        "description": "The result of a discovery run."
+      },
+      "DnsResolveRequest": {
+        "properties": {
+          "hostname": {
+            "type": "string",
+            "title": "Hostname",
+            "description": "Hostname to resolve (e.g., google.com)"
+          },
+          "timeout": {
+            "type": "number",
+            "maximum": 30,
+            "minimum": 0.5,
+            "title": "Timeout",
+            "description": "Timeout in seconds",
+            "default": 5
+          },
+          "ipv6": {
+            "type": "boolean",
+            "title": "Ipv6",
+            "description": "Also resolve IPv6 (AAAA) records",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "hostname"
+        ],
+        "title": "DnsResolveRequest",
+        "description": "Request model for DNS resolution."
+      },
+      "DnsResolveResponse": {
+        "properties": {
+          "hostname": {
+            "type": "string",
+            "title": "Hostname"
+          },
+          "addresses": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Addresses"
+          },
+          "latency_ms": {
+            "type": "number",
+            "title": "Latency Ms"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          }
+        },
+        "type": "object",
+        "required": [
+          "hostname",
+          "addresses",
+          "latency_ms"
+        ],
+        "title": "DnsResolveResponse",
+        "description": "Response model for DNS resolution."
+      },
+      "ExerciseCheck": {
+        "properties": {
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "satisfied": {
+            "type": "boolean",
+            "title": "Satisfied"
+          },
+          "detail": {
+            "type": "string",
+            "title": "Detail",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "description",
+          "satisfied"
+        ],
+        "title": "ExerciseCheck",
+        "description": "One condition that must hold for the exercise to be complete."
+      },
+      "ExerciseCheckRequest": {
+        "properties": {
+          "scenario_id": {
+            "type": "string",
+            "title": "Scenario Id",
+            "description": "Scenario the exercise belongs to"
+          },
+          "workspace": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workspace",
+            "description": "Workspace id returned by a route edit, if any"
+          }
+        },
+        "type": "object",
+        "required": [
+          "scenario_id"
+        ],
+        "title": "ExerciseCheckRequest",
+        "description": "Request to check whether an exercise is complete."
+      },
+      "ExerciseState": {
+        "properties": {
+          "exercise_id": {
+            "type": "string",
+            "title": "Exercise Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "concept": {
+            "type": "string",
+            "title": "Concept"
+          },
+          "complete": {
+            "type": "boolean",
+            "title": "Complete"
+          },
+          "checks": {
+            "items": {
+              "$ref": "#/components/schemas/ExerciseCheck"
+            },
+            "type": "array",
+            "title": "Checks"
+          },
+          "explanation": {
+            "type": "string",
+            "title": "Explanation",
+            "default": ""
+          },
+          "trace_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trace Status"
+          },
+          "selected_route": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Selected Route"
+          },
+          "selected_prefix_length": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Selected Prefix Length"
+          },
+          "matched_route": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Matched Route"
+          },
+          "hops": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Hops"
+          }
+        },
+        "type": "object",
+        "required": [
+          "exercise_id",
+          "title",
+          "concept",
+          "complete"
+        ],
+        "title": "ExerciseState",
+        "description": "The result of checking an exercise."
+      },
+      "ForwardingInfoModel": {
+        "properties": {
+          "ingress_interface": {
+            "type": "string",
+            "title": "Ingress Interface"
+          },
+          "egress_interface": {
+            "type": "string",
+            "title": "Egress Interface"
+          },
+          "next_hop": {
+            "type": "string",
+            "title": "Next Hop"
+          },
+          "route_matched": {
+            "type": "string",
+            "title": "Route Matched"
+          },
+          "action": {
+            "type": "string",
+            "title": "Action",
+            "default": "forward"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ingress_interface",
+          "egress_interface",
+          "next_hop",
+          "route_matched"
+        ],
+        "title": "ForwardingInfoModel"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "Hop": {
+        "properties": {
+          "hop_number": {
+            "type": "integer",
+            "title": "Hop Number"
+          },
+          "node": {
+            "type": "string",
+            "title": "Node"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "forward",
+              "delivered",
+              "dropped"
+            ],
+            "title": "Action"
+          },
+          "matched": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Route"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/Route"
+            },
+            "type": "array",
+            "title": "Candidates"
+          },
+          "explanation": {
+            "type": "string",
+            "title": "Explanation"
+          },
+          "next_node": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Node"
+          }
+        },
+        "type": "object",
+        "required": [
+          "hop_number",
+          "node",
+          "action",
+          "explanation"
+        ],
+        "title": "Hop",
+        "description": "One hop in a packet trace."
+      },
+      "HostExerciseCheckRequest": {
+        "properties": {
+          "destination": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Destination",
+            "description": "The address to work with. When omitted, the exercise picks one from the host's own table."
+          },
+          "answer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer",
+            "description": "What the student thinks the answer is, if they are answering."
+          }
+        },
+        "type": "object",
+        "title": "HostExerciseCheckRequest",
+        "description": "Request to check a host exercise."
+      },
+      "LabResult": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "log": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Log"
+          },
+          "commands": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Commands"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "failed_at": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failed At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "LabResult",
+        "description": "Result of a lab command run."
+      },
+      "LabStatusResponse": {
+        "properties": {
+          "available": {
+            "type": "boolean",
+            "title": "Available"
+          },
+          "state": {
+            "type": "string",
+            "title": "State"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "router_info": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RouterInfoModel"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          }
+        },
+        "type": "object",
+        "required": [
+          "available",
+          "state",
+          "message"
+        ],
+        "title": "LabStatusResponse"
+      },
+      "MatchedRoute": {
+        "properties": {
+          "destination": {
+            "type": "string",
+            "title": "Destination"
+          },
+          "next_hop": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Hop"
+          },
+          "interface": {
+            "type": "string",
+            "title": "Interface"
+          },
+          "metric": {
+            "type": "integer",
+            "title": "Metric"
+          }
+        },
+        "type": "object",
+        "required": [
+          "destination",
+          "interface",
+          "metric"
+        ],
+        "title": "MatchedRoute",
+        "description": "The route a router selected at one hop of a journey.\n\nAttributes:\n    destination: The network that matched, in CIDR notation\n    next_hop: The next hop address, or None for a direct route\n    interface: The outgoing interface the packet left by\n    metric: The cost of the route"
+      },
+      "NextHopType": {
+        "type": "string",
+        "enum": [
+          "gateway",
+          "direct"
+        ],
+        "title": "NextHopType",
+        "description": "Type of next hop for a routing entry."
+      },
+      "PacketHopResponse": {
+        "properties": {
+          "hop_number": {
+            "type": "integer",
+            "title": "Hop Number"
+          },
+          "current_device": {
+            "type": "string",
+            "title": "Current Device"
+          },
+          "destination_ip": {
+            "type": "string",
+            "title": "Destination Ip"
+          },
+          "action": {
+            "type": "string",
+            "title": "Action",
+            "description": "What happened at this hop. One of: forward, deliver, drop, loop, unresolved_next_hop, error"
+          },
+          "explanation": {
+            "type": "string",
+            "title": "Explanation"
+          },
+          "matched_route": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MatchedRoute"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "next_hop_ip": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Hop Ip"
+          },
+          "egress_interface": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Egress Interface"
+          }
+        },
+        "type": "object",
+        "required": [
+          "hop_number",
+          "current_device",
+          "destination_ip",
+          "action",
+          "explanation"
+        ],
+        "title": "PacketHopResponse",
+        "description": "One hop of a packet journey.\n\nThe fields are exactly the ones the interface renders. A field that\ndoes not apply to this hop is left out of the response entirely,\nrather than sent as null, so the shape of the data says what\nhappened.\n\nAttributes:\n    hop_number: Which hop this is, counting from 1\n    current_device: The device making the decision at this hop\n    destination_ip: The destination the packet is travelling towards\n    action: One of PACKET_JOURNEY_ACTIONS\n    explanation: A plain-language account of the decision\n    matched_route: The route that was selected, when one was\n    next_hop_ip: The address the packet was handed to\n    egress_interface: The interface the packet left by"
+      },
+      "PacketJourneyRequest": {
+        "properties": {
+          "source_ip": {
+            "type": "string",
+            "title": "Source Ip",
+            "description": "Source IPv4 or IPv6 address"
+          },
+          "destination_ip": {
+            "type": "string",
+            "title": "Destination Ip",
+            "description": "Destination IPv4 or IPv6 address"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source_ip",
+          "destination_ip"
+        ],
+        "title": "PacketJourneyRequest",
+        "description": "Request model for packet journey trace."
+      },
+      "PacketJourneyResponse": {
+        "properties": {
+          "source_ip": {
+            "type": "string",
+            "title": "Source Ip"
+          },
+          "destination_ip": {
+            "type": "string",
+            "title": "Destination Ip"
+          },
+          "hops": {
+            "items": {
+              "$ref": "#/components/schemas/PacketHopResponse"
+            },
+            "type": "array",
+            "title": "Hops"
+          },
+          "success": {
+            "type": "boolean",
+            "title": "Success"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "provenance": {
+            "type": "string",
+            "title": "Provenance",
+            "description": "How this journey was worked out. 'simulated' because the path is calculated from a routing table; no packet is transmitted.",
+            "default": "simulated"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source_ip",
+          "destination_ip",
+          "hops",
+          "success"
+        ],
+        "title": "PacketJourneyResponse",
+        "description": "Response model for packet journey trace.\n\nThe journey is worked out from a routing table. No packet is sent,\nso the answer is a calculated decision rather than an observation of\ntraffic, and `provenance` says so.\n\nAttributes:\n    source_ip: The address the packet started from\n    destination_ip: The address the packet was heading for\n    hops: Each forwarding decision, in order\n    success: Whether the packet was shown reaching the destination\n    error: Why the journey did not reach the destination, if it did not\n    provenance: How this answer was arrived at"
+      },
+      "PacketResponseModel": {
+        "properties": {
+          "source_ip": {
+            "type": "string",
+            "title": "Source Ip"
+          },
+          "destination_ip": {
+            "type": "string",
+            "title": "Destination Ip"
+          },
+          "protocol": {
+            "type": "string",
+            "title": "Protocol"
+          },
+          "ttl": {
+            "type": "integer",
+            "title": "Ttl"
+          },
+          "length": {
+            "type": "integer",
+            "title": "Length"
+          },
+          "forwarding_info": {
+            "$ref": "#/components/schemas/ForwardingInfoModel"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source_ip",
+          "destination_ip",
+          "protocol",
+          "ttl",
+          "length",
+          "forwarding_info"
+        ],
+        "title": "PacketResponseModel"
+      },
+      "PcapAnalyzeRequest": {
+        "properties": {
+          "filename": {
+            "type": "string",
+            "title": "Filename",
+            "description": "Original filename of the capture file"
+          },
+          "data_base64": {
+            "type": "string",
+            "title": "Data Base64",
+            "description": "Base64-encoded raw PCAP file bytes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "filename",
+          "data_base64"
+        ],
+        "title": "PcapAnalyzeRequest",
+        "description": "Request model for PCAP analysis."
+      },
+      "PcapAnalyzeResponse": {
+        "properties": {
+          "filename": {
+            "type": "string",
+            "title": "Filename"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "title": "Size Bytes"
+          },
+          "format": {
+            "type": "string",
+            "title": "Format"
+          },
+          "parsed": {
+            "type": "boolean",
+            "title": "Parsed"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "collected_at": {
+            "type": "string",
+            "title": "Collected At"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PcapSummaryResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "hosts": {
+            "items": {
+              "$ref": "#/components/schemas/PcapHostResponse"
+            },
+            "type": "array",
+            "title": "Hosts",
+            "default": []
+          },
+          "conversations": {
+            "items": {
+              "$ref": "#/components/schemas/PcapConversationResponse"
+            },
+            "type": "array",
+            "title": "Conversations",
+            "default": []
+          },
+          "limitations": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Limitations",
+            "default": []
+          },
+          "packets": {
+            "items": {
+              "$ref": "#/components/schemas/PcapPacketDetailResponse"
+            },
+            "type": "array",
+            "title": "Packets",
+            "default": []
+          },
+          "handshakes": {
+            "items": {
+              "$ref": "#/components/schemas/PcapHandshakeResponse"
+            },
+            "type": "array",
+            "title": "Handshakes",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "filename",
+          "size_bytes",
+          "format",
+          "parsed",
+          "collected_at"
+        ],
+        "title": "PcapAnalyzeResponse"
+      },
+      "PcapConversationResponse": {
+        "properties": {
+          "src": {
+            "type": "string",
+            "title": "Src"
+          },
+          "dst": {
+            "type": "string",
+            "title": "Dst"
+          },
+          "protocol": {
+            "type": "string",
+            "title": "Protocol"
+          },
+          "packets": {
+            "type": "integer",
+            "title": "Packets"
+          },
+          "bytes": {
+            "type": "integer",
+            "title": "Bytes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "src",
+          "dst",
+          "protocol",
+          "packets",
+          "bytes"
+        ],
+        "title": "PcapConversationResponse"
+      },
+      "PcapHandshakeResponse": {
+        "properties": {
+          "client": {
+            "type": "string",
+            "title": "Client"
+          },
+          "server": {
+            "type": "string",
+            "title": "Server"
+          },
+          "stages": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Stages",
+            "default": []
+          },
+          "complete": {
+            "type": "boolean",
+            "title": "Complete",
+            "default": false
+          },
+          "provenance": {
+            "type": "string",
+            "title": "Provenance",
+            "default": "inferred"
+          },
+          "explanation": {
+            "type": "string",
+            "title": "Explanation",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "client",
+          "server"
+        ],
+        "title": "PcapHandshakeResponse",
+        "description": "A TCP three-way handshake seen in the capture."
+      },
+      "PcapHostResponse": {
+        "properties": {
+          "ip": {
+            "type": "string",
+            "title": "Ip"
+          },
+          "packets": {
+            "type": "integer",
+            "title": "Packets"
+          },
+          "bytes": {
+            "type": "integer",
+            "title": "Bytes"
+          },
+          "first_seen": {
+            "type": "string",
+            "title": "First Seen"
+          },
+          "last_seen": {
+            "type": "string",
+            "title": "Last Seen"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ip",
+          "packets",
+          "bytes",
+          "first_seen",
+          "last_seen"
+        ],
+        "title": "PcapHostResponse"
+      },
+      "PcapPacketDetailResponse": {
+        "properties": {
+          "index": {
+            "type": "integer",
+            "title": "Index"
+          },
+          "timestamp": {
+            "type": "string",
+            "title": "Timestamp"
+          },
+          "src_mac": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Src Mac"
+          },
+          "dst_mac": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dst Mac"
+          },
+          "ethertype": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ethertype"
+          },
+          "src_ip": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Src Ip"
+          },
+          "dst_ip": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dst Ip"
+          },
+          "protocol": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Protocol"
+          },
+          "src_port": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Src Port"
+          },
+          "dst_port": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dst Port"
+          },
+          "tcp_flags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Tcp Flags",
+            "default": []
+          },
+          "tcp_flags_value": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tcp Flags Value"
+          },
+          "icmp_type": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Icmp Type"
+          },
+          "icmp_type_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Icmp Type Name"
+          },
+          "icmp_code": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Icmp Code"
+          },
+          "icmp_code_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Icmp Code Name"
+          },
+          "dns_query_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dns Query Name"
+          },
+          "dns_answers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Dns Answers",
+            "default": []
+          },
+          "dns_is_response": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dns Is Response"
+          },
+          "dns_response_code": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dns Response Code"
+          },
+          "arp_operation": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Arp Operation"
+          },
+          "arp_operation_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Arp Operation Name"
+          },
+          "arp_sender_mac": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Arp Sender Mac"
+          },
+          "arp_sender_ip": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Arp Sender Ip"
+          },
+          "arp_target_mac": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Arp Target Mac"
+          },
+          "arp_target_ip": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Arp Target Ip"
+          },
+          "handshake_stage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Handshake Stage"
+          },
+          "provenance": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Provenance",
+            "default": {}
+          },
+          "notes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Notes",
+            "default": []
+          },
+          "parsed": {
+            "type": "boolean",
+            "title": "Parsed",
+            "default": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "index",
+          "timestamp"
+        ],
+        "title": "PcapPacketDetailResponse",
+        "description": "Everything extracted from one frame, down to the transport layer."
+      },
+      "PcapSummaryResponse": {
+        "properties": {
+          "total_packets": {
+            "type": "integer",
+            "title": "Total Packets"
+          },
+          "total_bytes": {
+            "type": "integer",
+            "title": "Total Bytes"
+          },
+          "duration_seconds": {
+            "type": "number",
+            "title": "Duration Seconds"
+          },
+          "start_time": {
+            "type": "string",
+            "title": "Start Time"
+          },
+          "end_time": {
+            "type": "string",
+            "title": "End Time"
+          },
+          "protocols": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Protocols"
+          },
+          "link_type": {
+            "type": "integer",
+            "title": "Link Type"
+          }
+        },
+        "type": "object",
+        "required": [
+          "total_packets",
+          "total_bytes",
+          "duration_seconds",
+          "start_time",
+          "end_time",
+          "protocols",
+          "link_type"
+        ],
+        "title": "PcapSummaryResponse"
+      },
+      "Provenance-Input": {
+        "type": "string",
+        "enum": [
+          "observed",
+          "inferred",
+          "simulated",
+          "unknown"
+        ],
+        "title": "Provenance",
+        "description": "Provenance of routing information - how was this route determined."
+      },
+      "Route": {
+        "properties": {
+          "prefix": {
+            "type": "string",
+            "title": "Prefix",
+            "description": "Destination network in CIDR notation"
+          },
+          "dev": {
+            "type": "string",
+            "title": "Dev",
+            "description": "Outgoing interface name"
+          },
+          "via": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Via",
+            "description": "Next hop gateway address"
+          },
+          "metric": {
+            "type": "integer",
+            "minimum": 0,
+            "title": "Metric",
+            "description": "Route metric (lower is better)",
+            "default": 0
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "connected",
+              "static"
+            ],
+            "title": "Source",
+            "default": "static"
+          }
+        },
+        "type": "object",
+        "required": [
+          "prefix",
+          "dev"
+        ],
+        "title": "Route",
+        "description": "A routing table entry."
+      },
+      "RouteAnalysisReport": {
+        "properties": {
+          "collected_at": {
+            "type": "string",
+            "title": "Collected At"
+          },
+          "command": {
+            "type": "string",
+            "title": "Command"
+          },
+          "ip_version": {
+            "type": "string",
+            "title": "Ip Version",
+            "default": "ipv4"
+          },
+          "routes_in_table": {
+            "type": "integer",
+            "title": "Routes In Table",
+            "default": 0
+          },
+          "routes_analysed": {
+            "type": "integer",
+            "title": "Routes Analysed",
+            "default": 0
+          },
+          "routes_skipped": {
+            "items": {
+              "$ref": "#/components/schemas/SkippedRoute"
+            },
+            "type": "array",
+            "title": "Routes Skipped"
+          },
+          "default_routes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Default Routes"
+          },
+          "table_provenance": {
+            "type": "string",
+            "title": "Table Provenance",
+            "default": "observed"
+          },
+          "analysis_provenance": {
+            "type": "string",
+            "title": "Analysis Provenance",
+            "default": "inferred"
+          },
+          "analyses": {
+            "items": {
+              "$ref": "#/components/schemas/DestinationAnalysis"
+            },
+            "type": "array",
+            "title": "Analyses"
+          },
+          "shadow_findings": {
+            "items": {
+              "$ref": "#/components/schemas/ShadowFinding"
+            },
+            "type": "array",
+            "title": "Shadow Findings"
+          },
+          "limitations": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Limitations"
+          }
+        },
+        "type": "object",
+        "required": [
+          "collected_at",
+          "command"
+        ],
+        "title": "RouteAnalysisReport",
+        "description": "Analysis of a whole routing table."
+      },
+      "RouteCandidate": {
+        "properties": {
+          "destination": {
+            "type": "string",
+            "title": "Destination"
+          },
+          "prefix_length": {
+            "type": "integer",
+            "title": "Prefix Length"
+          },
+          "next_hop": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Hop"
+          },
+          "interface": {
+            "type": "string",
+            "title": "Interface"
+          },
+          "metric": {
+            "type": "integer",
+            "title": "Metric"
+          },
+          "next_hop_type": {
+            "type": "string",
+            "title": "Next Hop Type"
+          },
+          "selected": {
+            "type": "boolean",
+            "title": "Selected",
+            "default": false
+          },
+          "outcome": {
+            "type": "string",
+            "title": "Outcome",
+            "default": "less specific"
+          },
+          "explanation": {
+            "type": "string",
+            "title": "Explanation",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "destination",
+          "prefix_length",
+          "interface",
+          "metric",
+          "next_hop_type"
+        ],
+        "title": "RouteCandidate",
+        "description": "A route in the table that matched a destination, and how it fared."
+      },
+      "RouteLookupResult": {
+        "properties": {
+          "matched": {
+            "type": "boolean",
+            "title": "Matched"
+          },
+          "route": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RoutingEntry-Output"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "explanation": {
+            "type": "string",
+            "title": "Explanation",
+            "default": ""
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "transmitted": {
+            "type": "boolean",
+            "title": "Transmitted",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "matched"
+        ],
+        "title": "RouteLookupResult",
+        "description": "Result of a route lookup operation.\n\nAttributes:\n    matched: Whether a matching route was found\n    route: The selected routing entry (None if no match)\n    explanation: Human-readable explanation of the selection\n    error: Error message if input was invalid (None if successful)\n    transmitted: Always false; this API performs routing decisions only,\n        not actual packet transmission."
+      },
+      "RouteUpdate": {
+        "properties": {
+          "routes": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Routes",
+            "description": "Route objects: prefix, dev, via, metric"
+          }
+        },
+        "type": "object",
+        "required": [
+          "routes"
+        ],
+        "title": "RouteUpdate",
+        "description": "Replacement route list for a node."
+      },
+      "RouterInfoModel": {
+        "properties": {
+          "interfaces": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Interfaces"
+          },
+          "routing_table": {
+            "items": {
+              "$ref": "#/components/schemas/RouterRouteEntryModel"
+            },
+            "type": "array",
+            "title": "Routing Table"
+          },
+          "client_ip": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Ip"
+          },
+          "server_ip": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Server Ip"
+          }
+        },
+        "type": "object",
+        "required": [
+          "interfaces",
+          "routing_table"
+        ],
+        "title": "RouterInfoModel",
+        "description": "What the lab router looks like from the outside.\n\nThis was a free-form dictionary, so the schema said nothing about it\nand nothing kept the frontend's stricter type and the backend's\nfree-form one agreeing. They agree today; making it a model keeps\nthem agreeing."
+      },
+      "RouterRouteEntryModel": {
+        "properties": {
+          "destination": {
+            "type": "string",
+            "title": "Destination"
+          },
+          "next_hop": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Hop"
+          },
+          "interface": {
+            "type": "string",
+            "title": "Interface"
+          }
+        },
+        "type": "object",
+        "required": [
+          "destination",
+          "interface"
+        ],
+        "title": "RouterRouteEntryModel",
+        "description": "One route in the lab router's table."
+      },
+      "RoutingEntry-Input": {
+        "properties": {
+          "destination": {
+            "type": "string",
+            "title": "Destination",
+            "description": "Destination network in CIDR notation (e.g., 192.168.1.0/24 or 2001:db8::/32)"
+          },
+          "next_hop": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Hop",
+            "description": "Next hop gateway IP address"
+          },
+          "interface": {
+            "type": "string",
+            "title": "Interface",
+            "description": "Network interface name (e.g., eth0)"
+          },
+          "metric": {
+            "type": "integer",
+            "title": "Metric",
+            "description": "Non-negative integer metric (lower is better)"
+          },
+          "next_hop_type": {
+            "$ref": "#/components/schemas/NextHopType",
+            "description": "Type of next hop: gateway or direct",
+            "default": "gateway"
+          },
+          "provenance": {
+            "$ref": "#/components/schemas/Provenance-Input",
+            "description": "How this route was determined",
+            "default": "unknown"
+          }
+        },
+        "type": "object",
+        "required": [
+          "destination",
+          "interface",
+          "metric"
+        ],
+        "title": "RoutingEntry",
+        "description": "A single routing table entry.\n\nAttributes:\n    destination: The destination network in CIDR notation (e.g., \"192.168.1.0/24\" or \"2001:db8::/32\")\n    next_hop: The next hop IP address (required for gateway type)\n    interface: The network interface name (e.g., \"eth0\")\n    metric: Non-negative integer cost metric (lower is better)\n    next_hop_type: Whether this is a gateway or direct connection\n    provenance: How this route was determined"
+      },
+      "RoutingEntry-Output": {
+        "properties": {
+          "destination": {
+            "type": "string",
+            "title": "Destination",
+            "description": "Destination network in CIDR notation (e.g., 192.168.1.0/24 or 2001:db8::/32)"
+          },
+          "next_hop": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Hop",
+            "description": "Next hop gateway IP address"
+          },
+          "interface": {
+            "type": "string",
+            "title": "Interface",
+            "description": "Network interface name (e.g., eth0)"
+          },
+          "metric": {
+            "type": "integer",
+            "title": "Metric",
+            "description": "Non-negative integer metric (lower is better)"
+          },
+          "next_hop_type": {
+            "$ref": "#/components/schemas/NextHopType",
+            "description": "Type of next hop: gateway or direct",
+            "default": "gateway"
+          },
+          "provenance": {
+            "$ref": "#/components/schemas/app__routing__Provenance",
+            "description": "How this route was determined",
+            "default": "unknown"
+          }
+        },
+        "type": "object",
+        "required": [
+          "destination",
+          "interface",
+          "metric"
+        ],
+        "title": "RoutingEntry",
+        "description": "A single routing table entry.\n\nAttributes:\n    destination: The destination network in CIDR notation (e.g., \"192.168.1.0/24\" or \"2001:db8::/32\")\n    next_hop: The next hop IP address (required for gateway type)\n    interface: The network interface name (e.g., \"eth0\")\n    metric: Non-negative integer cost metric (lower is better)\n    next_hop_type: Whether this is a gateway or direct connection\n    provenance: How this route was determined"
+      },
+      "ScenarioSummary": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title"
+        ],
+        "title": "ScenarioSummary",
+        "description": "Summary of a scenario."
+      },
+      "ShadowFinding": {
+        "properties": {
+          "less_specific_destination": {
+            "type": "string",
+            "title": "Less Specific Destination"
+          },
+          "more_specific_destinations": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "More Specific Destinations"
+          },
+          "captured_prefixes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Captured Prefixes"
+          },
+          "explanation": {
+            "type": "string",
+            "title": "Explanation",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "less_specific_destination"
+        ],
+        "title": "ShadowFinding",
+        "description": "A less specific route that a more specific route takes traffic from."
+      },
+      "SimulateRequestModel": {
+        "properties": {
+          "source_ip": {
+            "type": "string",
+            "title": "Source Ip",
+            "description": "Source IPv4 address (must be 192.168.10.2)"
+          },
+          "destination_ip": {
+            "type": "string",
+            "title": "Destination Ip",
+            "description": "Destination IPv4 address (must be 192.168.20.2)"
+          },
+          "protocol": {
+            "type": "string",
+            "title": "Protocol",
+            "description": "Protocol: only icmp is currently supported",
+            "default": "icmp"
+          },
+          "ttl": {
+            "type": "integer",
+            "maximum": 255,
+            "minimum": 1,
+            "title": "Ttl",
+            "description": "Time to live (not currently used in packet generation)",
+            "default": 64
+          },
+          "length": {
+            "type": "integer",
+            "maximum": 65535,
+            "minimum": 28,
+            "title": "Length",
+            "description": "Packet length in bytes (not currently used in packet generation)",
+            "default": 84
+          },
+          "route_matched": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Route Matched",
+            "description": "Route that was matched"
+          },
+          "egress_interface": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Egress Interface",
+            "description": "Expected egress interface"
+          },
+          "next_hop": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Hop",
+            "description": "Expected next hop"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source_ip",
+          "destination_ip"
+        ],
+        "title": "SimulateRequestModel"
+      },
+      "SimulateResponseModel": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "title": "State"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "packet": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PacketResponseModel"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "capture_verified": {
+            "type": "boolean",
+            "title": "Capture Verified",
+            "default": false
+          },
+          "verification_details": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VerificationDetailsModel"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          }
+        },
+        "type": "object",
+        "required": [
+          "state",
+          "message"
+        ],
+        "title": "SimulateResponseModel"
+      },
+      "SkippedRoute": {
+        "properties": {
+          "destination": {
+            "type": "string",
+            "title": "Destination"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "destination",
+          "reason"
+        ],
+        "title": "SkippedRoute",
+        "description": "A route from the table that the teaching model could not express."
+      },
+      "TopologyEdge": {
+        "properties": {
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "target": {
+            "type": "string",
+            "title": "Target"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "provenance": {
+            "$ref": "#/components/schemas/app__topology__Provenance"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source",
+          "target",
+          "kind",
+          "provenance",
+          "label"
+        ],
+        "title": "TopologyEdge",
+        "description": "A relationship between two topology nodes."
+      },
+      "TopologyGraph": {
+        "properties": {
+          "nodes": {
+            "items": {
+              "$ref": "#/components/schemas/TopologyNode"
+            },
+            "type": "array",
+            "title": "Nodes"
+          },
+          "edges": {
+            "items": {
+              "$ref": "#/components/schemas/TopologyEdge"
+            },
+            "type": "array",
+            "title": "Edges"
+          },
+          "provenance": {
+            "$ref": "#/components/schemas/app__topology__Provenance"
+          },
+          "explanation": {
+            "type": "string",
+            "title": "Explanation"
+          },
+          "observed_at": {
+            "type": "string",
+            "title": "Observed At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "nodes",
+          "edges",
+          "provenance",
+          "explanation",
+          "observed_at"
+        ],
+        "title": "TopologyGraph",
+        "description": "The assembled topology."
+      },
+      "TopologyNode": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "host",
+              "router",
+              "interface",
+              "gateway",
+              "neighbor",
+              "unknown"
+            ],
+            "title": "Kind"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "provenance": {
+            "$ref": "#/components/schemas/app__topology__Provenance"
+          },
+          "addresses": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Addresses"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "label",
+          "provenance"
+        ],
+        "title": "TopologyNode",
+        "description": "A device or interface in the topology."
+      },
+      "TraceRequest": {
+        "properties": {
+          "src": {
+            "type": "string",
+            "title": "Src",
+            "description": "Source node id"
+          },
+          "dst": {
+            "type": "string",
+            "title": "Dst",
+            "description": "Destination IP address"
+          },
+          "workspace": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workspace",
+            "description": "Workspace id returned by a route edit, if any"
+          }
+        },
+        "type": "object",
+        "required": [
+          "src",
+          "dst"
+        ],
+        "title": "TraceRequest",
+        "description": "Request to trace a packet through a scenario."
+      },
+      "TraceResult": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "delivered",
+              "no_route",
+              "unresolved_next_hop",
+              "not_forwarding",
+              "loop",
+              "max_hops"
+            ],
+            "title": "Status"
+          },
+          "hops": {
+            "items": {
+              "$ref": "#/components/schemas/Hop"
+            },
+            "type": "array",
+            "title": "Hops"
+          },
+          "provenance": {
+            "type": "string",
+            "const": "simulated",
+            "title": "Provenance",
+            "default": "simulated"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "hops"
+        ],
+        "title": "TraceResult",
+        "description": "The outcome of tracing a packet through a scenario."
+      },
+      "TracerouteHopResponse": {
+        "properties": {
+          "ttl": {
+            "type": "integer",
+            "title": "Ttl"
+          },
+          "address": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Address"
+          },
+          "hostname": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hostname"
+          },
+          "rtt_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rtt Ms"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ttl"
+        ],
+        "title": "TracerouteHopResponse",
+        "description": "Response model for a single traceroute hop."
+      },
+      "TracerouteRequest": {
+        "properties": {
+          "target": {
+            "type": "string",
+            "title": "Target",
+            "description": "Target hostname or IP address"
+          },
+          "max_hops": {
+            "type": "integer",
+            "maximum": 64,
+            "minimum": 1,
+            "title": "Max Hops",
+            "description": "Maximum number of hops",
+            "default": 30
+          },
+          "timeout_per_hop": {
+            "type": "number",
+            "maximum": 10,
+            "minimum": 0.5,
+            "title": "Timeout Per Hop",
+            "description": "Timeout per hop in seconds",
+            "default": 2
+          },
+          "probes_per_hop": {
+            "type": "integer",
+            "maximum": 3,
+            "minimum": 1,
+            "title": "Probes Per Hop",
+            "description": "Number of probes per hop",
+            "default": 1
+          },
+          "overall_timeout": {
+            "type": "number",
+            "maximum": 300,
+            "minimum": 5,
+            "title": "Overall Timeout",
+            "description": "Overall timeout in seconds",
+            "default": 60
+          }
+        },
+        "type": "object",
+        "required": [
+          "target"
+        ],
+        "title": "TracerouteRequest",
+        "description": "Request model for traceroute."
+      },
+      "TracerouteResponse": {
+        "properties": {
+          "target": {
+            "type": "string",
+            "title": "Target"
+          },
+          "hops": {
+            "items": {
+              "$ref": "#/components/schemas/TracerouteHopResponse"
+            },
+            "type": "array",
+            "title": "Hops"
+          },
+          "max_hops": {
+            "type": "integer",
+            "title": "Max Hops"
+          },
+          "timeout_per_hop": {
+            "type": "number",
+            "title": "Timeout Per Hop"
+          },
+          "probes_per_hop": {
+            "type": "integer",
+            "title": "Probes Per Hop"
+          },
+          "completed": {
+            "type": "boolean",
+            "title": "Completed"
+          },
+          "total_time_ms": {
+            "type": "number",
+            "title": "Total Time Ms"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          }
+        },
+        "type": "object",
+        "required": [
+          "target",
+          "hops",
+          "max_hops",
+          "timeout_per_hop",
+          "probes_per_hop",
+          "completed",
+          "total_time_ms"
+        ],
+        "title": "TracerouteResponse",
+        "description": "Response model for traceroute."
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      },
+      "VerificationDetailsModel": {
+        "properties": {
+          "ttl_decremented": {
+            "$ref": "#/components/schemas/VerificationFieldModel"
+          },
+          "checksum_valid": {
+            "$ref": "#/components/schemas/VerificationFieldModel"
+          },
+          "route_matched": {
+            "$ref": "#/components/schemas/VerificationFieldModel"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ttl_decremented",
+          "checksum_valid",
+          "route_matched"
+        ],
+        "title": "VerificationDetailsModel"
+      },
+      "VerificationFieldModel": {
+        "properties": {
+          "value": {
+            "type": "boolean",
+            "title": "Value"
+          },
+          "provenance": {
+            "type": "string",
+            "title": "Provenance"
+          },
+          "details": {
+            "type": "string",
+            "title": "Details",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "value",
+          "provenance"
+        ],
+        "title": "VerificationFieldModel"
+      },
+      "app__routing__Provenance": {
+        "type": "string",
+        "enum": [
+          "observed",
+          "inferred",
+          "simulated",
+          "unknown"
+        ],
+        "title": "Provenance",
+        "description": "Provenance of routing information - how was this route determined."
+      },
+      "app__topology__Provenance": {
+        "type": "string",
+        "enum": [
+          "observed",
+          "inferred",
+          "simulated",
+          "unknown"
+        ],
+        "title": "Provenance",
+        "description": "Where a piece of topology information came from."
+      }
+    }
+  }
+}
