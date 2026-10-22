@@ -1,9 +1,10 @@
 # Generated files
 .routelens/
 backend/backend.log
-backend/__pycache__/
-backend/app/__pycache__/
-backend/tests/__pycache__/
+# Byte-compiled files. The pattern has no leading slash, so it matches a
+# __pycache__ directory at any depth, not only the ones named below.
+__pycache__/
+*.py[cod]
 backend/.venv/
 frontend/node_modules/
 frontend/dist/
