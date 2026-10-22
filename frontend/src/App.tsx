@@ -666,6 +666,16 @@ function App() {
     </div>
   );
 
+  const renderDiscovery = () => (
+    <div className="view-stack">
+      <section className="card">
+        <div className="card-body">
+          <RouterDiscoveryPage />
+        </div>
+      </section>
+    </div>
+  );
+
   const renderLearning = () => (
     <div className="view-stack">
       <section className="card">

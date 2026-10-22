@@ -1,0 +1,521 @@
+/* Router discovery — a map of the routers on a network. */
+
+.router-discovery {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+
+/* ==========================================================================
+   The run form
+   ========================================================================== */
+
+.discovery-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: var(--space-4);
+  align-items: start;
+}
+
+.discovery-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.discovery-field-wide {
+  grid-column: 1 / -1;
+}
+
+.discovery-field-narrow {
+  min-width: 120px;
+}
+
+.discovery-field label {
+  font-size: var(--text-sm);
+  font-weight: 550;
+  color: var(--color-text);
+}
+
+.discovery-field input,
+.discovery-field select {
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+}
+
+.discovery-submit {
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+}
+
+/* ==========================================================================
+   Progress
+   ========================================================================== */
+
+.discovery-progress {
+  margin-top: var(--space-5);
+  padding: var(--space-4);
+  background: var(--surface-inset);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.discovery-progress-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-3);
+}
+
+.discovery-run-id {
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+  overflow-wrap: anywhere;
+}
+
+.discovery-progress-list {
+  margin: 0;
+  padding-left: var(--space-5);
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+  line-height: 1.7;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.discovery-failures {
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-border);
+}
+
+.discovery-failures h4 {
+  margin: 0 0 var(--space-2) 0;
+  font-family: var(--font-mono);
+  font-size: 0.5625rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.discovery-failures ul {
+  margin: 0;
+  padding-left: var(--space-5);
+  font-size: var(--text-sm);
+  color: var(--error-text);
+  line-height: 1.7;
+}
+
+/* ==========================================================================
+   The map
+   ========================================================================== */
+
+.discovery-legend {
+  display: flex;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-4);
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}
+
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.legend-item strong {
+  color: var(--color-text);
+}
+
+.legend-swatch {
+  width: 22px;
+  height: 0;
+  flex-shrink: 0;
+  border-top-width: 3px;
+  border-top-style: solid;
+}
+
+.legend-swatch.observed {
+  border-top-color: #48d597;
+}
+
+.legend-swatch.inferred {
+  border-top-color: #63b3ff;
+  border-top-style: dashed;
+}
+
+.legend-swatch.failed {
+  width: 10px;
+  height: 10px;
+  border: none;
+  border-radius: 50%;
+  background: #ff727c;
+}
+
+.discovery-canvas {
+  height: 540px;
+  max-height: 65vh;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--color-bg);
+}
+
+.discovery-canvas .react-flow__attribution {
+  background: transparent;
+  color: var(--text-faint);
+  font-size: 9px;
+  padding: 2px 4px;
+}
+
+.discovery-canvas .react-flow__attribution a {
+  color: var(--text-faint);
+  text-decoration: none;
+}
+
+.discovery-canvas .react-flow__background pattern circle {
+  fill: rgba(138, 216, 255, 0.14);
+}
+
+.discovery-canvas .react-flow__controls {
+  background: var(--color-panel);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.discovery-canvas .react-flow__controls-button {
+  background: var(--color-panel);
+  border-bottom: 1px solid var(--color-border);
+  fill: var(--color-text-muted);
+  width: 26px;
+  height: 26px;
+}
+
+.discovery-canvas .react-flow__controls-button:hover {
+  background: var(--surface-active);
+  fill: var(--color-text);
+}
+
+.discovery-canvas .react-flow__minimap {
+  background: var(--color-panel);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  width: 150px;
+  height: 96px;
+}
+
+.discovery-canvas .react-flow__node {
+  cursor: pointer;
+}
+
+.discovery-canvas .react-flow__node:focus-visible {
+  outline: none;
+}
+
+.discovery-canvas .react-flow__node:focus-visible .dnode {
+  box-shadow: var(--focus-ring);
+}
+
+/* --- The device card --- */
+
+.dnode {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 190px;
+  padding: 10px 12px;
+  background: var(--color-panel);
+  border: 1px solid var(--color-border);
+  border-left-width: 3px;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  transition: border-color var(--transition), box-shadow var(--transition),
+    opacity var(--transition);
+}
+
+.dnode:hover {
+  border-color: var(--color-border-strong);
+}
+
+.dnode.selected {
+  box-shadow: var(--shine-bloom);
+}
+
+.dnode.dimmed {
+  opacity: 0.4;
+}
+
+.dnode.failed {
+  background: var(--error-soft);
+}
+
+.dnode-dot {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.dnode-label {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-right: 14px;
+}
+
+.dnode-id {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  color: var(--color-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dnode-failed {
+  align-self: flex-start;
+  margin-top: 3px;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--error-soft);
+  border: 1px solid var(--error-border);
+  color: var(--error-text);
+  font-family: var(--font-mono);
+  font-size: 0.5625rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* ==========================================================================
+   The device drawer
+   ========================================================================== */
+
+.device-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--space-4);
+  margin-bottom: var(--space-5);
+}
+
+.device-muted {
+  margin: 0 0 var(--space-4) 0;
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}
+
+.device-routes-source {
+  margin: 0 0 var(--space-3) 0;
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  color: var(--color-text-muted);
+}
+
+.device-routes-source strong {
+  color: var(--color-text);
+}
+
+.device-route-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-3);
+}
+
+.device-route-toolbar input[type='search'] {
+  flex: 1;
+  min-width: 200px;
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+}
+
+.device-route-toolbar select {
+  max-width: 200px;
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+}
+
+.device-route-count {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+  margin-left: auto;
+}
+
+.data-table tr.selected-route td {
+  background: var(--primary-soft);
+}
+
+/* ==========================================================================
+   Findings
+   ========================================================================== */
+
+.discovery-findings {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.discovery-finding {
+  padding: var(--space-3) var(--space-4);
+  background: var(--surface-subtle);
+  border: 1px solid var(--color-border);
+  border-left: 2px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+}
+
+.discovery-finding-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+
+.discovery-finding-title {
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.discovery-finding-severity {
+  padding: 1px 7px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-active);
+  border: 1px solid var(--color-border);
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.discovery-finding-detail {
+  margin: 0 0 4px 0;
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  color: var(--color-text);
+}
+
+.discovery-finding-evidence {
+  margin: 0;
+  font-size: var(--text-xs);
+  line-height: 1.6;
+  color: var(--color-text-muted);
+}
+
+.discovery-finding-device {
+  margin-top: var(--space-2);
+  padding: 2px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-active);
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+
+.discovery-finding-device:hover {
+  color: var(--color-text);
+  border-color: var(--color-border-strong);
+}
+
+.discovery-finding-device:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* ==========================================================================
+   History and comparison
+   ========================================================================== */
+
+.discovery-compare {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  margin-top: var(--space-4);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--color-border);
+}
+
+.discovery-diff {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--space-4);
+  margin-top: var(--space-4);
+}
+
+.discovery-diff-group h4 {
+  margin: 0 0 var(--space-2) 0;
+  font-family: var(--font-mono);
+  font-size: 0.5625rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.discovery-diff-group ul {
+  margin: 0;
+  padding-left: var(--space-5);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  line-height: 1.8;
+}
+
+/* ==========================================================================
+   Responsive
+   ========================================================================== */
+
+@media (max-width: 768px) {
+  .discovery-form {
+    grid-template-columns: 1fr;
+  }
+
+  .discovery-submit {
+    justify-content: stretch;
+  }
+
+  .discovery-submit .btn {
+    width: 100%;
+  }
+
+  .discovery-canvas {
+    height: 400px;
+  }
+
+  .device-route-count {
+    margin-left: 0;
+  }
+
+  .discovery-compare {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .discovery-compare .discovery-field select {
+    max-width: none;
+  }
+}
