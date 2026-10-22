@@ -38,7 +38,12 @@ router = APIRouter(prefix="/api/discovery", tags=["discovery"])
 
 
 class DiscoveryRequest(BaseModel):
-    """A request to discover hosts on a network."""
+    """Request to discover hosts on an authorized network.
+
+    The target must be a CIDR network or a single address that the operator
+    has explicitly authorized. The description makes clear this is a network‑
+    scoped operation.
+    """
 
     target: str = Field(
         ...,

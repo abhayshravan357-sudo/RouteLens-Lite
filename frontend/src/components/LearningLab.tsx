@@ -225,6 +225,20 @@ export default function LearningLab({ workspace }: LearningLabProps) {
         />
       </div>
 
+      <section className="learning-path" aria-labelledby="learning-path-title">
+        <div>
+          <span className="eyebrow">Optional path</span>
+          <h3 id="learning-path-title">Networking fundamentals</h3>
+          <p>Choose any exercise in any order. Completion is kept only for this open session and is based on a real exercise check.</p>
+        </div>
+        <ol>
+          <li><strong>1. Addresses</strong><span>Identify source and destination IP addresses.</span></li>
+          <li><strong>2. Routes</strong><span>Understand prefixes and default gateways.</span></li>
+          <li><strong>3. Trace</strong><span>Follow a packet through actual simulator decisions.</span></li>
+          <li><strong>4. Troubleshoot</strong><span>Use a supported broken scenario and verify a fix.</span></li>
+        </ol>
+      </section>
+
       <div className="exercise-layout">
         <nav className="exercise-list" aria-label="Exercises">
           <ul>

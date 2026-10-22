@@ -157,7 +157,7 @@ export default function Overview({
           <span className="hub-tag">Interactive Networking Workbench</span>
           <h2>What would you like to do?</h2>
           <p className="hub-subtitle">
-            Choose a starting point below. You can safely experiment with simulated routers, break links, fix routes, and undo any changes without risk.
+            Choose a starting point below. The first two paths use a safe simulation; the last reads the machine running this backend.
           </p>
         </div>
 
@@ -176,7 +176,7 @@ export default function Overview({
             <div className="hub-card-badge simulated">Network Lab • Explore</div>
             <h3>Explore a Network</h3>
             <p>
-              Send packets through a 2-router network. Watch longest-prefix matching, step through hops, and understand why each route was chosen.
+              Start with a sample network, enter a destination IP, then inspect the route selected at every hop. No real packet is sent.
             </p>
             <div className="hub-card-action">
               <span>Start Exploring</span> ➔
@@ -197,7 +197,7 @@ export default function Overview({
             <div className="hub-card-badge challenge">Network Lab • Hands-On</div>
             <h3>Troubleshoot a Broken Network</h3>
             <p>
-              Diagnose real problems: missing gateways, route blackholes, or severed cables. Inspect routers, fix routes, and compare before vs after.
+              Try a prepared broken scenario, trace where delivery stops, then use the lab to test a change separately from your host.
             </p>
             <div className="hub-card-action">
               <span>Start Troubleshooting</span> ➔
@@ -218,7 +218,7 @@ export default function Overview({
             <div className="hub-card-badge live">Live Host • Read-Only</div>
             <h3>Inspect My Real Network</h3>
             <p>
-              Safely inspect your actual Linux computer’s routing table, active network interfaces, ARP neighbors, and default gateways.
+              Read routes, interfaces, and neighbours from the machine running the backend. It cannot automatically inspect this browser’s computer when hosted remotely.
             </p>
             <div className="hub-card-action">
               <span>View Host Routes</span> ➔

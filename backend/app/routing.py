@@ -58,15 +58,14 @@ class RoutingEntry(BaseModel):
     @field_validator("destination")
     @classmethod
     def validate_destination(cls, v: str) -> str:
-        """Validate the destination and store it in network form.
+        """Validate the destination network string.
 
-        A prefix length is required. Without one, "192.168.1.7" would be
-        read as a /32 covering exactly one address, and the table would
-        show a bare address where every other row shows a network.
-
-        The stored value is the network, so "192.168.1.5/24" is kept as
-        "192.168.1.0/24" and the table never shows host bits that do
-        not apply.
+        The input must include a CIDR prefix length; a bare address like
+        "192.168.1.7" is rejected because it would be interpreted as a /32
+        and appear inconsistent with other table rows that display a
+        network. The value is stored as an IP network object with
+        ``strict=False`` so any host bits are cleared (e.g. "192.168.1.5/24"
+        becomes "192.168.1.0/24").
         """
         if "/" not in v:
             raise ValueError(

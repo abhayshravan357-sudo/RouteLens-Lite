@@ -217,6 +217,8 @@ export default function ScenarioJourney({
   const [currentHop, setCurrentHop] = useState(0);
   const [source, setSource] = useState('');
   const [destination, setDestination] = useState('');
+  const [tutorOpen, setTutorOpen] = useState(true);
+  const [tutorAnswer, setTutorAnswer] = useState<'yes' | 'no' | null>(null);
 
   // Mode: Beginner vs Expert
   const [userMode, setUserMode] = useState<'beginner' | 'expert'>('beginner');
@@ -276,6 +278,10 @@ export default function ScenarioJourney({
       if (targetIp) setDestination(targetIp);
     }
   }, [scenario, lastScenarioId]);
+
+  useEffect(() => {
+    setTutorAnswer(null);
+  }, [trace]);
 
   const pushHistory = (
     newScenario: Scenario,
@@ -484,6 +490,12 @@ export default function ScenarioJourney({
     : null;
 
   const diag = getThreeQuestionExplanation(trace, activeScenario, destination.trim());
+  const traceCompleted = Boolean(trace);
+  const routeReviewed = Boolean(activeHop?.matched);
+  const expectedTutorAnswer = trace?.status === 'delivered' ? 'yes' : 'no';
+  const tutorQuestion = trace?.status === 'delivered'
+    ? 'Did the packet reach the selected destination?'
+    : 'Did the packet reach the selected destination?';
 
   return (
     <div className="scenario-journey">
@@ -515,6 +527,58 @@ export default function ScenarioJourney({
           <ProvenanceBadge provenance="simulated" label="Simulated" showDescription />
         </div>
       </div>
+
+      <section className="first-trace-tutor" aria-label="Your first packet trace">
+        <div className="first-trace-tutor-head">
+          <div>
+            <span className="guided-tag">Recommended for beginners</span>
+            <h3>Your first packet trace</h3>
+            <p>Follow the real simulator result one small step at a time. This does not send traffic on a real network.</p>
+          </div>
+          <button
+            type="button"
+            className="btn btn-sm btn-secondary"
+            onClick={() => setTutorOpen((open) => !open)}
+            aria-expanded={tutorOpen}
+          >
+            {tutorOpen ? 'Hide guide' : 'Show guide'}
+          </button>
+        </div>
+
+        {tutorOpen && (
+          <ol className="first-trace-steps">
+            <li className={source && destination ? 'complete' : 'current'}>
+              <strong>1. Choose a source and destination</strong>
+              <span>Select a device and an IP address below. The sample is prefilled with client → server.</span>
+            </li>
+            <li className={traceCompleted ? 'complete' : ''}>
+              <strong>2. Trace the packet</strong>
+              <span>Run the simulator to calculate each forwarding decision.</span>
+            </li>
+            <li className={traceCompleted && hops.length > 0 ? 'complete' : ''}>
+              <strong>3. Follow the path</strong>
+              <span>{traceCompleted && hops.length > 0 ? `The simulator returned ${hops.length} hop${hops.length === 1 ? '' : 's'}. Select a hop below to inspect it.` : 'The hop-by-hop path will appear after the trace runs.'}</span>
+            </li>
+            <li className={routeReviewed ? 'complete' : ''}>
+              <strong>4. Inspect the route decision</strong>
+              <span>{routeReviewed ? `The active hop matched ${activeHop?.matched?.prefix}; its next hop and outgoing interface are shown below.` : 'Choose a forwarding hop to see the matched route, next hop, and interface.'}</span>
+            </li>
+            <li className={tutorAnswer === expectedTutorAnswer && traceCompleted ? 'complete' : ''}>
+              <strong>5. Explain the result</strong>
+              {traceCompleted ? (
+                <div className="tutor-question">
+                  <span>{tutorQuestion}</span>
+                  <button type="button" className={`btn btn-sm ${tutorAnswer === 'yes' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setTutorAnswer('yes')}>Yes</button>
+                  <button type="button" className={`btn btn-sm ${tutorAnswer === 'no' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setTutorAnswer('no')}>No</button>
+                  {tutorAnswer && <span className={tutorAnswer === expectedTutorAnswer ? 'tutor-answer correct' : 'tutor-answer'}>{tutorAnswer === expectedTutorAnswer ? 'Correct — the result above is based on the simulator’s actual trace.' : `Not quite — this trace is marked “${STATUS_LABELS[trace!.status]}”. Review the explanation above.`}</span>}
+                </div>
+              ) : (
+                <span>After tracing, answer one question using the result the simulator returned.</span>
+              )}
+            </li>
+          </ol>
+        )}
+      </section>
 
       {/* ─── Experiment Controls: Undo / Redo / Reset ─── */}
       <div className="sandbox-controls-bar">

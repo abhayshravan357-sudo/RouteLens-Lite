@@ -500,6 +500,9 @@ export default function VirtualLabPanel({
 
   return (
     <div className="virtual-lab">
+      <aside className="lab-safety-note" aria-label="Virtual lab safety">
+        <strong>Isolated experiment.</strong> Building a lab creates network namespaces on the backend host only. It does not change the routing table shown in Network Diagnostics; review the commands first, then build, test, compare, and tear the lab down when finished.
+      </aside>
       {scenarioError && (
         <div className="error-message" role="alert">
           <span aria-hidden="true">⚠</span>

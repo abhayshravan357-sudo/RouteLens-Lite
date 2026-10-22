@@ -151,7 +151,12 @@ class ToolMissingError(LabAdapterError):
 
 
 class NamespaceNotFoundError(LabAdapterError):
-    """Network namespace does not exist."""
+    """The specified network namespace could not be found.
+
+    This indicates that the requested lab environment does not have a
+    namespace with the given name, likely because it was never created
+    or has already been torn down.
+    """
 
     pass
 

@@ -416,7 +416,13 @@ def _entry_dict(entry) -> dict:
 
 
 def _sample_address_in(network) -> Optional[str]:
-    """A usable address inside a network, for use as a destination."""
+    """Return a usable IP address inside the given network.
+
+    For networks with only two addresses (a /31 or /32), the
+    network address itself is returned because there is no separate host
+    address. Otherwise the first host address after the network address
+    is used. This address can safely be used as a destination in tests.
+    """
     if network.num_addresses <= 2:
         return str(network.network_address)
     return str(network.network_address + 1)

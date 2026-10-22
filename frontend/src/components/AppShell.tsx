@@ -84,14 +84,14 @@ export const VIEWS: ViewDefinition[] = [
     id: 'routing',
     label: 'Routing Analyzer',
     title: 'Routing Analyzer',
-    description: 'Inspect the routing table and look up the best route for an address.',
+    description: 'Ask which simulated route would be selected for an IP address, and why.',
     icon: IconRoutes,
   },
   {
     id: 'kernel',
     label: 'Kernel Table',
     title: 'Kernel Table',
-    description: 'The routing table this machine actually holds, and what it would do.',
+    description: 'Inspect the routing table held by the machine running the backend.',
     icon: IconKernel,
   },
   {
@@ -105,14 +105,14 @@ export const VIEWS: ViewDefinition[] = [
     id: 'lab',
     label: 'Virtual Lab',
     title: 'Virtual Lab',
-    description: 'The isolated client, router and server, and what the lab reports.',
+    description: 'Safely build and test an isolated network namespace lab.',
     icon: IconLab,
   },
   {
     id: 'diagnostics',
     label: 'Network Diagnostics',
     title: 'Network Diagnostics',
-    description: 'Read the live state of this host: interfaces, routes, neighbours, DNS, traceroute.',
+    description: 'Read available network details from the machine running the backend.',
     icon: IconDiagnostics,
   },
   {
@@ -120,7 +120,7 @@ export const VIEWS: ViewDefinition[] = [
     label: 'Router Discovery',
     title: 'Router Discovery',
     description:
-      'Walk a network of routers, read their tables, and see which links were observed and which were deduced.',
+      'Discover routers within a stated scope, with explicit limits and evidence labels.',
     icon: IconRouterMap,
   },
   {
@@ -250,9 +250,9 @@ export default function AppShell({
         </div>
 
         <nav className="sidebar-nav" aria-label="Sections">
-          <span className="nav-section-label">Routing</span>
+          <span className="nav-section-label">Explore</span>
           {VIEWS.filter((v) =>
-            ['overview', 'routing', 'kernel'].includes(v.id)
+            ['overview', 'journey'].includes(v.id)
           ).map((view) => {
             const Icon = view.icon;
             return (
@@ -277,9 +277,9 @@ export default function AppShell({
             );
           })}
 
-          <span className="nav-section-label">Network</span>
+          <span className="nav-section-label">Analyze</span>
           {VIEWS.filter((v) =>
-            ['journey', 'lab', 'diagnostics', 'discovery'].includes(v.id)
+            ['routing', 'kernel', 'diagnostics', 'discovery'].includes(v.id)
           ).map((view) => {
             const Icon = view.icon;
             return (
@@ -303,7 +303,7 @@ export default function AppShell({
           })}
 
           <span className="nav-section-label">Practice</span>
-          {VIEWS.filter((v) => v.id === 'learning').map((view) => {
+          {VIEWS.filter((v) => ['lab', 'learning'].includes(v.id)).map((view) => {
             const Icon = view.icon;
             return (
               <button

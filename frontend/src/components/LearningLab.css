@@ -29,6 +29,57 @@
   max-width: 70ch;
 }
 
+.learning-path {
+  padding: var(--space-4);
+  border: 1px solid var(--info-border);
+  border-radius: var(--radius-lg);
+  background: var(--info-soft);
+}
+
+.learning-path h3 {
+  margin: var(--space-1) 0;
+  font-size: var(--text-lg);
+}
+
+.learning-path > div > p {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.learning-path ol {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: var(--space-2);
+  padding: 0;
+  margin: var(--space-4) 0 0;
+  list-style: none;
+}
+
+.learning-path li {
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+.learning-path strong,
+.learning-path span {
+  display: block;
+}
+
+.learning-path strong {
+  color: var(--color-text);
+  font-size: var(--text-sm);
+}
+
+.learning-path span {
+  margin-top: var(--space-1);
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  line-height: 1.5;
+}
+
 .exercise-layout {
   display: grid;
   grid-template-columns: 260px 1fr;

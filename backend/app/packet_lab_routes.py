@@ -112,6 +112,17 @@ class LabStatusResponse(BaseModel):
     message: str
     router_info: Optional[RouterInfoModel] = None
     error: Optional[str] = None
+    # New fields for detailed lab lifecycle status
+    built: bool = False
+    running: bool = False
+    requires_root: bool = True
+    error_message: Optional[str] = None
+    next_step: Optional[str] = None
+    available: bool
+    state: str
+    message: str
+    router_info: Optional[RouterInfoModel] = None
+    error: Optional[str] = None
 
 
 class SimulateResponseModel(BaseModel):
@@ -157,6 +168,11 @@ async def get_lab_status() -> LabStatusResponse:
         message=lab_status.message,
         router_info=lab_status.router_info,
         error=lab_status.error,
+        built=lab_status.state != LabState.UNAVAILABLE,  # Assume built if not unavailable
+        running=lab_status.state == LabState.READY,
+        requires_root=True,  # Lab requires root permissions
+        error_message=lab_status.error,
+        next_step="verify" if lab_status.state == LabState.READY else "setup",
     )
 
 

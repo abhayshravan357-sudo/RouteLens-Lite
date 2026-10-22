@@ -6,6 +6,24 @@
   gap: var(--space-5);
 }
 
+.lab-safety-note,
+.discovery-safety-note {
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--warning-border);
+  border-left: 4px solid var(--color-warning);
+  border-radius: var(--radius-md);
+  background: var(--warning-soft);
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  line-height: 1.55;
+}
+
+.lab-safety-note strong,
+.discovery-safety-note strong {
+  color: var(--warning-text);
+}
+
 .lab-state-row {
   display: flex;
   align-items: center;

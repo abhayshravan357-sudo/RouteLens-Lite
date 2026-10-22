@@ -211,6 +211,10 @@ export default function NetworkDiagnostics({ embedded = false }: NetworkDiagnost
         </div>
       )}
 
+      <aside className="diagnostics-guidance" aria-label="About network diagnostics">
+        <strong>Read-only host checks.</strong> These results come from the machine running the backend, not automatically from the computer viewing this page. Start with Interfaces or Routes; choose Connectivity, Traceroute, Discovery, or Capture only when you understand their scope and environment requirements.
+      </aside>
+
       <div className="tab-navigation" role="tablist" aria-label="Network data tabs">
         <button
           role="tab"

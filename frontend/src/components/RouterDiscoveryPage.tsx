@@ -755,6 +755,9 @@ export default function RouterDiscoveryPage() {
           </span>
         </div>
         <div className="card-body">
+          <aside className="discovery-safety-note" aria-label="Router discovery prerequisites">
+            <strong>Before you start:</strong> provide devices and a CIDR scope you are authorised to inspect. Discovery may need protocol access (LLDP, CDP, SNMP, or SSH) and can return partial results; it never turns missing responses into confirmed topology.
+          </aside>
           <form
             className="discovery-form"
             onSubmit={(e) => {

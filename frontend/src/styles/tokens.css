@@ -1,9 +1,8 @@
 /* ==========================================================================
    RouteLens Lite — Design tokens
    --------------------------------------------------------------------------
-   A charcoal instrument panel. The base is neutral and dark, so the only
-   bright things on screen are the things that carry meaning: a selected
-   route, the hop you are looking at, the one reading that matters.
+   A charcoal workbench. The neutral base keeps tables and explanations
+   readable; colour is reserved for state, actions and the selected result.
 
    "Shine" is a deliberate, rationed treatment. It is not decoration — it
    marks the single most important element in a region. Apply it to the
@@ -11,7 +10,7 @@
    ========================================================================== */
 
 :root {
-  /* --- Surfaces: neutral charcoal, darkest to lightest --- */
+  /* --- Surfaces: charcoal, darkest to lightest --- */
   --color-bg: #0d0f11;
   --color-surface: #141719;
   --color-panel: #191d20;
@@ -20,17 +19,23 @@
   --surface-active: #2b3135;
   --surface-raised: #202529;
   --surface-inset: #0a0c0d;
+  /* Compatibility aliases used by independently built panels. */
+  --surface: var(--color-surface);
+  --surface-alt: var(--surface-subtle);
+  --surface-code: #22272a;
+  --surface-overlay: #252830;
 
   /* --- Lines --- */
   --color-border: #2b3135;
   --color-border-strong: #3f464b;
   --color-border-subtle: #22272a;
+  --border-color: var(--color-border);
   --hairline: #343b40;
 
   /* --- Text --- */
   --color-text: #eef1f3;
-  --color-text-muted: #98a1a8;
-  --text-faint: #6b7379;
+  --color-text-muted: #aab2ba;
+  --text-faint: #7e8992;
 
   /* --- Luminous accent: cold white-blue, the colour of a lit filament --- */
   --color-primary: #8ad8ff;
@@ -138,4 +143,58 @@
 
   /* --- Focus ring --- */
   --focus-ring: 0 0 0 2px var(--color-bg), 0 0 0 4px var(--color-primary);
+  /* Compatibility names for existing panels. */
+  --color-border-muted: var(--color-border);
+  --color-surface-alt: var(--surface-subtle);
+  --color-surface-code: #eaeef2;
+  --color-gray-500: #57606a;
+  --color-success-soft-bg: #e6f4ea;
+  --color-success-soft-border: #a8d5b1;
+  --color-error-soft-bg: #fdecea;
+  --color-error-soft-border: #f5c6c6;
+  --color-white: #fff;
+  --color-success-dark: #1a7f37;
+  --color-error-dark: #d1242f;
+  /* Accent blues */
+  --color-accent-blue: #0969da;
+  --color-accent-blue-light: #58a6ff;
+  --color-accent-blue-dark: #3fb950;
+  /* Alert / badge colours */
+  --color-warning-bg: #ff727c;
+  --color-muted-bg: #64748b;
+  --color-simulated-bg: #ddf4ff;
+  --color-simulated-text: #0969da;
+  --color-challenge-bg: #fff8c5;
+  --color-challenge-text: #9a6700;
+  --color-live-bg: #dafbe1;
+  --color-live-text: #1a7f37;
+  /* Text colours */
+  --color-text-dark: var(--color-text);
+  --color-bg-highlight: #f0f7ff;
+  /* Miscellaneous */
+  --color-danger-bg: #cf222e;
+  --color-danger-border: #ffc8c8;
+  --color-danger-hover: #ffebe9;
+  --color-success-light-bg: #f0fdf4;
+  --color-success-light-border: #bbf7d0;
+  --color-failure-bg: #fff8f8;
+  --color-failure-border: #fecaca;
+  --color-diagnosis-success-bg: #dcfce7;
+  --color-diagnosis-success-text: #15803d;
+  --color-diagnosis-failure-bg: #fee2e2;
+  --color-diagnosis-failure-text: #b91c1c;
+  --color-bg-dark: var(--color-bg);
+  --color-bg-darker: var(--surface-muted);
+  --color-muted-dark: var(--color-text-muted);
+  --color-faint-dark: var(--color-text);
+  --color-surface-dark: var(--surface-subtle);
+  /* Additional accents */
+  --color-accent-green: #48d597;
+  --color-accent-yellow: #f6c76a;
+
+  --color-warning-dark: #8a5900;
+  --color-overlay-04: rgba(15, 23, 42, 0.04);
+  --color-overlay-20: rgba(0, 0, 0, 0.2);
+  --color-white-overlay-04: rgba(255, 255, 255, 0.04);
+
 }
