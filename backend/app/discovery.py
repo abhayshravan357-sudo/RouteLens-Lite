@@ -30,7 +30,11 @@ from typing import Deque, Dict, List, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from app.security import TargetValidationError, validate_target
+from app.security import (
+    TargetValidationError,
+    reject_unsafe_target_chars,
+    validate_target,
+)
 
 
 #: A scan may not cover more than this many addresses.
@@ -173,10 +177,24 @@ def validate_scope(
         validated = validate_target(target)
     except TargetValidationError as exc:
         # A CIDR network is not a host name, so it is validated separately.
-        if "/" in target and not any(ch.isspace() for ch in target) and not target.startswith("-"):
-            validated = target
-        else:
+        #
+        # It goes through the same shared character filter as a host
+        # target, so a network cannot carry a metacharacter into a
+        # command. The filter is applied to the raw target, so leading or
+        # trailing whitespace is still refused, exactly as it was when
+        # this branch checked for whitespace and a leading dash itself.
+        #
+        # The filter is strictly stronger than the check it replaces: it
+        # also refuses shell metacharacters. That does not change which
+        # inputs are accepted, because ip_network() refused every one of
+        # those strings anyway. Only the wording of the refusal changes.
+        try:
+            reject_unsafe_target_chars(target)
+        except TargetValidationError:
             raise DiscoveryScopeError(str(exc)) from exc
+        if "/" not in target:
+            raise DiscoveryScopeError(str(exc)) from exc
+        validated = target
 
     try:
         if "/" in validated:
