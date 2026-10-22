@@ -21,3 +21,6 @@ frontend/frontend.log
 # OS
 .DS_Store
 Thumbs.db
+
+# Local Python virtual environment
+.venv/
