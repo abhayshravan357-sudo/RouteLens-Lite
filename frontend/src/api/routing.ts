@@ -155,7 +155,7 @@ async function fetchWithTimeout<T>(
     clearTimeout(timeoutId);
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
+      const error = await response.json().catch(() => ({ detail: null }));
 
       if (response.status === 503) {
         throw new LabUnavailableError(
@@ -399,7 +399,7 @@ export async function checkConnectivity(
     }
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
+      const error = await response.json().catch(() => ({ detail: null }));
       throw new ApiError(
         formatDetail(error.detail, `Request failed: ${response.status}`),
         response.status,

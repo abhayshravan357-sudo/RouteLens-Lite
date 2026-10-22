@@ -146,7 +146,7 @@
 }
 
 .legend-swatch.inferred {
-  border-top-color: #63b3ff;
+  border-top-color: #f6c76a;
   border-top-style: dashed;
 }
 
@@ -156,6 +156,14 @@
   border: none;
   border-radius: 50%;
   background: #ff727c;
+}
+
+.legend-swatch.not-reached {
+  width: 10px;
+  height: 10px;
+  border: none;
+  border-radius: 50%;
+  background: #64748b;
 }
 
 .discovery-canvas {
@@ -285,19 +293,40 @@
   white-space: nowrap;
 }
 
-.dnode-failed {
+/* A device that could not be collected, and a device that was never
+   reached, are told apart. */
+.dnode-state {
   align-self: flex-start;
-  margin-top: 3px;
+  margin-top: 4px;
   padding: 1px 6px;
   border-radius: var(--radius-sm);
-  background: var(--error-soft);
-  border: 1px solid var(--error-border);
-  color: var(--error-text);
   font-family: var(--font-mono);
   font-size: 0.5625rem;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+.dnode-state.failed {
+  background: var(--error-soft);
+  border: 1px solid var(--error-border);
+  color: var(--error-text);
+}
+
+.dnode-state.not-reached {
+  background: var(--surface-active);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+}
+
+.dnode.not-reached {
+  border-style: dashed;
+  background: var(--surface-subtle);
+}
+
+.dnode .provenance-badge {
+  align-self: flex-start;
+  margin-top: 4px;
 }
 
 /* ==========================================================================
@@ -394,6 +423,13 @@
   font-size: var(--text-base);
   font-weight: 600;
   color: var(--color-text);
+}
+
+.discovery-finding-tags {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
 }
 
 .discovery-finding-severity {
@@ -518,4 +554,31 @@
   .discovery-compare .discovery-field select {
     max-width: none;
   }
+}
+
+/* The points the links join to. */
+.dnode-handle {
+  width: 6px;
+  height: 6px;
+  background: var(--color-border-strong);
+  border: none;
+}
+
+.dnode-handle:hover {
+  background: var(--color-primary);
+}
+
+/* A run that stopped at a limit is not a complete picture, and says so. */
+.discovery-truncated {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--warning-soft);
+  border: 1px solid var(--warning-border);
+  border-radius: var(--radius-md);
+  color: var(--warning-text);
+  font-size: var(--text-sm);
+  line-height: 1.6;
 }

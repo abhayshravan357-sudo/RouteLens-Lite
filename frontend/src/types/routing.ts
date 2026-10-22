@@ -938,7 +938,12 @@ export interface DeviceSnapshot {
   neighbors: Neighbor[];
   /** Why parts of this device could not be read. */
   errors: string[];
-  provenance: RouterDiscoveryProvenance;
+  /**
+   * Whether this reading was measured or deduced.
+   *
+   * A route read out of a device is observed. Absent means unknown.
+   */
+  provenance?: RouterDiscoveryProvenance;
 }
 
 /** A link between two devices. */
@@ -958,8 +963,15 @@ export interface RouterDiscoveryNode {
   device_id: string;
   /** What the reader sees on the map. */
   label: string;
-  provenance: RouterDiscoveryProvenance;
-  /** Set when the device could not be collected at all. */
+  /**
+   * Where this device's reading came from.
+   *
+   * A device that was collected is observed. A device that was never
+   * reached is unknown — it is shown as a failure, not as an ordinary node
+   * with empty fields. Absent means unknown, never observed.
+   */
+  provenance?: RouterDiscoveryProvenance;
+  /** Set when the device refused, timed out, or returned something unreadable. */
   error: string | null;
   /** Partial failures while collecting this device. */
   errors: string[];
@@ -990,6 +1002,13 @@ export interface RouterDiscoveryFinding {
   detail: string;
   /** What the backend used to reach the conclusion. */
   evidence: string;
+  /**
+   * Whether the finding was measured or deduced.
+   *
+   * A finding that is an inference has to say so, or a student cannot tell
+   * a suspicion from a measurement.
+   */
+  provenance?: RouterDiscoveryProvenance;
 }
 
 /** The state of one discovery run. */

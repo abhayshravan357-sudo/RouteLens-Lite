@@ -27,6 +27,8 @@ import {
   Controls,
   MiniMap,
   BackgroundVariant,
+  Handle,
+  Position,
   type Node,
   type Edge,
   type NodeTypes,
@@ -35,6 +37,8 @@ import {
 import '@xyflow/react/dist/style.css';
 import dagre from 'dagre';
 import {
+  ApiError,
+  TimeoutError,
   startRouterDiscoveryRun,
   fetchRouterDiscoveryRun,
   fetchRouterDiscoveryGraph,
@@ -61,24 +65,30 @@ import './RouterDiscoveryPage.css';
    ========================================================================== */
 
 /**
- * An observed edge is solid: the device told us the neighbour was there.
- * An inferred edge is dashed: the backend worked it out. A reader should
- * be able to tell them apart without reading the legend, and the legend
- * says it in words anyway.
+ * The colours carry the same meaning they carry everywhere else in the
+ * application: green is what was measured, amber is what was deduced.
+ *
+ * The *shape* carries it too — an observed link is solid and an inferred
+ * one is dashed — so a reader who cannot rely on colour alone can still
+ * tell them apart. A map that drew an inferred link as if it had been
+ * observed would be lying in the most visible place in the product.
  */
 const EDGE_COLORS: Record<string, string> = {
   observed: '#48D597',
-  inferred: '#63B3FF',
+  inferred: '#F6C76A',
   simulated: '#9B8CFF',
   unknown: '#94A3B8',
 };
 
 const NODE_COLORS: Record<string, string> = {
   observed: '#48D597',
-  inferred: '#63B3FF',
+  inferred: '#F6C76A',
   simulated: '#9B8CFF',
   unknown: '#94A3B8',
 };
+
+/** A device that refused, timed out, or returned something unreadable. */
+const FAILED_COLOR = '#FF727C';
 
 const EDGE_KIND_LABELS: Record<string, string> = {
   lldp: 'LLDP',
@@ -87,25 +97,56 @@ const EDGE_KIND_LABELS: Record<string, string> = {
   shared_subnet: 'shared subnet',
 };
 
-const FAILED_COLOR = '#FF727C';
-
 interface DiscoveryNodeData {
   node: RouterDiscoveryNode;
+  /** The device was reached and read. */
+  collected: boolean;
+  /** The device refused, timed out, or came back unreadable. */
   failed: boolean;
+  /** The device was never reached at all. */
+  notReached: boolean;
   dimmed: boolean;
 }
 
-function DiscoveryNode({ data, selected }: { data: DiscoveryNodeData; selected?: boolean }) {
-  const { node, failed, dimmed } = data;
-  const color = failed ? FAILED_COLOR : NODE_COLORS[node.provenance] ?? NODE_COLORS.unknown;
+/**
+ * A device on the map.
+ *
+ * Three states are told apart, because they mean different things:
+ *
+ *   - **collected** — the device was reached and read. Ordinary node.
+ *   - **not collected** — it refused, timed out, or came back unreadable.
+ *     Red, with the reason on it.
+ *   - **never reached** — nothing was heard from it at all. It is shown
+ *     grey and says so, rather than pretending to be an ordinary device
+ *     with nothing to show.
+ */
+function DiscoveryNode({
+  data,
+  selected,
+}: {
+  data: DiscoveryNodeData;
+  selected?: boolean;
+}) {
+  const { node, collected, failed, notReached, dimmed } = data;
+  const provenance = node.provenance ?? 'unknown';
+  const color = failed
+    ? FAILED_COLOR
+    : collected
+    ? NODE_COLORS[provenance] ?? NODE_COLORS.unknown
+    : NODE_COLORS.unknown;
 
   return (
     <div
-      className={`dnode ${failed ? 'failed' : ''} ${selected ? 'selected' : ''} ${
-        dimmed ? 'dimmed' : ''
-      }`}
+      className={`dnode ${failed ? 'failed' : ''} ${
+        notReached ? 'not-reached' : ''
+      } ${selected ? 'selected' : ''} ${dimmed ? 'dimmed' : ''}`}
       style={{ borderColor: color }}
     >
+      {/* React Flow attaches the links to these. Without them the edges
+          have nothing to join to. */}
+      <Handle type="target" position={Position.Left} className="dnode-handle" />
+      <Handle type="source" position={Position.Right} className="dnode-handle" />
+
       <span className="dnode-dot" style={{ background: color }} aria-hidden="true" />
       <span className="dnode-label" title={node.label}>
         {node.label}
@@ -113,7 +154,18 @@ function DiscoveryNode({ data, selected }: { data: DiscoveryNodeData; selected?:
       <span className="dnode-id" title={node.device_id}>
         {node.device_id}
       </span>
-      {failed && <span className="dnode-failed">not collected</span>}
+
+      {failed && (
+        <span className="dnode-state failed" title={node.error ?? undefined}>
+          not collected
+        </span>
+      )}
+      {!failed && notReached && (
+        <span className="dnode-state not-reached">never reached</span>
+      )}
+      {!failed && !notReached && (
+        <ProvenanceBadge provenance={provenance} size="small" />
+      )}
     </div>
   );
 }
@@ -196,10 +248,27 @@ function looksLikeSeed(value: string): boolean {
   return /^[A-Za-z0-9._:/-]+$/.test(trimmed);
 }
 
-function formatBytes(value: number): string {
-  if (value < 1024) return `${value} B`;
-  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
-  return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+/**
+ * Say what went wrong in terms the reader can act on.
+ *
+ * A 404 in particular means this backend does not have the router
+ * discovery endpoints yet, which is worth saying plainly rather than
+ * showing a bare status code.
+ */
+function describeApiError(error: unknown, what: string): string {
+  if (error instanceof ApiError) {
+    if (error.status === 404) {
+      return `This backend does not have the router discovery endpoints yet, so ${what} could not be started.`;
+    }
+    if (error.status === 503) {
+      return `The backend is not able to ${what} right now.`;
+    }
+    return error.message;
+  }
+  if (error instanceof TimeoutError) {
+    return `The request to ${what} timed out.`;
+  }
+  return error instanceof Error ? error.message : `Could not ${what}.`;
 }
 
 function describeFailure(value: unknown): string {
@@ -277,12 +346,25 @@ export default function RouterDiscoveryPage() {
   const flowNodes: Node[] = useMemo(
     () =>
       (graph?.nodes ?? []).map((node) => {
-        const failed = Boolean(node.error) || (node.errors?.length ?? 0) > 0;
+        // Three states, told apart because they mean different things: the
+        // device was read, it refused or timed out, or nothing was heard
+        // from it at all.
+        const failed =
+          Boolean(node.error) || (node.errors?.length ?? 0) > 0;
+        const provenance = node.provenance ?? 'unknown';
+        const notReached = !failed && provenance === 'unknown';
+        const collected = !failed && !notReached;
         return {
           id: node.device_id,
           type: 'discovery',
           position: positions.get(node.device_id) ?? { x: 0, y: 0 },
-          data: { node, failed, dimmed: false } satisfies DiscoveryNodeData,
+          data: {
+            node,
+            collected,
+            failed,
+            notReached,
+            dimmed: false,
+          } satisfies DiscoveryNodeData,
           selected: selectedDeviceId === node.device_id,
           draggable: true,
         };
@@ -411,9 +493,7 @@ export default function RouterDiscoveryPage() {
         ...current.filter((r) => r.run_id !== started.run_id),
       ]);
     } catch (err) {
-      setRunError(
-        err instanceof Error ? err.message : 'The run could not be started'
-      );
+      setRunError(describeApiError(err, 'a discovery run'));
     } finally {
       setStarting(false);
     }
@@ -450,11 +530,7 @@ export default function RouterDiscoveryPage() {
             setGraphError(null);
           } catch (err) {
             if (!cancelled) {
-              setGraphError(
-                err instanceof Error
-                  ? err.message
-                  : 'The results of the run could not be read'
-              );
+              setGraphError(describeApiError(err, 'read the results'));
             }
           } finally {
             if (!cancelled) setLoadingGraph(false);
@@ -463,9 +539,7 @@ export default function RouterDiscoveryPage() {
         }
       } catch (err) {
         if (cancelled) return;
-        setRunError(
-          err instanceof Error ? err.message : 'The run status could not be read'
-        );
+        setRunError(describeApiError(err, 'read the run status'));
         setPolling(false);
         return;
       }
@@ -515,11 +589,7 @@ export default function RouterDiscoveryPage() {
       .catch((err) => {
         if (!cancelled) {
           setDevice(null);
-          setDeviceError(
-            err instanceof Error
-              ? err.message
-              : 'This device could not be read'
-          );
+          setDeviceError(describeApiError(err, 'read this device'));
         }
       })
       .finally(() => {
@@ -530,6 +600,56 @@ export default function RouterDiscoveryPage() {
       cancelled = true;
     };
   }, [runId, selectedDeviceId]);
+
+  /**
+   * Whether the selected device was actually read.
+   *
+   * The map's node carries the failure; the device the backend returns may
+   * not. The node is the authority, so the drawer never claims an
+   * uncollected device's empty table is a real reading.
+   */
+  const selectedNode = useMemo(
+    () =>
+      (graph?.nodes ?? []).find((node) => node.device_id === selectedDeviceId) ??
+      null,
+    [graph, selectedDeviceId]
+  );
+
+  const selectedNodeWasNotCollected = useMemo(() => {
+    if (!selectedNode) return false;
+    return Boolean(selectedNode.error) || (selectedNode.errors?.length ?? 0) > 0;
+  }, [selectedNode]);
+
+  const selectedNodeFailureReason = useMemo(() => {
+    if (!selectedNode) return null;
+    if (selectedNode.error) return selectedNode.error;
+    if (selectedNode.errors && selectedNode.errors.length > 0) {
+      return selectedNode.errors.join('; ');
+    }
+    return null;
+  }, [selectedNode]);
+
+  /**
+   * Whether the run stopped at a limit rather than finishing.
+   *
+   * The backend does not report this yet, so nothing is claimed until it
+   * does. The check is deliberately loose, because a run that was cut
+   * short must never be drawn as a complete one — but it can only ever
+   * *add* a notice, never remove one. When the backend names the field,
+   * it can be wired to that name exactly.
+   */
+  const runWasTruncated = useMemo(() => {
+    if (!run) return false;
+    const status = (run.status ?? '').toLowerCase();
+    if (status.includes('truncat') || status.includes('limit')) return true;
+    const flags = run as unknown as Record<string, unknown>;
+    return Boolean(
+      flags.truncated ??
+        flags.limit_reached ??
+        flags.depth_limit_reached ??
+        flags.truncated_at_limit
+    );
+  }, [run]);
 
   const filteredRoutes = useMemo(() => {
     if (!device) return [];
@@ -575,9 +695,7 @@ export default function RouterDiscoveryPage() {
       setDiff(result);
     } catch (err) {
       setDiff(null);
-      setDiffError(
-        err instanceof Error ? err.message : 'The two runs could not be compared'
-      );
+      setDiffError(describeApiError(err, 'compare the two runs'));
     } finally {
       setDiffLoading(false);
     }
@@ -733,6 +851,17 @@ export default function RouterDiscoveryPage() {
                 </ol>
               )}
 
+              {runWasTruncated && (
+                <div className="discovery-truncated" role="status">
+                  <span aria-hidden="true">⚠</span>
+                  <span>
+                    This run stopped at a limit, so what is shown is only part
+                    of what was reached. It is not a complete picture of the
+                    network.
+                  </span>
+                </div>
+              )}
+
               {failureEntries.length > 0 && (
                 <div className="discovery-failures">
                   <h4>What could not be collected</h4>
@@ -819,18 +948,23 @@ export default function RouterDiscoveryPage() {
               <div className="discovery-legend">
                 <span className="legend-item">
                   <span className="legend-swatch observed" aria-hidden="true" />
-                  <strong>Observed</strong> — the device said so (LLDP or CDP).
-                  Solid.
+                  <strong>Observed</strong> — the device reported the
+                  neighbour itself (LLDP or CDP). Solid.
                 </span>
                 <span className="legend-item">
                   <span className="legend-swatch inferred" aria-hidden="true" />
-                  <strong>Inferred</strong> — the backend worked it out (a next
-                  hop or a shared subnet). Dashed.
+                  <strong>Inferred</strong> — the backend worked it out from a
+                  next hop or a shared subnet. Dashed.
                 </span>
                 <span className="legend-item">
                   <span className="legend-swatch failed" aria-hidden="true" />
-                  <strong>Not collected</strong> — the device could not be
-                  read.
+                  <strong>Not collected</strong> — the device refused, timed
+                  out, or came back unreadable.
+                </span>
+                <span className="legend-item">
+                  <span className="legend-swatch not-reached" aria-hidden="true" />
+                  <strong>Never reached</strong> — nothing was heard from the
+                  device at all.
                 </span>
               </div>
 
@@ -863,11 +997,16 @@ export default function RouterDiscoveryPage() {
                     pannable
                     zoomable
                     nodeColor={(node) => {
-                      const data = node.data as DiscoveryNodeData | undefined;
+                      const data = node.data as unknown as
+                        | DiscoveryNodeData
+                        | undefined;
                       if (!data) return '#94A3B8';
-                      return data.failed
-                        ? FAILED_COLOR
-                        : NODE_COLORS[data.node.provenance] ?? NODE_COLORS.unknown;
+                      if (data.failed) return FAILED_COLOR;
+                      if (data.notReached) return '#64748B';
+                      return (
+                        NODE_COLORS[data.node.provenance ?? 'unknown'] ??
+                        NODE_COLORS.unknown
+                      );
                     }}
                     maskColor="rgba(11, 16, 32, 0.72)"
                   />
@@ -946,7 +1085,7 @@ export default function RouterDiscoveryPage() {
                     <span className="detail-label">Provenance</span>
                     <span className="detail-value">
                       <ProvenanceBadge
-                        provenance={device.provenance}
+                        provenance={device.provenance ?? 'unknown'}
                         size="small"
                       />
                     </span>
@@ -1045,21 +1184,55 @@ export default function RouterDiscoveryPage() {
                 <h3 className="panel-title">
                   Routing table ({device.routes.length})
                 </h3>
-                <p className="device-routes-source">
-                  Read from{' '}
-                  <strong>{device.method ?? 'an unreported method'}</strong> on{' '}
-                  <span className="mono">{device.device_id}</span>
-                  {device.collected_at ? ` at ${device.collected_at}` : ''}.
-                  {device.provenance === 'observed'
-                    ? ' These are the numbers the device reported.'
-                    : ' These are the backend’s reading of the device.'}
-                </p>
+
+                {/*
+                  Whether this device was actually read decides what may be
+                  said about its routes.
+
+                  The map already knows: the node carries the failure. The
+                  device the backend returns cannot always carry it, and a
+                  404 would be indistinguishable from a wrong id. So the
+                  node is the authority, and an uncollected device never gets
+                  a sentence claiming its empty table is a real reading.
+                */}
+                {selectedNodeWasNotCollected ? (
+                  <div className="error-message" role="status">
+                    <span aria-hidden="true">⚠</span>
+                    <span>
+                      This device was not collected, so nothing can be said
+                      about its routing table.{' '}
+                      {selectedNodeFailureReason
+                        ? `The backend reported: ${selectedNodeFailureReason}`
+                        : 'The backend did not say why.'}{' '}
+                      The table below is empty because there was nothing to
+                      read, not because the device has no routes.
+                    </span>
+                  </div>
+                ) : (
+                  <p className="device-routes-source">
+                    Read from{' '}
+                    <strong>{device.method ?? 'an unreported method'}</strong>{' '}
+                    on <span className="mono">{device.device_id}</span>
+                    {device.collected_at ? ` at ${device.collected_at}` : ''}.{' '}
+                    {device.provenance === 'observed'
+                      ? 'These are the numbers the device itself reported.'
+                      : device.provenance === 'inferred'
+                      ? 'These are the backend’s reading, deduced from other data — not the device’s own numbers.'
+                      : 'It is not known whether these came from the device or were deduced.'}
+                  </p>
+                )}
 
                 {device.routes.length === 0 ? (
-                  <p className="device-muted">
-                    This device reported no routes. That is a real reading, not
-                    a missing one.
-                  </p>
+                  selectedNodeWasNotCollected ? (
+                    <p className="device-muted">
+                      No routes were read, because the device was not read.
+                    </p>
+                  ) : (
+                    <p className="device-muted">
+                      This device reported no routes. That is a real reading,
+                      not a missing one.
+                    </p>
+                  )
                 ) : (
                   <>
                     <div className="device-route-toolbar">
@@ -1161,8 +1334,21 @@ export default function RouterDiscoveryPage() {
                       <span className="discovery-finding-title">
                         {finding.title}
                       </span>
-                      <span className="discovery-finding-severity">
-                        {finding.severity}
+                      <span className="discovery-finding-tags">
+                        {/*
+                          A finding that rests on an inference has to say so
+                          in the finding. A backend that does not send a
+                          provenance has not established one, so the honest
+                          reading is "unknown" — not a blank space that a
+                          reader might mistake for "observed".
+                        */}
+                        <ProvenanceBadge
+                          provenance={finding.provenance ?? 'unknown'}
+                          size="small"
+                        />
+                        <span className="discovery-finding-severity">
+                          {finding.severity}
+                        </span>
                       </span>
                     </div>
                     <p className="discovery-finding-detail">{finding.detail}</p>
