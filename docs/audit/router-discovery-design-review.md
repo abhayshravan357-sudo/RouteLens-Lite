@@ -67,37 +67,90 @@ class Route(BaseModel):
 best = max(candidates, key=lambda r: (r.net.prefixlen, -r.metric))
 ```
 
-A real router ranks routes by **admin distance first**, then prefix length,
-then metric. This model has no field for admin distance and no field for
-protocol, and `lookup()` compares metric only between routes of equal prefix
-length.
+### What administrative distance actually decides
 
-**Confirmed at runtime**, on a table of two lines:
+This needs to be stated precisely, because the distinction is the whole
+finding.
+
+A router works in two steps:
+
+1. **Build the FIB.** For each *prefix*, one route is installed — the best
+   of the candidates for that prefix, by administrative distance first, then
+   metric. So the FIB holds one route for `10.0.0.0/8`, and one for
+   `10.0.0.0/24`, and nothing else.
+2. **Forward.** Longest prefix match over the FIB.
+
+So:
+
+- **Administrative distance decides between routes for the SAME prefix.** It
+  is what the FIB construction compares.
+- **Longest prefix match decides between prefixes.** Administrative distance
+  is irrelevant there, because the less specific route was never a candidate
+  for that destination.
+
+The textbook case everybody knows: a default route `0.0.0.0/0` with
+administrative distance 1 and a specific `10.0.0.0/8` with administrative
+distance 110. A packet to `10.1.2.3` goes out the `/8`, not the default,
+even though the default has the better administrative distance.
+
+### Where the engine is wrong
+
+`lookup()` compares `(prefixlen, -metric)`. It has no protocol and no
+administrative distance, so it cannot compare two routes for the same
+prefix the way a router does.
+
+**Confirmed at runtime**, on the case where administrative distance really
+does decide — the same prefix, two protocols:
 
 ```
-real table:
-  10.0.0.0/8   via 10.0.1.2 dev eth0 proto bgp   metric 20   admin-distance 20
-  10.0.0.0/24  via 10.0.2.2 dev eth1 proto ospf  metric 110  admin-distance 110
--> a REAL router picks 10.0.0.0/8  (admin distance 20 < 110)
--> the ENGINE picks 10.0.0.0/24 via 10.0.2.2 dev eth1
-the trace says the packet goes to: 10.0.2.2 (next node ospfpeer)
-*** THE TRACE SHOWS A PATH THE ROUTER WOULD NOT TAKE. ***
+10.0.0.0/8       via 10.0.1.2  dev eth0  proto bgp   metric 20   admin-distance 20
+10.0.0.0/8       via 10.0.2.2  dev eth1  proto ospf  metric 5    admin-distance 110
+a REAL router picks : 10.0.0.0/8 via 10.0.1.2 (bgp: admin 20 beats admin 110)
+the ENGINE picks    : 10.0.0.0/8 via 10.0.2.2 dev eth1
+=> *** DISAGREE ***
 ```
 
-**Smallest fix.** Do not present such a trace as "the path the packet would
-take". Either:
+The engine chose the OSPF route because its metric is lower. A router
+installs the BGP route for that prefix because its administrative distance
+is lower, and the OSPF route's better metric never comes into it.
 
-- add `admin_distance` and `protocol` to `Route` and make `lookup()` rank the
-  way a router does, or
-- label the result as *the longest-prefix decision over the routes that were
-  collected*, and say plainly, when the collected table contains routes from
-  more than one protocol, that the device's own selection order may differ.
+### The cases where the engine is right, for completeness
 
-**Also in D2:** `Route.source` is only `"connected"` or `"static"`. Labelling a
-BGP route `"static"` is a provenance lie in the same field the teaching model
-uses to explain *why* a route won. If the analysis cannot say what protocol a
-route came from, it must say that it does not know, rather than assert
-"static".
+```
+10.0.0.0/8   bgp admin 20    vs   10.0.0.0/24  ospf admin 110
+   a REAL router picks : 10.0.0.0/24 via 10.0.2.2 (the /24 is more specific)
+   the ENGINE picks    : 10.0.0.0/24 via 10.0.2.2
+   => AGREE
+
+0.0.0.0/0    static admin 1  vs   10.0.0.0/8   bgp admin 110
+   a REAL router picks : 10.0.0.0/8 via 10.0.2.2 (more specific)
+   the ENGINE picks    : 10.0.0.0/8 via 10.0.2.2
+   => AGREE
+```
+
+An earlier version of this review used the different-prefix case as its
+example, and was wrong: it claimed a router would prefer the `/8` because
+its administrative distance was lower. A router does not do that, because
+the `/8` was never a candidate for a destination the `/24` already covers.
+The finding stands; the worked example above is the correct one.
+
+### Smallest fix
+
+Do not present such a trace as "the path the packet would take". Either:
+
+- add `admin_distance` and `protocol` to `Route`, and make `lookup()`
+  compare administrative distance before metric when the prefix is the
+  same, or
+- label the result as *the longest-prefix decision over the routes that
+  were collected*, and say plainly, when the collected table contains
+  routes from more than one protocol for one prefix, that the device's own
+  choice between them may differ.
+
+**Also in D2:** `Route.source` is only `"connected"` or `"static"`.
+Labelling a BGP route `"static"` is a provenance lie in the same field the
+teaching model uses to explain *why* a route won. If the analysis cannot
+say what protocol a route came from, it must say that it does not know,
+rather than assert "static".
 
 **Owner:** scenario.py stream, or the analysis stream if it keeps its own
 route model.
