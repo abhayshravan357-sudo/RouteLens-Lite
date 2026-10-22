@@ -45,6 +45,62 @@ class TargetValidationError(ValueError):
     """The supplied target is not an acceptable host or address."""
 
 
+#: Characters that must never appear in a value that will be handed to a
+#: command or a device. A leading dash is handled separately, because it
+#: would let the value be read as an option rather than as an argument.
+SHELL_METACHARACTERS = ";|&$`<>(){}[]!\"'*\\"
+
+
+def reject_unsafe_target_chars(value: str) -> str:
+    """
+    Apply the shared safety filter to a value that will be used as a
+    command argument or a device address.
+
+    The value is checked **exactly as given**. It is not stripped, because
+    a caller that strips has already decided that surrounding whitespace is
+    acceptable, and a caller that does not strip must still have leading or
+    trailing whitespace refused.
+
+    The filter rejects a value that:
+    - is empty, or is not a string
+    - starts with "-", so it can never be read as a command line option
+    - contains whitespace
+    - contains a shell metacharacter
+
+    The same filter is used for a host target and for a CIDR network, so
+    that a network cannot carry a metacharacter into a command. It is
+    applied *before* the value is parsed, rather than relying on the parser
+    to notice a metacharacter later.
+
+    Args:
+        value: The value to check.
+
+    Returns:
+        The value, unchanged.
+
+    Raises:
+        TargetValidationError: if the value is not safe to use.
+    """
+    if not isinstance(value, str):
+        raise TargetValidationError("A target is required")
+
+    if not value:
+        raise TargetValidationError("A target is required")
+
+    # A leading dash would let the value be read as an option by the
+    # underlying tool. Reject it outright.
+    if value.startswith("-"):
+        raise TargetValidationError("A target may not start with '-'")
+
+    # Reject anything with shell or whitespace metacharacters.
+    if any(ch.isspace() for ch in value):
+        raise TargetValidationError("A target may not contain whitespace")
+    if any(ch in value for ch in SHELL_METACHARACTERS):
+        raise TargetValidationError("A target may not contain shell metacharacters")
+
+    return value
+
+
 def validate_target(target: str) -> str:
     """
     Validate a user supplied target for use as a command argument.
@@ -63,16 +119,11 @@ def validate_target(target: str) -> str:
     if not candidate:
         raise TargetValidationError("A target is required")
 
-    # A leading dash would let the target be read as an option by the
-    # underlying tool. Reject it outright.
-    if candidate.startswith("-"):
-        raise TargetValidationError("A target may not start with '-'")
-
-    # Reject anything with shell or whitespace metacharacters.
-    if any(ch.isspace() for ch in candidate):
-        raise TargetValidationError("A target may not contain whitespace")
-    if any(ch in candidate for ch in ";|&$`<>(){}[]!\"'*\\"):
-        raise TargetValidationError("A target may not contain shell metacharacters")
+    # The shared filter does the character checks. It is given the
+    # stripped form, because a target with surrounding whitespace is
+    # accepted and trimmed, exactly as it was before the filter was
+    # shared out.
+    reject_unsafe_target_chars(candidate)
 
     # Literal addresses are always fine.
     try:
