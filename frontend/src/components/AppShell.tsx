@@ -31,7 +31,38 @@ export type ViewId =
   | 'journey'
   | 'lab'
   | 'diagnostics'
+  | 'discovery'
   | 'learning';
+
+/**
+ * The mark for the router map: three devices joined by two links.
+ *
+ * It lives here rather than in the shared Icons module because this view
+ * owns it, and the two features — the ICMP host sweep and the router map —
+ * must not be mistaken for one another.
+ */
+function IconRouterMap({ size = 18 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.8}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+      focusable={false}
+    >
+      <rect x="1.8" y="3.5" width="6" height="5" rx="1.2" />
+      <rect x="1.8" y="15.5" width="6" height="5" rx="1.2" />
+      <rect x="16.2" y="9.5" width="6" height="5" rx="1.2" />
+      <path d="M7.8 6h3.4a2 2 0 0 1 2 2v1.5" />
+      <path d="M7.8 18h3.4a2 2 0 0 0 2-2v-1.5" />
+    </svg>
+  );
+}
 
 export interface ViewDefinition {
   id: ViewId;
@@ -83,6 +114,14 @@ export const VIEWS: ViewDefinition[] = [
     title: 'Network Diagnostics',
     description: 'Read the live state of this host: interfaces, routes, neighbours, DNS, traceroute.',
     icon: IconDiagnostics,
+  },
+  {
+    id: 'discovery',
+    label: 'Router Discovery',
+    title: 'Router Discovery',
+    description:
+      'Walk a network of routers, read their tables, and see which links were observed and which were deduced.',
+    icon: IconRouterMap,
   },
   {
     id: 'learning',
@@ -208,7 +247,7 @@ export default function AppShell({
 
           <span className="nav-section-label">Network</span>
           {VIEWS.filter((v) =>
-            ['journey', 'lab', 'diagnostics'].includes(v.id)
+            ['journey', 'lab', 'diagnostics', 'discovery'].includes(v.id)
           ).map((view) => {
             const Icon = view.icon;
             return (

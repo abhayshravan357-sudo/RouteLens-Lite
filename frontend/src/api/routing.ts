@@ -43,6 +43,16 @@ import type {
   RouteAnalysisReport,
   RouteRequest,
   RoutesSummary,
+  RouterDiscoveryRunRequest,
+  RouterDiscoveryRunStart,
+  RouterDiscoveryRun,
+  RouterDiscoveryGraph,
+  RouterDiscoveryDevice,
+  RouterDiscoveryDeviceRoutes,
+  RouterDiscoveryFindings,
+  RouterDiscoveryDiff,
+  RouterDiscoveryTraceRequest,
+  TraceResult,
 } from '../types/routing';
 
 const API_BASE = '';
@@ -145,7 +155,7 @@ async function fetchWithTimeout<T>(
     clearTimeout(timeoutId);
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
+      const error = await response.json().catch(() => ({ detail: null }));
 
       if (response.status === 503) {
         throw new LabUnavailableError(
@@ -389,7 +399,7 @@ export async function checkConnectivity(
     }
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
+      const error = await response.json().catch(() => ({ detail: null }));
       throw new ApiError(
         formatDetail(error.detail, `Request failed: ${response.status}`),
         response.status,
@@ -690,5 +700,99 @@ export async function analyzeCaptureFile(filename: string, dataBase64: string): 
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(request),
     }
+  );
+}
+
+/**
+ * Router discovery.
+ *
+ * A different thing from the ICMP host sweep in `/api/discovery/`: that
+ * one pings a network for hosts, this one walks a network of routers and
+ * reads their tables and their neighbour lists.
+ */
+export async function startRouterDiscoveryRun(
+  request: RouterDiscoveryRunRequest
+): Promise<RouterDiscoveryRunStart> {
+  return fetchWithTimeout<RouterDiscoveryRunStart>(
+    '/api/router-discovery/runs',
+    DIAGNOSTICS_TIMEOUT,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    }
+  );
+}
+
+export async function fetchRouterDiscoveryRun(
+  runId: string
+): Promise<RouterDiscoveryRun> {
+  return fetchWithTimeout<RouterDiscoveryRun>(
+    `/api/router-discovery/runs/${encodeURIComponent(runId)}`,
+    DIAGNOSTICS_TIMEOUT
+  );
+}
+
+export async function fetchRouterDiscoveryGraph(
+  runId: string
+): Promise<RouterDiscoveryGraph> {
+  return fetchWithTimeout<RouterDiscoveryGraph>(
+    `/api/router-discovery/runs/${encodeURIComponent(runId)}/graph`,
+    DIAGNOSTICS_TIMEOUT
+  );
+}
+
+export async function fetchRouterDiscoveryDeviceRoutes(
+  runId: string,
+  deviceId: string
+): Promise<RouterDiscoveryDeviceRoutes> {
+  return fetchWithTimeout<RouterDiscoveryDeviceRoutes>(
+    `/api/router-discovery/runs/${encodeURIComponent(runId)}/devices/${encodeURIComponent(deviceId)}/routes`,
+    DIAGNOSTICS_TIMEOUT
+  );
+}
+
+export async function fetchRouterDiscoveryDevice(
+  runId: string,
+  deviceId: string
+): Promise<RouterDiscoveryDevice> {
+  return fetchWithTimeout<RouterDiscoveryDevice>(
+    `/api/router-discovery/runs/${encodeURIComponent(runId)}/devices/${encodeURIComponent(deviceId)}`,
+    DIAGNOSTICS_TIMEOUT
+  );
+}
+
+export async function fetchRouterDiscoveryFindings(
+  runId: string
+): Promise<RouterDiscoveryFindings> {
+  return fetchWithTimeout<RouterDiscoveryFindings>(
+    `/api/router-discovery/runs/${encodeURIComponent(runId)}/findings`,
+    DIAGNOSTICS_TIMEOUT
+  );
+}
+
+export async function traceRouterDiscovery(
+  runId: string,
+  request: RouterDiscoveryTraceRequest
+): Promise<TraceResult> {
+  return fetchWithTimeout<TraceResult>(
+    `/api/router-discovery/runs/${encodeURIComponent(runId)}/trace`,
+    DIAGNOSTICS_TIMEOUT,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    }
+  );
+}
+
+export async function fetchRouterDiscoveryDiff(
+  runA: string,
+  runB: string
+): Promise<RouterDiscoveryDiff> {
+  return fetchWithTimeout<RouterDiscoveryDiff>(
+    '/api/router-discovery/diff',
+    DIAGNOSTICS_TIMEOUT,
+    { params: { a: runA, b: runB } }
   );
 }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   checkHealth,
   fetchRoutes,
@@ -34,6 +34,15 @@ import Visualization from './components/Visualization';
 import PacketJourney from './components/PacketJourney';
 import VirtualLabPanel from './components/VirtualLabPanel';
 import NetworkDiagnostics from './components/NetworkDiagnostics';
+
+/**
+ * The router map pulls in the graph renderer, which is a large dependency.
+ * It is fetched the first time the view is opened, so the rest of the
+ * application does not pay for it.
+ */
+const RouterDiscoveryPage = lazy(
+  () => import('./components/RouterDiscoveryPage')
+);
 import ScenarioJourney from './components/ScenarioJourney';
 import LearningLab from './components/LearningLab';
 import Overview from './components/Overview';
@@ -666,6 +675,25 @@ function App() {
     </div>
   );
 
+  const renderDiscovery = () => (
+    <div className="view-stack">
+      <section className="card">
+        <div className="card-body">
+          <Suspense
+            fallback={
+              <div className="loading">
+                <span className="spinner" aria-hidden="true" />
+                Loading the router map…
+              </div>
+            }
+          >
+            <RouterDiscoveryPage />
+          </Suspense>
+        </div>
+      </section>
+    </div>
+  );
+
   const renderLearning = () => (
     <div className="view-stack">
       <section className="card">
@@ -683,6 +711,7 @@ function App() {
     journey: renderJourney,
     lab: renderLab,
     diagnostics: renderDiagnostics,
+    discovery: renderDiscovery,
     learning: renderLearning,
   };
 
