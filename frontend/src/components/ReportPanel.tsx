@@ -13,7 +13,11 @@ import { useState } from 'react';
 import { fetchReportMarkdown } from '../api/routing';
 import './ReportPanel.css';
 
-export default function ReportPanel() {
+interface ReportPanelProps {
+  activeExperiment?: Record<string, unknown> | null;
+}
+
+export default function ReportPanel({ activeExperiment = null }: ReportPanelProps) {
   const [building, setBuilding] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [report, setReport] = useState<string | null>(null);
@@ -22,7 +26,7 @@ export default function ReportPanel() {
     setBuilding(true);
     setError(null);
     try {
-      const markdown = await fetchReportMarkdown();
+      const markdown = await fetchReportMarkdown(activeExperiment);
       setReport(markdown);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not build the report');
@@ -60,9 +64,9 @@ export default function ReportPanel() {
         <div>
           <h3>Take away what you found</h3>
           <p className="report-panel-intro">
-            Build a report of what was actually measured on this machine,
-            with the source and time for every claim, what was simulated
-            instead, and what could not be established.
+            {activeExperiment
+              ? `Exporting active experiment: ${activeExperiment.scenario_title ?? 'Simulation'} (from ${activeExperiment.source} to ${activeExperiment.destination}). Includes hop trace and before/after comparisons.`
+              : 'Build a report of what was actually measured on this machine, with the source and time for every claim, what was simulated instead, and what could not be established.'}
           </p>
         </div>
         <div className="report-panel-actions">

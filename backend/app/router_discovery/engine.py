@@ -53,6 +53,7 @@ class DiscoveryResult:
 
     devices: List[DeviceSnapshot] = field(default_factory=list)
     failures: List[CollectionFailure] = field(default_factory=list)
+    stopped_reason: Optional[str] = None
 
 
 def _as_networks(scope: Scope) -> List[ipaddress.IPv4Network | ipaddress.IPv6Network]:
@@ -224,6 +225,8 @@ def discover(
             continue
 
         if len(collected) >= max_devices:
+            if not result.stopped_reason:
+                result.stopped_reason = f"stopped at the device limit of {max_devices}"
             progress(
                 f"stopped at the device limit of {max_devices}; {address} was not collected"
             )
@@ -264,6 +267,14 @@ def discover(
         own_addresses.update(_device_addresses(device))
 
         if depth >= max_depth:
+            candidates_exist = any(
+                c not in seen_addresses and c not in own_addresses and in_scope(c, scope)
+                for c in _candidates(device)
+            )
+            if candidates_exist:
+                if not result.stopped_reason:
+                    result.stopped_reason = f"stopped at the depth limit of {max_depth}"
+                progress(f"stopped at the depth limit of {max_depth}")
             continue
 
         for candidate in _candidates(device):

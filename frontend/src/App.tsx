@@ -409,6 +409,17 @@ function App() {
             trace={scenarioTrace}
             legacyJourney={simulationResponse}
             lookupResult={lookupResult}
+            onNavigate={async (targetView, scenarioId) => {
+              if (scenarioId) {
+                try {
+                  const sc = await fetchScenario(scenarioId);
+                  setSelectedScenario(sc);
+                } catch (e) {
+                  console.error('Could not pre-load scenario:', e);
+                }
+              }
+              setView(targetView);
+            }}
           />
         </div>
       </section>
@@ -597,6 +608,20 @@ function App() {
             error={scenarioError}
             workspace={scenarioWorkspace}
             onTrace={handleScenarioTrace}
+            onSelectScenario={async (id) => {
+              setScenarioTrace(null);
+              setScenarioError(null);
+              try {
+                const next = await fetchScenario(id);
+                setSelectedScenario(next);
+              } catch (err) {
+                setScenarioError(
+                  err instanceof Error
+                    ? err.message
+                    : 'Could not load the scenario'
+                );
+              }
+            }}
           />
         </div>
       </section>

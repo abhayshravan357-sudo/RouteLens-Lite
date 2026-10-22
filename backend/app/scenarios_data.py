@@ -224,6 +224,95 @@ IPV6_ONLY = Scenario(
 
 
 # =============================================================================
+# 6. Challenge: Missing or Broken Gateway (Troubleshooting Challenge A)
+# =============================================================================
+CHALLENGE_BROKEN_GATEWAY = Scenario(
+    id="challenge-broken-gateway",
+    title="Challenge A: Missing Default Gateway",
+    nodes=[
+        Node(
+            id="client",
+            kind="host",
+            ifaces=[Iface(name="eth0", cidr="192.168.1.100/24")],
+            # Client has NO default route configured! It only knows its local subnet.
+            routes=[],
+        ),
+        Node(
+            id="router",
+            kind="router",
+            ifaces=[
+                Iface(name="eth0", cidr="192.168.1.1/24"),
+                Iface(name="eth1", cidr="10.0.0.1/24"),
+            ],
+            routes=[
+                Route(prefix="0.0.0.0/0", dev="eth1", via="10.0.0.2", metric=10),
+            ],
+        ),
+        Node(
+            id="server",
+            kind="host",
+            ifaces=[Iface(name="eth0", cidr="10.0.0.2/24")],
+        ),
+    ],
+    links=[
+        Link(a="client:eth0", b="router:eth0"),
+        Link(a="router:eth1", b="server:eth0"),
+    ],
+)
+
+
+# =============================================================================
+# 7. Challenge: Missing Intermediate Route / Black Hole (Challenge B)
+# =============================================================================
+CHALLENGE_BLACKHOLE = Scenario(
+    id="challenge-blackhole",
+    title="Challenge B: Missing Intermediate Route (Black Hole)",
+    nodes=[
+        Node(
+            id="client",
+            kind="host",
+            ifaces=[Iface(name="eth0", cidr="192.168.1.100/24")],
+            routes=[
+                Route(prefix="0.0.0.0/0", dev="eth0", via="192.168.1.1", metric=100),
+            ],
+        ),
+        Node(
+            id="r1",
+            kind="router",
+            ifaces=[
+                Iface(name="eth0", cidr="192.168.1.1/24"),
+                Iface(name="eth1", cidr="10.0.0.1/30"),
+            ],
+            # r1 is missing the route to the server network (10.0.1.0/24)!
+            # Packet reaches r1 and gets dropped with no_route.
+            routes=[],
+        ),
+        Node(
+            id="r2",
+            kind="router",
+            ifaces=[
+                Iface(name="eth0", cidr="10.0.0.2/30"),
+                Iface(name="eth1", cidr="10.0.1.1/24"),
+            ],
+            routes=[
+                Route(prefix="192.168.1.0/24", dev="eth0", via="10.0.0.1", metric=10),
+            ],
+        ),
+        Node(
+            id="server",
+            kind="host",
+            ifaces=[Iface(name="eth0", cidr="10.0.1.100/24")],
+        ),
+    ],
+    links=[
+        Link(a="client:eth0", b="r1:eth0"),
+        Link(a="r1:eth1", b="r2:eth0"),
+        Link(a="r2:eth1", b="server:eth0"),
+    ],
+)
+
+
+# =============================================================================
 # Registry
 # =============================================================================
 SCENARIOS: Dict[str, Scenario] = {
@@ -234,6 +323,8 @@ SCENARIOS: Dict[str, Scenario] = {
         LOOP,
         DUAL_STACK,
         IPV6_ONLY,
+        CHALLENGE_BROKEN_GATEWAY,
+        CHALLENGE_BLACKHOLE,
     )
 }
 

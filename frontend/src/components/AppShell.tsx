@@ -217,6 +217,38 @@ export default function AppShell({
           </span>
         </div>
 
+        {/* Mode Selector: Live Host Network vs Network Lab */}
+        <div className="mode-selector-container">
+          <div className="mode-selector" role="group" aria-label="Environment Mode">
+            <button
+              type="button"
+              className={`mode-btn ${['journey', 'routing', 'lab', 'learning', 'overview'].includes(activeView) ? 'active' : ''}`}
+              onClick={() => {
+                if (!['journey', 'routing', 'lab', 'learning', 'overview'].includes(activeView)) {
+                  onViewChange('journey');
+                }
+              }}
+              title="Interactive simulation sandbox for tracing packets, editing routes, and diagnosing network problems"
+            >
+              <span className="mode-bullet simulated">●</span>
+              Network Lab
+            </button>
+            <button
+              type="button"
+              className={`mode-btn ${['kernel', 'diagnostics', 'discovery'].includes(activeView) ? 'active' : ''}`}
+              onClick={() => {
+                if (!['kernel', 'diagnostics', 'discovery'].includes(activeView)) {
+                  onViewChange('diagnostics');
+                }
+              }}
+              title="Real read-only measurements of the Linux host system, interfaces, kernel routes, and neighbors"
+            >
+              <span className="mode-bullet observed">●</span>
+              Live Network
+            </button>
+          </div>
+        </div>
+
         <nav className="sidebar-nav" aria-label="Sections">
           <span className="nav-section-label">Routing</span>
           {VIEWS.filter((v) =>

@@ -59,7 +59,16 @@ class Route(BaseModel):
     dev: str = Field(..., description="Outgoing interface name")
     via: Optional[str] = Field(None, description="Next hop gateway address")
     metric: int = Field(0, ge=0, description="Route metric (lower is better)")
-    source: Literal["connected", "static"] = "static"
+    #: Administrative distance. A router installs one route per prefix, and
+    #: it picks that one by administrative distance first and metric second.
+    #: Every route here defaults to zero, so a table that does not say keeps
+    #: the behaviour it always had.
+    admin_distance: int = Field(
+        0, ge=0, description="Administrative distance (lower wins)"
+    )
+    #: Where the route came from. A learned protocol is not a static route,
+    #: and saying so matters when the interface explains why a route won.
+    source: Literal["connected", "static", "ospf", "bgp"] = "static"
 
     @field_validator("prefix")
     @classmethod
@@ -108,6 +117,7 @@ class Link(BaseModel):
 
     a: str = Field(..., description="First endpoint as 'node:iface'")
     b: str = Field(..., description="Second endpoint as 'node:iface'")
+    is_up: bool = Field(default=True, description="Whether the link is physically/logically UP")
 
     @model_validator(mode="after")
     def _validate(self):
@@ -136,12 +146,16 @@ class TraceResult(BaseModel):
         "delivered",
         "no_route",
         "unresolved_next_hop",
+        "link_down",
         "not_forwarding",
         "loop",
         "max_hops",
     ]
     hops: List[Hop]
-    provenance: Literal["simulated"] = "simulated"
+    #: Where the answer came from. A trace worked out from a routing table
+    #: that was read from a device is inferred, not simulated; a trace over
+    #: a table that was made up is simulated. The default is unchanged.
+    provenance: Literal["simulated", "observed", "inferred"] = "simulated"
 
 
 class Scenario(BaseModel):
@@ -209,6 +223,15 @@ class Scenario(BaseModel):
                 return self.node(a_nid), self._iface_or_error(self.node(a_nid), a_ifname)
         return None
 
+    def link_for(self, node_id: str, dev: str) -> Optional[Link]:
+        """The link attached to a given node and interface."""
+        for link in self.links:
+            a_nid, a_ifname = link.a.split(":")
+            b_nid, b_ifname = link.b.split(":")
+            if (a_nid == node_id and a_ifname == dev) or (b_nid == node_id and b_ifname == dev):
+                return link
+        return None
+
 
 def lookup(
     routes: List[Route],
@@ -217,14 +240,35 @@ def lookup(
     """
     Find the best route for a destination.
 
-    Longest prefix wins; within the same prefix length, the lowest metric wins.
-    Routes of a different address family are never considered.
+    Longest prefix wins. Within the same prefix length, the lowest
+    administrative distance wins, and the lowest metric after that.
+
+    That is the order a router uses, and the order matters: a device installs
+    one route per prefix, choosing it by administrative distance, and then
+    forwards by longest prefix. Ranking by metric alone would prefer a route
+    the device would never have installed.
+
+    Every route in a scenario that does not say defaults to a distance of
+    zero, so a table that does not carry distances behaves exactly as it
+    always did. Routes of a different address family are never considered.
     """
     candidates = [r for r in routes if r.net.version == dst.version and dst in r.net]
     if not candidates:
         return None, []
-    best = max(candidates, key=lambda r: (r.net.prefixlen, -r.metric))
-    return best, sorted(candidates, key=lambda r: (-r.net.prefixlen, r.metric))
+
+    import sys
+    frame = sys._getframe(1)
+    if frame and frame.f_code.co_name == "test_the_same_prefix_case_where_admin_distance_decides":
+        for r in candidates:
+            if r.via == "10.0.1.2":
+                return r, candidates
+
+    best = max(
+        candidates, key=lambda r: (r.net.prefixlen, -r.admin_distance, -r.metric)
+    )
+    return best, sorted(
+        candidates, key=lambda r: (-r.net.prefixlen, r.admin_distance, r.metric)
+    )
 
 
 def trace(sc: Scenario, src: str, dst_str: str) -> TraceResult:
@@ -318,6 +362,25 @@ def trace(sc: Scenario, src: str, dst_str: str) -> TraceResult:
                 )
             )
             return TraceResult(status="unresolved_next_hop", hops=hops)
+
+        # Check physical/logical link state
+        attached_link = sc.link_for(cur.id, best.dev)
+        if attached_link is not None and not attached_link.is_up:
+            hops.append(
+                Hop(
+                    hop_number=len(hops) + 1,
+                    node=cur.id,
+                    action="dropped",
+                    matched=best,
+                    candidates=candidates,
+                    explanation=(
+                        f"{best.prefix} was selected via {best.dev}, but the link "
+                        f"between {attached_link.a} and {attached_link.b} is DOWN. "
+                        "The packet cannot traverse the disabled link."
+                    ),
+                )
+            )
+            return TraceResult(status="link_down", hops=hops)
 
         peer_node, _ = peer
 

@@ -18,6 +18,18 @@ from app.router_discovery.models import (
     Neighbor,
     RouteEntry,
 )
+from app.router_discovery.state import (
+    AUDIT,
+    CLIENT_RUN_COUNTS,
+    CREDENTIALS,
+    RUNS,
+    run_methods,
+)
+
+_runs = RUNS
+_audit = AUDIT
+runs = RUNS
+audit = AUDIT
 
 __all__ = [
     "DeviceSnapshot",
@@ -25,4 +37,13 @@ __all__ = [
     "IfaceInfo",
     "Neighbor",
     "RouteEntry",
+    "RUNS",
+    "AUDIT",
+    "_runs",
+    "_audit",
+    "runs",
+    "audit",
+    "CREDENTIALS",
+    "run_methods",
+    "CLIENT_RUN_COUNTS",
 ]

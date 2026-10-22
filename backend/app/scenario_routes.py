@@ -76,6 +76,17 @@ class RouteUpdate(BaseModel):
     routes: List[dict] = Field(..., description="Route objects: prefix, dev, via, metric")
 
 
+class LinkStateUpdate(BaseModel):
+    """Request to toggle a link's physical/logical state (UP/DOWN)."""
+
+    link_a: str = Field(..., description="First endpoint as 'node:iface'")
+    link_b: str = Field(..., description="Second endpoint as 'node:iface'")
+    is_up: bool = Field(..., description="Desired link state (True=UP, False=DOWN)")
+    workspace: Optional[str] = Field(
+        None, description="Existing workspace id if continuing an experiment"
+    )
+
+
 class ExerciseCheckRequest(BaseModel):
     """Request to check whether an exercise is complete."""
 
@@ -181,6 +192,42 @@ def set_routes(sid: str, nid: str, update: RouteUpdate):
     return {
         "scenario": working.model_dump(),
         "workspace": workspace_id,
+    }
+
+
+@router.put("/{sid}/links")
+def set_link_state(sid: str, update: LinkStateUpdate):
+    """
+    Toggle a link between UP and DOWN in an isolated workspace.
+
+    Identifies the link by its endpoints (a and b in either direction),
+    updates only a copy of the scenario in a workspace, and returns the
+    updated workspace id. The shared scenario definition is never corrupted.
+    """
+    base_scenario = _resolve_scenario(sid, update.workspace)
+    working = base_scenario.model_copy(deep=True)
+
+    link_found = False
+    for link in working.links:
+        endpoints = {link.a, link.b}
+        if endpoints == {update.link_a, update.link_b}:
+            link.is_up = update.is_up
+            link_found = True
+            break
+
+    if not link_found:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Link {update.link_a} <-> {update.link_b} not found in scenario {sid}",
+        )
+
+    workspace_id = _store_workspace(working)
+    return {
+        "scenario": working.model_dump(),
+        "workspace": workspace_id,
+        "link_a": update.link_a,
+        "link_b": update.link_b,
+        "is_up": update.is_up,
     }
 
 

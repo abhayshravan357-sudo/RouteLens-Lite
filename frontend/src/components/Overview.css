@@ -225,3 +225,140 @@
   padding-top: 20px;
   border-top: 1px solid var(--color-border);
 }
+
+/* ─── Clear Starting Point Hub ─────────────────────────────────────────── */
+
+.overview-hub {
+  margin-bottom: 24px;
+  background: var(--surface-alt, #f6f8fa);
+  border: 1px solid var(--border-color, #d0d7de);
+  border-radius: 12px;
+  padding: 24px;
+}
+
+.overview-hub-header {
+  margin-bottom: 20px;
+}
+
+.hub-tag {
+  display: inline-block;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #0969da;
+  margin-bottom: 4px;
+}
+
+.overview-hub-header h2 {
+  margin: 0 0 6px 0;
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: var(--color-text, #24292f);
+}
+
+.hub-subtitle {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--color-muted, #57606a);
+  line-height: 1.5;
+}
+
+.overview-hub-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 16px;
+}
+
+.hub-card {
+  background: var(--surface, #ffffff);
+  border: 1px solid var(--border-color, #d0d7de);
+  border-radius: 10px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  cursor: pointer;
+  transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+  position: relative;
+}
+
+.hub-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+}
+
+.hub-card.explore:hover {
+  border-color: #0969da;
+}
+
+.hub-card.troubleshoot:hover {
+  border-color: #d4a72c;
+}
+
+.hub-card.live:hover {
+  border-color: #1a7f37;
+}
+
+.hub-card-icon {
+  font-size: 1.75rem;
+  line-height: 1;
+}
+
+.hub-card-badge {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  align-self: flex-start;
+  padding: 3px 8px;
+  border-radius: 4px;
+}
+
+.hub-card-badge.simulated {
+  background: #ddf4ff;
+  color: #0969da;
+}
+
+.hub-card-badge.challenge {
+  background: #fff8c5;
+  color: #9a6700;
+}
+
+.hub-card-badge.live {
+  background: #dafbe1;
+  color: #1a7f37;
+}
+
+.hub-card h3 {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--color-text, #24292f);
+}
+
+.hub-card p {
+  margin: 0;
+  font-size: 0.84rem;
+  color: var(--color-muted, #57606a);
+  line-height: 1.5;
+  flex: 1;
+}
+
+.hub-card-action {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #0969da;
+  margin-top: 6px;
+}
+
+.hub-card.troubleshoot .hub-card-action {
+  color: #9a6700;
+}
+
+.hub-card.live .hub-card-action {
+  color: #1a7f37;
+}

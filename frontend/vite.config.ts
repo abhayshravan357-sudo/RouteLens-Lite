@@ -24,6 +24,7 @@ export default defineConfig(({ mode }) => {
         '/api/host-exercises': backend,
         '/api/discovery': backend,
         '/api/report': backend,
+        '/api/router-discovery': backend,
         '/network': backend,
       },
     },

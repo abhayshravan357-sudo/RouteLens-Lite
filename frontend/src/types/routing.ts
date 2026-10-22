@@ -344,6 +344,7 @@ export type TraceStatus =
   | 'delivered'
   | 'no_route'
   | 'unresolved_next_hop'
+  | 'link_down'
   | 'not_forwarding'
   | 'loop'
   | 'max_hops';
@@ -373,6 +374,7 @@ export interface ScenarioNode {
 export interface ScenarioLink {
   a: string;
   b: string;
+  is_up?: boolean;
 }
 
 export interface ScenarioSummary {
@@ -496,6 +498,7 @@ export interface TopologyEdge {
   provenance: TopologyProvenance;
   label: string;
   detail: string | null;
+  is_up?: boolean;
 }
 
 export interface TopologyGraph {

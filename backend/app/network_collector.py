@@ -593,7 +593,7 @@ class NetworkCollector:
             neighbors.append(neighbor)
 
         summary = None
-        if resolve_names and neighbors:
+        if resolve_names:
             summary = await self.resolve_neighbour_names(
                 neighbors,
                 timeout=name_timeout,
@@ -870,7 +870,7 @@ class NetworkCollector:
                     family=family,
                     type=socket.SOCK_STREAM,
                     proto=socket.IPPROTO_TCP,
-                    flags=socket.AI_ADDRCONFIG | socket.AI_V4MAPPED,
+                    flags=0,
                 ),
                 timeout=timeout,
             )

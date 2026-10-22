@@ -32,6 +32,7 @@ from app.exercises import host_exercise_router
 from app.discovery_routes import router as discovery_router
 from app.report_routes import router as report_router
 from app.pcap_routes import router as pcap_router
+from app.router_discovery_routes import router as router_discovery_router
 from app.network_collector import get_network_collector
 from app.route_analysis import analyse_destination, analyse_table, RouteAnalysisReport
 from app.security import (
@@ -113,6 +114,7 @@ app.include_router(host_exercise_router)
 app.include_router(discovery_router)
 app.include_router(report_router)
 app.include_router(pcap_router, prefix="/api/pcap")
+app.include_router(router_discovery_router)
 
 
 @app.get("/health", tags=["Health"])

@@ -139,17 +139,93 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
-async def build_report() -> Report:
+async def build_report(active_experiment: Optional[Dict[str, Any]] = None) -> Report:
     """
     Gather what can be measured and assemble a report.
 
     Failures in collection are recorded as failures, not omitted, so the
     report shows what could not be read as well as what could.
+    When active_experiment is provided, the report explicitly incorporates
+    the user's active packet journey, including hops, decisions, and any
+    before-and-after comparison.
     """
     collector = get_network_collector()
     now = _now()
 
     sections: List[ReportSection] = []
+
+    # -- Active Simulation Experiment (if present) ----------------------
+    if active_experiment:
+        exp_evidence: List[EvidenceItem] = []
+        scenario_title = active_experiment.get("scenario_title") or active_experiment.get("scenario_id", "Custom")
+        src = active_experiment.get("source", "unknown")
+        dst = active_experiment.get("destination", "unknown")
+        status = active_experiment.get("status", "unknown")
+
+        exp_evidence.append(
+            EvidenceItem(
+                label="Experiment Overview",
+                value={
+                    "scenario": scenario_title,
+                    "source": src,
+                    "destination": dst,
+                    "result_status": status,
+                    "timestamp": active_experiment.get("timestamp", now),
+                },
+                source="active Packet Journey session",
+                provenance="simulated",
+                collected_at=now,
+            )
+        )
+
+        hops = active_experiment.get("hops") or []
+        for hop in hops:
+            num = hop.get("hop_number")
+            node = hop.get("node")
+            action = hop.get("action")
+            exp_evidence.append(
+                EvidenceItem(
+                    label=f"Hop {num} ({node})",
+                    value={
+                        "action": action,
+                        "matched_route": hop.get("matched", {}).get("prefix") if isinstance(hop.get("matched"), dict) else str(hop.get("matched")),
+                        "outgoing_interface": hop.get("matched", {}).get("dev") if isinstance(hop.get("matched"), dict) else None,
+                        "explanation": hop.get("explanation"),
+                        "next_node": hop.get("next_node"),
+                    },
+                    source="scenario simulation engine",
+                    provenance="simulated",
+                    collected_at=now,
+                )
+            )
+
+        if active_experiment.get("comparison"):
+            comp = active_experiment["comparison"]
+            exp_evidence.append(
+                EvidenceItem(
+                    label="Before vs After Comparison",
+                    value={
+                        "before_status": comp.get("before_status"),
+                        "after_status": comp.get("after_status"),
+                        "intervention": comp.get("intervention"),
+                        "resolution_verified": comp.get("resolved", False),
+                    },
+                    source="troubleshooting verification loop",
+                    provenance="simulated",
+                    collected_at=now,
+                )
+            )
+
+        sections.append(
+            ReportSection(
+                title="Active Simulation Experiment",
+                description=(
+                    f"Results of tracing a packet from {src} to {dst} in {scenario_title}. "
+                    "This reflects the user's active experiment and troubleshooting intervention."
+                ),
+                evidence=exp_evidence,
+            )
+        )
 
     # -- The machine's own network -------------------------------------
     network_evidence: List[EvidenceItem] = []

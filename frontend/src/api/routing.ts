@@ -480,6 +480,37 @@ export interface ScenarioRouteUpdate {
   workspace: string;
 }
 
+export interface ScenarioLinkUpdate {
+  scenario: Scenario;
+  workspace: string;
+  link_a: string;
+  link_b: string;
+  is_up: boolean;
+}
+
+export async function toggleScenarioLink(
+  scenarioId: string,
+  linkA: string,
+  linkB: string,
+  isUp: boolean,
+  workspace?: string | null
+): Promise<ScenarioLinkUpdate> {
+  return fetchWithTimeout<ScenarioLinkUpdate>(
+    `/api/scenarios/${encodeURIComponent(scenarioId)}/links`,
+    10000,
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        link_a: linkA,
+        link_b: linkB,
+        is_up: isUp,
+        workspace: workspace ?? null,
+      }),
+    }
+  );
+}
+
 export async function updateScenarioRoutes(
   scenarioId: string,
   nodeId: string,
@@ -678,8 +709,21 @@ export async function fetchReportJson(): Promise<unknown> {
   return fetchWithTimeout<unknown>('/api/report?format=json', 30000);
 }
 
-export async function fetchReportMarkdown(): Promise<string> {
-  const response = await fetch('/api/report?format=markdown');
+export async function fetchReportMarkdown(activeExperiment?: Record<string, unknown> | null): Promise<string> {
+  const url = '/api/report';
+  let response: Response;
+  if (activeExperiment) {
+    response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        format: 'markdown',
+        active_experiment: activeExperiment,
+      }),
+    });
+  } else {
+    response = await fetch('/api/report?format=markdown');
+  }
   if (!response.ok) {
     throw new ApiError(
       `Could not build the report: ${response.status}`,

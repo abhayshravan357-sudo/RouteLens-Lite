@@ -41,6 +41,11 @@ interface OverviewProps {
   legacyJourney: { success: boolean; hops: unknown[] } | null;
   /** The route the student last looked up. */
   lookupResult: { route: { destination: string } | null } | null;
+  /** Navigation handler to jump directly to a view and optional scenario. */
+  onNavigate?: (
+    view: 'journey' | 'routing' | 'kernel' | 'diagnostics' | 'discovery' | 'learning',
+    scenarioId?: string
+  ) => void;
 }
 
 interface HostSnapshot {
@@ -56,6 +61,7 @@ export default function Overview({
   trace,
   legacyJourney,
   lookupResult,
+  onNavigate,
 }: OverviewProps) {
   const [host, setHost] = useState<HostSnapshot>({
     interfaces: [],
@@ -145,6 +151,82 @@ export default function Overview({
 
   return (
     <div className="overview">
+      {/* ─── Clear Starting Point Hub ─── */}
+      <section className="overview-hub" aria-label="Starting Points">
+        <div className="overview-hub-header">
+          <span className="hub-tag">Interactive Networking Workbench</span>
+          <h2>What would you like to do?</h2>
+          <p className="hub-subtitle">
+            Choose a starting point below. You can safely experiment with simulated routers, break links, fix routes, and undo any changes without risk.
+          </p>
+        </div>
+
+        <div className="overview-hub-cards">
+          {/* Card 1: Explore a Network */}
+          <div
+            className="hub-card explore"
+            onClick={() => onNavigate?.('journey', 'client-router-server')}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') onNavigate?.('journey', 'client-router-server');
+            }}
+          >
+            <div className="hub-card-icon" aria-hidden="true">🌐</div>
+            <div className="hub-card-badge simulated">Network Lab • Explore</div>
+            <h3>Explore a Network</h3>
+            <p>
+              Send packets through a 2-router network. Watch longest-prefix matching, step through hops, and understand why each route was chosen.
+            </p>
+            <div className="hub-card-action">
+              <span>Start Exploring</span> ➔
+            </div>
+          </div>
+
+          {/* Card 2: Troubleshoot a Broken Network */}
+          <div
+            className="hub-card troubleshoot"
+            onClick={() => onNavigate?.('journey', 'challenge-broken-gateway')}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') onNavigate?.('journey', 'challenge-broken-gateway');
+            }}
+          >
+            <div className="hub-card-icon" aria-hidden="true">🛠️</div>
+            <div className="hub-card-badge challenge">Network Lab • Hands-On</div>
+            <h3>Troubleshoot a Broken Network</h3>
+            <p>
+              Diagnose real problems: missing gateways, route blackholes, or severed cables. Inspect routers, fix routes, and compare before vs after.
+            </p>
+            <div className="hub-card-action">
+              <span>Start Troubleshooting</span> ➔
+            </div>
+          </div>
+
+          {/* Card 3: Inspect My Real Network */}
+          <div
+            className="hub-card live"
+            onClick={() => onNavigate?.('kernel')}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') onNavigate?.('kernel');
+            }}
+          >
+            <div className="hub-card-icon" aria-hidden="true">🖥️</div>
+            <div className="hub-card-badge live">Live Host • Read-Only</div>
+            <h3>Inspect My Real Network</h3>
+            <p>
+              Safely inspect your actual Linux computer’s routing table, active network interfaces, ARP neighbors, and default gateways.
+            </p>
+            <div className="hub-card-action">
+              <span>View Host Routes</span> ➔
+            </div>
+          </div>
+        </div>
+      </section>
+
       <div className="overview-grid">
         {/* 1. What network am I exploring? */}
         <section className="overview-card">

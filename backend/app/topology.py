@@ -57,6 +57,7 @@ class TopologyEdge(BaseModel):
     provenance: Provenance
     label: str
     detail: Optional[str] = None
+    is_up: bool = True
 
 
 class TopologyGraph(BaseModel):
@@ -204,8 +205,9 @@ async def build_topology(scenario: Optional[Scenario]) -> TopologyGraph:
                     target=f"sim:{link.b.split(':')[0]}",
                     kind="link",
                     provenance=Provenance.SIMULATED,
-                    label="link",
-                    detail=f"{link.a} <-> {link.b}",
+                    label="link (UP)" if getattr(link, "is_up", True) else "link (DOWN)",
+                    detail=f"{link.a} <-> {link.b} ({'UP' if getattr(link, 'is_up', True) else 'DOWN'})",
+                    is_up=getattr(link, "is_up", True),
                 )
             )
 
