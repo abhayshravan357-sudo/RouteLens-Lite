@@ -5,6 +5,7 @@ This module creates the FastAPI application instance and defines the API routes.
 It's designed to be beginner-friendly with clear structure and comments.
 """
 
+import pathlib
 import re
 import socket
 from ipaddress import IPv4Address, IPv6Address
@@ -13,6 +14,7 @@ from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from app.routing import (
@@ -115,6 +117,12 @@ app.include_router(discovery_router)
 app.include_router(report_router)
 app.include_router(pcap_router, prefix="/api/pcap")
 app.include_router(router_discovery_router)
+
+
+# Serve the frontend static files (built frontend)
+frontend_dir = pathlib.Path(__file__).parent.parent / 'frontend' / 'dist'
+if frontend_dir.exists():
+    app.mount('/', StaticFiles(directory=str(frontend_dir), html=True), name='frontend')
 
 
 @app.get("/health", tags=["Health"])
