@@ -27,6 +27,11 @@ from app.router_discovery.models import DeviceSnapshot, IfaceInfo, Neighbor, Rou
 #: without end would not be useful, and would not fit in memory.
 MAX_OUTPUT_CHARS = 500_000
 
+#: How much is read from the device at a time. The output is read in
+#: pieces and the process is stopped at the cap, so a device that keeps
+#: talking cannot exhaust the backend.
+READ_CHUNK_CHARS = 65_536
+
 #: How long one command may take.
 COMMAND_TIMEOUT_SECONDS = 10
 
@@ -136,6 +141,15 @@ def docker_runner(container_map: Dict[str, str]) -> Callable[[str, str], str]:
     Anything else, such as `ip -j addr`, is run as a plain command in
     the container.
 
+    The output is read a piece at a time and the process is stopped once
+    the cap is reached. Reading it all first and trimming it afterwards
+    would let a device that keeps talking exhaust the backend instead of
+    being cut off.
+
+    The device's stderr is discarded rather than captured. A router CLI
+    can write a banner, a login prompt or a configuration snippet there,
+    and none of it belongs in the backend.
+
     Args:
         container_map: Which container holds which management target
 
@@ -153,15 +167,38 @@ def docker_runner(container_map: Dict[str, str]) -> Callable[[str, str], str]:
         else:
             argv = ["docker", "exec", container] + command.split()
 
-        completed = subprocess.run(
+        process = subprocess.Popen(
             argv,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
             text=True,
-            timeout=COMMAND_TIMEOUT_SECONDS,
             shell=False,
-            check=True,
         )
-        return completed.stdout[:MAX_OUTPUT_CHARS]
+
+        chunks: List[str] = []
+        total = 0
+        try:
+            while True:
+                chunk = process.stdout.read(READ_CHUNK_CHARS)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > MAX_OUTPUT_CHARS:
+                    # The cap is reached. The device is cut off rather
+                    # than allowed to fill memory.
+                    process.kill()
+                    break
+                chunks.append(chunk)
+        finally:
+            if process.stdout is not None:
+                process.stdout.close()
+            try:
+                process.wait(timeout=COMMAND_TIMEOUT_SECONDS)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+
+        return "".join(chunks)[:MAX_OUTPUT_CHARS]
 
     return run
 
@@ -191,11 +228,19 @@ class FrrCollector:
         A source that cannot be read is recorded and the collection
         carries on. The collector does not raise for a missing optional
         source, and it never substitutes data it did not read.
+
+        The reason is built here, from the kind of failure, rather than
+        copied from whatever the device wrote. A router CLI's output can
+        carry a banner, a login prompt or a configuration snippet, and
+        none of that belongs in an error message.
         """
         try:
             return self.runner(target, command)
         except Exception as exc:
-            errors.append(f"{command!r} could not be read: {type(exc).__name__}: {exc}")
+            errors.append(
+                f"{command!r} could not be read: the device did not answer "
+                f"({type(exc).__name__})"
+            )
             return None
 
     # -- individual sources ----------------------------------------------
@@ -322,27 +367,53 @@ class FrrCollector:
         return neighbors
 
     def _read_lldp_neighbors(self, target: str, errors: List[str]) -> List[Neighbor]:
-        """Read the LLDP adjacencies, which say who is on the other end."""
-        text = self._try(target, "show lldp neighbors json", errors)
-        if text is None:
-            return []
+        """
+        Read the LLDP adjacencies, which say who is on the other end.
 
-        try:
-            document = json.loads(text or "[]")
-        except (ValueError, TypeError) as exc:
-            errors.append(f"'show lldp neighbors json' did not return readable JSON: {exc}")
-            return []
-
-        if not isinstance(document, list):
-            errors.append("'show lldp neighbors json' did not return a list")
-            return []
-
+        Two sources are read, because a router may have either: the
+        `lldpcli` tool, which reports a table keyed by interface name,
+        and FRR's own JSON, which reports a list of interfaces. Both are
+        read; whichever answers, the adjacency is recorded with the
+        protocol it came from.
+        """
         neighbors: List[Neighbor] = []
-        for interface in document:
-            if not isinstance(interface, dict):
+        for command in ("lldpcli show neighbors -f json", "show lldp neighbors json"):
+            text = self._try(target, command, errors)
+            if text is None:
                 continue
-            local_if = interface.get("localInterface") or interface.get("ifname")
-            for entry in interface.get("neighbors") or []:
+            try:
+                document = json.loads(text or "[]")
+            except (ValueError, TypeError) as exc:
+                errors.append(f"{command!r} did not return readable JSON: {exc}")
+                continue
+            neighbors.extend(self._lldp_from_document(document))
+        return neighbors
+
+    @staticmethod
+    def _lldp_from_document(document) -> List[Neighbor]:
+        """
+        Read LLDP neighbours from either shape of document.
+
+        `lldpcli` reports an object keyed by interface name, each holding
+        a list of neighbours. FRR reports a list of interfaces, each
+        holding a list of neighbours.
+        """
+        neighbors: List[Neighbor] = []
+
+        entries = []
+        if isinstance(document, dict):
+            for local_if, value in document.items():
+                if isinstance(value, list):
+                    entries.append((local_if, value))
+        elif isinstance(document, list):
+            for interface in document:
+                if not isinstance(interface, dict):
+                    continue
+                local_if = interface.get("localInterface") or interface.get("ifname")
+                entries.append((local_if, interface.get("neighbors") or []))
+
+        for local_if, value in entries:
+            for entry in value:
                 if not isinstance(entry, dict):
                     continue
                 neighbors.append(
@@ -353,6 +424,7 @@ class FrrCollector:
                         via="lldp",
                     )
                 )
+
         return neighbors
 
     def _read_cdp_neighbors(self, target: str, errors: List[str]) -> List[Neighbor]:

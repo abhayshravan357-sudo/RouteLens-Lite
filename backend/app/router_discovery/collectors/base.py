@@ -25,13 +25,41 @@ from datetime import datetime, timezone
 from typing import Callable, Deque, List, Optional
 
 
-#: The only command prefixes a collector may run. Read-only, all of them.
-ALLOWED = ("show ", "ip -j ", "hostname")
+#: Commands that must match exactly, the whole string. A command that
+#: merely starts with one of these is not that command, so "hostname -x"
+#: is refused.
+ALLOWED_EXACT = (
+    "hostname",
+    "lldpcli show neighbors -f json",
+)
 
-#: Characters that could chain, redirect or expand another command.
+#: Prefixes a command may start with.
+ALLOWED_PREFIX = (
+    "show ",
+    "ip -j ",
+)
+
+#: Every command the guard will run, for the record.
+ALLOWED = ALLOWED_EXACT + ALLOWED_PREFIX
+
+#: The characters that could chain, redirect or expand another command.
 #: A command containing any of these is not a read, whatever it starts
 #: with, so it is refused.
-SHELL_METACHARACTERS = frozenset(";|&`$()<>\\\"'*?!\n\r\t[]{}")
+#:
+#: This is the project's shared filter, extended by the four characters
+#: that only matter in a command: a wildcard, and the whitespace that
+#: could end a line. There is one list of dangerous characters, so a
+#: host target, a CIDR network and a device command are all filtered the
+#: same way.
+try:
+    from app.security import SHELL_METACHARACTERS as SHARED_SHELL_METACHARACTERS
+except ImportError:  # pragma: no cover - the shared filter is not merged yet
+    # The same set as app.security's, for branches that predate it. Once
+    # the shared filter is merged the import above is used and this is
+    # only a fallback.
+    SHARED_SHELL_METACHARACTERS = ";|&$`<>(){}[]!\"'*\\"
+
+SHELL_METACHARACTERS = frozenset(SHARED_SHELL_METACHARACTERS) | frozenset("?\n\r\t")
 
 #: The most audit entries kept. Once the trail is full the oldest entry
 #: is dropped to make room, so a long run cannot grow it without bound.
@@ -45,10 +73,21 @@ MAX_ERROR_CHARS = 300
 #: place. A target may carry userinfo, and a command may carry a
 #: password, and neither belongs in a log.
 _CREDENTIAL_PATTERNS = (
-    # key=value or key: value, where the key names a secret
-    re.compile(r"(?i)\b(pass(?:word)?|secret|token|api[_-]?key)\b\s*[=:]\s*\S+"),
-    # userinfo in a URL, or in a target such as admin:secret@10.0.0.1
-    re.compile(r"(?i)([a-z0-9._%+-]+):([^/\s@]+)@"),
+    # A secret given as a value: password=letmein, secret: letmein
+    re.compile(r"(?i)\b(pass(?:word)?|secret|token|api[_-]?key)(\s*[=:]\s*)\S+"),
+    # A secret given as userinfo with a host after it: admin:letmein@10.0.0.1.
+    # The host is kept, because knowing which host was talked to is the
+    # point of the trail.
+    re.compile(r"(?i)(?<![\w.])([a-z0-9._%+-]+):([^\s/@]+)@"),
+    # A secret given as userinfo with nothing after it: admin:letmein.
+    #
+    # The secret is anything up to the next space, so it may not start
+    # with a "/" (which keeps the scheme of a URL from being mistaken
+    # for a name) and it may not start with a "*" (which keeps a secret
+    # that has already been replaced from being replaced again). An
+    # ordinary message such as "connect: refused" keeps its colon and
+    # its text, because there is a space after the colon.
+    re.compile(r"(?i)(?<![\w.])([a-z0-9._%+-]+):([^\s/*][^\s]*)"),
 )
 
 
@@ -67,14 +106,18 @@ def redact(text: str) -> str:
 
     The audit trail records what was run and where. It must not record a
     password, so anything shaped like one is replaced before it is
-    written down.
+    written down. Where a shape cannot be told apart from ordinary text
+    with confidence, the text is replaced: a "***" is better than a
+    leaked password, and the trail is read by a person.
     """
     if not text:
         return text
     # A secret given as a value: password=letmein -> password=***
-    redacted = _CREDENTIAL_PATTERNS[0].sub(r"\1=***", text)
-    # A secret given as userinfo: admin:letmein@host -> admin:***@host
+    redacted = _CREDENTIAL_PATTERNS[0].sub(r"\1\2***", text)
+    # A secret given as userinfo with a host: admin:letmein@host -> admin:***@host
     redacted = _CREDENTIAL_PATTERNS[1].sub(r"\1:***@", redacted)
+    # A secret given as userinfo with nothing after it: admin:letmein -> admin:***
+    redacted = _CREDENTIAL_PATTERNS[2].sub(r"\1:***", redacted)
     return redacted
 
 
@@ -82,9 +125,9 @@ def command_problem(command: str) -> Optional[str]:
     """
     Say why a command may not be run, or None if it may.
 
-    A command is allowed when it starts with an allowed prefix, has no
-    leading whitespace, and contains nothing that could chain or expand
-    another command.
+    A command is allowed when it matches an exact entry, or starts with
+    an allowed prefix, and has no leading whitespace and contains
+    nothing that could chain or expand another command.
     """
     if not isinstance(command, str) or not command.strip():
         return "the command is empty"
@@ -94,10 +137,15 @@ def command_problem(command: str) -> Optional[str]:
     if found:
         shown = " ".join(repr(ch) for ch in found)
         return f"the command contains {shown}, which could chain or expand another command"
-    if not any(command.startswith(prefix) for prefix in ALLOWED):
-        allowed = ", ".join(repr(prefix) for prefix in ALLOWED)
-        return f"the command is not read-only; only {allowed} may be run"
-    return None
+    if command in ALLOWED_EXACT:
+        return None
+    if any(command.startswith(prefix) for prefix in ALLOWED_PREFIX):
+        return None
+    allowed = ", ".join(
+        [repr(entry) for entry in ALLOWED_EXACT]
+        + [f"{prefix!r}..." for prefix in ALLOWED_PREFIX]
+    )
+    return f"the command is not read-only; only {allowed} may be run"
 
 
 def check_command(command: str) -> None:
@@ -110,6 +158,24 @@ def check_command(command: str) -> None:
     problem = command_problem(command)
     if problem is not None:
         raise CommandNotAllowed(f"Refusing to run {command!r}: {problem}.")
+
+
+def safe_exception_reason(exc: BaseException, limit: int = 160) -> str:
+    """
+    A short reason for a failure, with anything device-shaped removed.
+
+    A router's stderr can carry a banner, a login prompt or a snippet of
+    its configuration. None of that belongs in a log, so a reason that
+    is long or spans lines is reduced to the exception's name.
+    """
+    name = type(exc).__name__
+    text = str(exc)
+    if not text:
+        return name
+    if len(text) > limit or "\n" in text or "\r" in text:
+        return name
+    collapsed = " ".join(text.split())
+    return f"{name}: {collapsed}" if collapsed else name
 
 
 @dataclass
@@ -188,7 +254,9 @@ class AuditedRunner:
         try:
             output = self.run(target, command)
         except Exception as exc:
-            self._record(target, command, "failed", f"{type(exc).__name__}: {exc}")
+            # The reason is built here and kept short. A device's own
+            # output is never copied into the trail.
+            self._record(target, command, "failed", safe_exception_reason(exc))
             raise
 
         self._record(target, command, "ok", None)

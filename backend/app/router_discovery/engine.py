@@ -137,6 +137,17 @@ def discover(
     """
     Collect a set of devices, breadth first, inside a scope.
 
+    The seeds are ADDRESSES. A name is a hint about one address, so the
+    caller resolves it first, because the scope applies to the resolved
+    address: a name that resolves outside the scope must be refused, and
+    the resolution is the caller's job, not the engine's. A seed that is
+    not an address is recorded as a failure rather than quietly dropped.
+
+    A seed that the scope refuses is a refusal, and this project records
+    refusals. A run that reports nothing and no failures is
+    indistinguishable from a run that worked and found nothing, so
+    anything that stops a seed being collected is written down.
+
     The candidates for the next hop are the addresses of the non-ARP
     neighbours a device reported and the next hops of its routes. An ARP
     neighbour is a host on the same link, so following it would sweep
@@ -177,8 +188,29 @@ def discover(
     queue: Deque[tuple[str, int]] = deque()
     for seed in seeds:
         normalised = _address_of(seed)
-        if normalised:
-            queue.append((normalised, 0))
+        if not normalised:
+            # A seed that cannot be used is recorded. A run that quietly
+            # found nothing is a run that looks like it worked.
+            reason = f"{seed!r} is not an IP address, so it cannot be used as a seed"
+            result.failures.append(
+                CollectionFailure(target=str(seed), reason=reason, depth=0)
+            )
+            progress(f"could not use the seed {seed}: {reason}")
+            continue
+
+        # The scope is checked before every collection, and a seed the
+        # scope refuses is a refusal that is written down.
+        if not in_scope(normalised, scope):
+            reason = (
+                f"{normalised} is outside the scope, so it was refused"
+            )
+            result.failures.append(
+                CollectionFailure(target=normalised, reason=reason, depth=0)
+            )
+            progress(f"refused the seed {normalised}: {reason}")
+            continue
+
+        queue.append((normalised, 0))
 
     while queue:
         address, depth = queue.popleft()

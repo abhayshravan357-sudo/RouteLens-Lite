@@ -25,10 +25,18 @@ The tests cover:
 """
 
 import json
+import subprocess
 from datetime import datetime, timezone
 
 import pytest
 
+from app.router_discovery.analysis import (
+    analyse,
+    alias_for,
+    build_fib,
+    select_route,
+    SAFE_NAME_RE,
+)
 from app.router_discovery.collectors.base import (
     ALLOWED,
     AuditedRunner,
@@ -336,9 +344,26 @@ class TestReadOnlyGuard:
         assert command_problem("   ") is not None
 
     def test_the_allowlist_is_only_reads(self):
-        """Every allowed prefix is a read."""
-        for prefix in ALLOWED:
-            assert prefix in ("show ", "ip -j ", "hostname")
+        """Every allowed command is a read."""
+        for entry in ALLOWED:
+            assert entry in (
+                "show ",
+                "ip -j ",
+                "hostname",
+                "lldpcli show neighbors -f json",
+            )
+
+    def test_an_exact_command_must_match_the_whole_string(self):
+        """A command that starts with an exact entry is not that entry."""
+        assert command_problem("hostname") is None
+        assert command_problem("hostname -x") is not None
+        assert command_problem("lldpcli show neighbors -f json") is None
+        assert command_problem("lldpcli show neighbors -f json extra") is not None
+
+    def test_a_prefix_command_may_have_arguments(self):
+        """A prefix rule still allows the arguments that follow it."""
+        assert command_problem("show ip route json") is None
+        assert command_problem("ip -j addr") is None
 
 
 class TestAuditTrail:
@@ -984,56 +1009,85 @@ class TestDockerRunner:
         """FRR is read with vtysh."""
         captured = {}
 
-        def fake_run(argv, **kwargs):
+        def fake_popen(argv, **kwargs):
             captured["argv"] = argv
             captured["kwargs"] = kwargs
 
-            class Result:
-                stdout = "output"
+            class Stream:
+                def read(self, size):
+                    return ""
 
-            return Result()
+                def close(self):
+                    pass
+
+            class Process:
+                stdout = Stream()
+                returncode = 0
+
+                def wait(self, timeout=None):
+                    return 0
+
+                def kill(self):
+                    pass
+
+            return Process()
 
         import app.router_discovery.collectors.frr as frr_module
 
-        original = frr_module.subprocess.run
-        frr_module.subprocess.run = fake_run
+        original = frr_module.subprocess.Popen
+        frr_module.subprocess.Popen = fake_popen
         try:
             runner = docker_runner({"10.0.0.2": "router1"})
             output = runner("10.0.0.2", "show ip route json")
         finally:
-            frr_module.subprocess.run = original
+            frr_module.subprocess.Popen = original
 
-        assert output == "output"
+        assert output == ""
         assert captured["argv"] == [
             "docker", "exec", "router1", "vtysh", "-c", "show ip route json"
         ]
+        # The whole output is never asked for at once, so the cap can
+        # stop a device filling memory.
+        assert "capture_output" not in captured["kwargs"]
         assert captured["kwargs"]["shell"] is False
-        assert captured["kwargs"]["capture_output"] is True
         assert captured["kwargs"]["text"] is True
-        assert captured["kwargs"]["timeout"] == 10
-        assert captured["kwargs"]["check"] is True
+        assert captured["kwargs"]["stderr"] is subprocess.DEVNULL
 
     def test_other_commands_are_run_directly(self):
         """A command that is not a show runs as itself."""
         captured = {}
 
-        def fake_run(argv, **kwargs):
+        def fake_popen(argv, **kwargs):
             captured["argv"] = argv
 
-            class Result:
-                stdout = "output"
+            class Stream:
+                def read(self, size):
+                    return ""
 
-            return Result()
+                def close(self):
+                    pass
+
+            class Process:
+                stdout = Stream()
+                returncode = 0
+
+                def wait(self, timeout=None):
+                    return 0
+
+                def kill(self):
+                    pass
+
+            return Process()
 
         import app.router_discovery.collectors.frr as frr_module
 
-        original = frr_module.subprocess.run
-        frr_module.subprocess.run = fake_run
+        original = frr_module.subprocess.Popen
+        frr_module.subprocess.Popen = fake_popen
         try:
             runner = docker_runner({"10.0.0.2": "router1"})
             runner("10.0.0.2", "ip -j addr")
         finally:
-            frr_module.subprocess.run = original
+            frr_module.subprocess.Popen = original
 
         assert captured["argv"] == ["docker", "exec", "router1", "ip", "-j", "addr"]
 
@@ -1042,6 +1096,468 @@ class TestDockerRunner:
         runner = docker_runner({})
         with pytest.raises(LookupError):
             runner("10.0.0.2", "show ip route json")
+
+
+# ---------------------------------------------------------------------------
+# The findings
+# ---------------------------------------------------------------------------
+
+class TestFindings:
+    """
+    What the analysis makes of the collected network.
+
+    The fixtures here are hand-built snapshots, as at the top of this
+    file. Nothing is presented as a device that was actually reached.
+    """
+
+    def _device(self, device_id, addresses, routes=(), neighbors=(), up=True):
+        return DeviceSnapshot(
+            device_id=device_id,
+            hostname=device_id,
+            mgmt_target=addresses[0].split("/")[0] if addresses else device_id,
+            method="local",
+            collected_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            interfaces=[
+                IfaceInfo(name=f"eth{index}", addresses=[address], up=up)
+                for index, address in enumerate(addresses)
+            ],
+            routes=list(routes),
+            neighbors=list(neighbors),
+        )
+
+    def _kinds(self, report):
+        return [finding.kind for finding in report.findings]
+
+    # -- blackhole --------------------------------------------------------
+
+    def test_a_blackhole_is_found(self):
+        """A next hop no device owns and that is not in the ARP table."""
+        device = self._device(
+            "r1",
+            ["10.0.0.1/24"],
+            routes=[RouteEntry(prefix="192.168.9.0/24", next_hop="10.9.9.9", interface="eth0")],
+        )
+        report = analyse([device])
+
+        blackholes = [f for f in report.findings if f.kind == "blackhole"]
+        assert len(blackholes) == 1
+        assert "10.9.9.9" in blackholes[0].detail
+        assert blackholes[0].provenance == "inferred"
+
+    def test_a_next_hop_that_is_a_known_device_is_not_a_blackhole(self):
+        """Somebody owns that address, so the traffic has somewhere to go."""
+        r1 = self._device(
+            "r1",
+            ["10.0.0.1/24"],
+            routes=[RouteEntry(prefix="192.168.9.0/24", next_hop="10.0.0.2", interface="eth0")],
+        )
+        r2 = self._device("r2", ["10.0.0.2/24"])
+        report = analyse([r1, r2])
+
+        assert "blackhole" not in self._kinds(report)
+
+    def test_a_next_hop_in_the_arp_table_is_not_a_blackhole(self):
+        """The device has heard from it, so it is on the link."""
+        device = self._device(
+            "r1",
+            ["10.0.0.1/24"],
+            routes=[RouteEntry(prefix="192.168.9.0/24", next_hop="10.0.0.9", interface="eth0")],
+            neighbors=[Neighbor(local_if="eth0", remote_ip="10.0.0.9", via="arp")],
+        )
+        report = analyse([device])
+
+        assert "blackhole" not in self._kinds(report)
+
+    # -- missing default --------------------------------------------------
+
+    def test_a_missing_default_is_found_on_a_forwarding_device(self):
+        """A device that forwards needs somewhere to send the rest."""
+        device = self._device(
+            "r1",
+            ["10.0.0.1/24"],
+            routes=[RouteEntry(prefix="192.168.9.0/24", next_hop="10.0.0.2", interface="eth0")],
+        )
+        report = analyse([device])
+
+        missing = [f for f in report.findings if f.kind == "missing_default"]
+        assert len(missing) == 1
+        assert "r1" in missing[0].devices
+
+    def test_a_device_with_a_default_is_not_flagged(self):
+        """It has somewhere to send the rest."""
+        device = self._device(
+            "r1",
+            ["10.0.0.1/24"],
+            routes=[
+                RouteEntry(prefix="192.168.9.0/24", next_hop="10.0.0.2", interface="eth0"),
+                RouteEntry(prefix="0.0.0.0/0", next_hop="10.0.0.254", interface="eth0"),
+            ],
+        )
+        report = analyse([device])
+
+        assert "missing_default" not in self._kinds(report)
+
+    def test_a_device_that_does_not_forward_is_not_flagged(self):
+        """A device that forwards nothing needs no default route."""
+        device = self._device(
+            "r1",
+            ["10.0.0.1/24"],
+            routes=[RouteEntry(prefix="10.0.0.0/8", interface="eth0")],
+        )
+        report = analyse([device])
+
+        assert "missing_default" not in self._kinds(report)
+
+    # -- loop -------------------------------------------------------------
+
+    def test_a_loop_among_the_collected_tables_is_found(self):
+        """r1 sends to r2 and r2 sends back to r1."""
+        r1 = self._device(
+            "r1",
+            ["10.0.0.1/24"],
+            routes=[RouteEntry(prefix="192.168.9.0/24", next_hop="10.0.0.2", interface="eth0")],
+        )
+        r2 = self._device(
+            "r2",
+            ["10.0.0.2/24"],
+            routes=[RouteEntry(prefix="192.168.9.0/24", next_hop="10.0.0.1", interface="eth0")],
+        )
+        report = analyse([r1, r2])
+
+        loops = [f for f in report.findings if f.kind == "loop"]
+        assert len(loops) == 1
+        assert set(loops[0].devices) == {"r1", "r2"}
+
+    def test_a_path_that_ends_is_not_a_loop(self):
+        """A path that reaches its destination is not a cycle."""
+        r1 = self._device(
+            "r1",
+            ["10.0.0.1/24"],
+            routes=[RouteEntry(prefix="192.168.9.0/24", next_hop="10.0.0.2", interface="eth0")],
+        )
+        r2 = self._device(
+            "r2",
+            ["10.0.0.2/24"],
+            routes=[RouteEntry(prefix="192.168.9.0/24", interface="eth0")],
+        )
+        report = analyse([r1, r2])
+
+        assert "loop" not in self._kinds(report)
+
+    # -- asymmetric path --------------------------------------------------
+
+    def test_an_asymmetric_pair_is_found(self):
+        """One way goes through r3 and the other way does not."""
+        r1 = self._device(
+            "r1",
+            ["10.0.0.1/24"],
+            routes=[RouteEntry(prefix="10.0.0.2/24", next_hop="10.0.0.3", interface="eth0")],
+        )
+        r2 = self._device(
+            "r2",
+            ["10.0.0.2/24"],
+            routes=[RouteEntry(prefix="10.0.0.1/24", next_hop="10.0.0.1", interface="eth0")],
+        )
+        r3 = self._device("r3", ["10.0.0.3/24"])
+        report = analyse([r1, r2, r3])
+
+        asymmetric = [f for f in report.findings if f.kind == "asymmetric_path"]
+        assert asymmetric, "the one-way path was not noticed"
+
+    def test_a_symmetric_pair_is_not_flagged(self):
+        """The two ways mirror each other."""
+        r1 = self._device(
+            "r1",
+            ["10.0.0.1/24"],
+            routes=[RouteEntry(prefix="10.0.0.2/24", next_hop="10.0.0.2", interface="eth0")],
+        )
+        r2 = self._device(
+            "r2",
+            ["10.0.0.2/24"],
+            routes=[RouteEntry(prefix="10.0.0.1/24", next_hop="10.0.0.1", interface="eth0")],
+        )
+        report = analyse([r1, r2])
+
+        assert "asymmetric_path" not in self._kinds(report)
+
+    # -- overlap ----------------------------------------------------------
+
+    def test_an_overlap_is_found(self):
+        """One prefix, two next hops, the same administrative distance."""
+        device = self._device(
+            "r1",
+            ["10.0.0.1/24"],
+            routes=[
+                RouteEntry(
+                    prefix="192.168.9.0/24", next_hop="10.0.0.2", interface="eth0",
+                    metric=10, admin_distance=20,
+                ),
+                RouteEntry(
+                    prefix="192.168.9.0/24", next_hop="10.0.0.3", interface="eth1",
+                    metric=30, admin_distance=20,
+                ),
+            ],
+        )
+        report = analyse([device])
+
+        overlaps = [f for f in report.findings if f.kind == "overlap"]
+        assert len(overlaps) == 1
+        assert "10.0.0.2" in overlaps[0].detail and "10.0.0.3" in overlaps[0].detail
+
+    def test_two_routes_with_different_admin_distances_are_not_an_overlap(self):
+        """The device knows which one it prefers, so there is no conflict."""
+        device = self._device(
+            "r1",
+            ["10.0.0.1/24"],
+            routes=[
+                RouteEntry(
+                    prefix="192.168.9.0/24", next_hop="10.0.0.2", interface="eth0",
+                    metric=10, admin_distance=20,
+                ),
+                RouteEntry(
+                    prefix="192.168.9.0/24", next_hop="10.0.0.3", interface="eth1",
+                    metric=30, admin_distance=110,
+                ),
+            ],
+        )
+        report = analyse([device])
+
+        assert "overlap" not in self._kinds(report)
+
+    # -- down next hop ----------------------------------------------------
+
+    def test_a_down_egress_interface_is_found(self):
+        """The route leaves by an interface that is not up."""
+        device = self._device(
+            "r1",
+            ["10.0.0.1/24"],
+            routes=[RouteEntry(prefix="192.168.9.0/24", next_hop="10.0.0.2", interface="eth0")],
+            up=False,
+        )
+        report = analyse([device])
+
+        down = [f for f in report.findings if f.kind == "down_next_hop"]
+        assert len(down) == 1
+        assert "eth0" in down[0].detail
+        assert down[0].provenance == "observed"
+
+    def test_an_up_egress_interface_is_not_flagged(self):
+        """The route leaves by an interface that is up."""
+        device = self._device(
+            "r1",
+            ["10.0.0.1/24"],
+            routes=[RouteEntry(prefix="192.168.9.0/24", next_hop="10.0.0.2", interface="eth0")],
+        )
+        report = analyse([device])
+
+        assert "down_next_hop" not in self._kinds(report)
+
+    # -- provenance -------------------------------------------------------
+
+    def test_every_finding_carries_a_provenance(self):
+        """No finding is without a word about how it was arrived at."""
+        device = self._device(
+            "r1",
+            ["10.0.0.1/24"],
+            routes=[RouteEntry(prefix="192.168.9.0/24", next_hop="10.9.9.9", interface="eth1")],
+            up=False,
+        )
+        report = analyse([device])
+
+        assert report.findings
+        for finding in report.findings:
+            assert finding.provenance in ("observed", "inferred", "unknown")
+
+    def test_a_device_that_was_not_reached_is_a_failure_not_a_node(self):
+        """It is never presented as a device with nothing in it."""
+        report = analyse(
+            [],
+            unreached=[{"target": "10.0.0.9", "reason": "the device refused"}],
+        )
+
+        assert report.devices_analysed == 0
+        assert report.unreached == [{"target": "10.0.0.9", "reason": "the device refused"}]
+        assert report.findings == []
+
+    def test_the_report_says_what_it_did(self):
+        """A reader is not left guessing how a path was worked out."""
+        report = analyse([])
+
+        assert "administrative distance" in report.method
+        assert "collected" in report.method
+
+
+class TestTheRoutingDecisionIsTheRouters:
+    """
+    The decision has to be the router's.
+
+    Administrative distance decides between routes for the SAME prefix.
+    Longest prefix decides between prefixes, and administrative distance
+    is irrelevant there, because the less specific route was never a
+    candidate for that destination.
+    """
+
+    def test_the_same_prefix_case_picks_the_lower_admin_distance(self):
+        """One prefix, two protocols. The router takes the lower distance.
+
+        The OSPF route has the better metric and a router never looks at
+        it, because the administrative distance is compared first.
+        """
+        routes = [
+            RouteEntry(
+                prefix="10.0.0.0/8", next_hop="10.0.1.2", interface="eth0",
+                metric=20, admin_distance=20, protocol="bgp",
+            ),
+            RouteEntry(
+                prefix="10.0.0.0/8", next_hop="10.0.2.2", interface="eth1",
+                metric=5, admin_distance=110, protocol="ospf",
+            ),
+        ]
+        best = select_route(routes, "10.0.0.55")
+
+        assert best is not None
+        assert best.next_hop == "10.0.1.2", (
+            f"the engine picked {best.next_hop}; a router takes the route with the "
+            f"lower administrative distance, not the lower metric"
+        )
+
+    def test_the_different_prefix_case_is_longest_prefix(self):
+        """Longest prefix decides, and the engine already does that."""
+        routes = [
+            RouteEntry(
+                prefix="10.0.0.0/8", next_hop="10.0.1.2", interface="eth0",
+                metric=20, admin_distance=20, protocol="bgp",
+            ),
+            RouteEntry(
+                prefix="10.0.0.0/24", next_hop="10.0.2.2", interface="eth1",
+                metric=110, admin_distance=110, protocol="ospf",
+            ),
+        ]
+        best = select_route(routes, "10.0.0.55")
+
+        assert best is not None
+        assert best.prefix == "10.0.0.0/24"
+
+    def test_the_default_route_does_not_win_on_admin_distance(self):
+        """The textbook case: the /8 wins, not the default."""
+        routes = [
+            RouteEntry(
+                prefix="0.0.0.0/0", next_hop="10.0.1.2", interface="eth0",
+                metric=0, admin_distance=0,
+            ),
+            RouteEntry(
+                prefix="10.0.0.0/8", next_hop="10.0.2.2", interface="eth1",
+                metric=20, admin_distance=20,
+            ),
+        ]
+        best = select_route(routes, "10.1.2.3")
+
+        assert best is not None
+        assert best.prefix == "10.0.0.0/8"
+
+    def test_the_engine_and_the_scenario_engine_tell_apart(self):
+        """
+        The test has to be able to tell the two behaviours apart.
+
+        The scenario engine's lookup() has no administrative distance, so
+        for one prefix it takes the metric. This engine takes the
+        distance. On the same table they disagree, and the difference is
+        exactly what a router would make.
+        """
+        import ipaddress
+
+        from app.scenario import Route as ScenarioRoute
+        from app.scenario import lookup as scenario_lookup
+
+        collected = [
+            RouteEntry(
+                prefix="10.0.0.0/8", next_hop="10.0.1.2", interface="eth0",
+                metric=20, admin_distance=20, protocol="bgp",
+            ),
+            RouteEntry(
+                prefix="10.0.0.0/8", next_hop="10.0.2.2", interface="eth1",
+                metric=5, admin_distance=110, protocol="ospf",
+            ),
+        ]
+
+        mine = select_route(collected, "10.0.0.55")
+        theirs, _candidates = scenario_lookup(
+            [
+                ScenarioRoute(prefix="10.0.0.0/8", dev="eth0", via="10.0.1.2", metric=20),
+                ScenarioRoute(prefix="10.0.0.0/8", dev="eth1", via="10.0.2.2", metric=5),
+            ],
+            ipaddress.ip_address("10.0.0.55"),
+        )
+
+        assert mine.next_hop == "10.0.1.2", "the router takes the lower admin distance"
+        assert theirs.via == "10.0.2.2", "the scenario engine takes the lower metric"
+        assert mine.next_hop != theirs.via, (
+            "the two engines now agree, so the difference this test relies on "
+            "has gone; the test needs a case where they still differ"
+        )
+
+    def test_the_forwarding_table_holds_one_route_per_prefix(self):
+        """A router installs one route for each prefix."""
+        routes = [
+            RouteEntry(
+                prefix="10.0.0.0/8", next_hop="10.0.1.2", interface="eth0",
+                metric=20, admin_distance=20,
+            ),
+            RouteEntry(
+                prefix="10.0.0.0/8", next_hop="10.0.2.2", interface="eth1",
+                metric=5, admin_distance=110,
+            ),
+            RouteEntry(
+                prefix="192.168.0.0/16", next_hop="10.0.1.2", interface="eth0",
+                metric=10, admin_distance=20,
+            ),
+        ]
+        fib = build_fib(routes)
+
+        assert len(fib) == 2
+        by_prefix = {route.prefix: route for route in fib}
+        assert by_prefix["10.0.0.0/8"].next_hop == "10.0.1.2"
+
+    def test_an_admin_distance_that_was_not_read_is_treated_as_unknown(self):
+        """A route whose distance is known is preferred."""
+        routes = [
+            RouteEntry(prefix="10.0.0.0/8", next_hop="10.0.1.2", interface="eth0", metric=50),
+            RouteEntry(
+                prefix="10.0.0.0/8", next_hop="10.0.2.2", interface="eth1",
+                metric=10, admin_distance=110,
+            ),
+        ]
+        best = select_route(routes, "10.0.0.55")
+
+        assert best is not None
+        assert best.next_hop == "10.0.2.2"
+
+
+class TestAliases:
+    """Real interface names do not fit the scenario engine's rules."""
+
+    def test_a_real_interface_name_gets_an_alias(self):
+        """The name is aliased, and the real name is carried alongside."""
+        for real in ("Gi0/0/1", "Ethernet0", "xe-0/0/0", "tenGigE0/0/0.100",
+                     "eth0.100", "eth0@if3", "GigabitEthernet0/1"):
+            alias = alias_for(real, set())
+            assert SAFE_NAME_RE.match(alias), f"{real} produced {alias}"
+            assert alias != real
+
+    def test_an_alias_is_unique_within_a_device(self):
+        """Two interfaces cannot share a name."""
+        taken = set()
+        first = alias_for("Gi0/0/1", taken)
+        second = alias_for("Gi0/0/1", taken)
+
+        assert first != second
+        assert SAFE_NAME_RE.match(second)
+
+    def test_a_device_name_gets_an_alias(self):
+        """A device named with a space is aliased too."""
+        alias = alias_for("Router A", set())
+        assert SAFE_NAME_RE.match(alias)
+        assert alias == "router-a"
 
 
 if __name__ == "__main__":
