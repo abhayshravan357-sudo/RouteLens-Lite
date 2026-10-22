@@ -14,9 +14,31 @@ learning what each one is connected to, and reading the routing table each one
 holds. The two must not be confused, and the sweep must not be broken by the
 new work.
 
-**Three compatibility decisions are not yet on the board.** The cases that
-depend on them are marked **[contract-pending]** below, with the question that
-has to be answered before they can be written.
+**Two compatibility decisions have been taken** and are folded into the cases
+below. A third — how a run is scoped to the client that started it — is still
+open, and the cases that depend on it are marked **[contract-pending]**.
+
+### Decision 1 — the allowlist is exact commands and prefix rules, as two separate sets
+
+- An **exact** entry must match the whole string. `hostname` is exact, so
+  `hostname -x` is **refused**.
+- A **prefix** rule matches a string that begins with the prefix. `show ` and
+  `ip -j ` are prefix rules.
+
+Two things follow, and both are easy to get wrong:
+
+- A near-miss of an exact entry is refused. `hostname -x` is not `hostname`.
+- **A prefix rule must not swallow a metacharacter.** `show ip route; rm -rf /`
+  begins with `show `, and it must still be refused. Prefix matching is not a
+  licence for the rest of the string.
+
+### Decision 2 — the scope is checked on the resolved address, not on the name
+
+A name passes the target validation, is **resolved**, and the **resolved
+address** is what is checked against the allowlist. A name that resolves
+outside the allowlist is refused — and the refusal must name the address it
+resolved to, so that the reader can see *why* it was refused rather than
+being told only that the name was not allowed.
 
 ---
 
@@ -207,6 +229,10 @@ guard is worth testing.
 | G14 | `lldpcli show neighbors -f json` | allowed |
 | G15 | an empty command | refused, not an empty execution |
 | G16 | a command that is only whitespace | refused |
+| G17 | `hostname -x` | refused — `hostname` is an **exact** entry, so a near-miss does not match |
+| G18 | `show ip route; rm -rf /` | refused — it begins with the prefix `show `, and a prefix rule must not swallow the metacharacter |
+| G19 | `ip -j route show; id` | refused — the same, for the prefix rule `ip -j ` |
+| G20 | `show ip route` | allowed — it is exactly the prefix plus an argument |
 
 ### 2.4 The refusal must be a refusal
 
@@ -265,6 +291,25 @@ that gets forgotten:
 
 The test must assert that the runner was **never called** with a
 disallowed target — counting calls, not checking the output.
+
+**The check is on the resolved address.** A seed given as a name is
+resolved first, and the address it resolved to is what is checked. A name
+that resolves outside the allowlist is refused, and the refusal names the
+address — otherwise the reader cannot tell a typo from a name that points
+somewhere they did not intend.
+
+| # | Case | Expected |
+|---|------|----------|
+| S1 | a seed given as an address inside the allowlist | accepted |
+| S2 | a seed given as an address outside the allowlist | refused, nothing contacted |
+| S3 | a seed given as a name that resolves inside the allowlist | accepted |
+| S4 | a seed given as a name that resolves **outside** the allowlist | refused, and the refusal names the resolved address |
+| S5 | a seed given as a name that does not resolve | refused, with a reason that says so — not a 500 |
+| S6 | a neighbour discovered inside the scope that points outside it | never contacted (the enqueue-time check) |
+
+**S4 is the case that catches the worst bug**: checking the *name* against
+the allowlist would let a name that resolves anywhere at all through, and
+the feature would walk out of its area on the first hop.
 
 ### 3.4 ARP neighbours are not auto-queued
 
@@ -366,8 +411,36 @@ disallowed target — counting calls, not checking the output.
 - This is the same property the ICMP sweep has, and the new module must not
   be weaker.
 
+### 5.6 What Agent E's design review requires of the API
+
+These came out of the design review and are API-level obligations. They are
+listed separately because each one is a way the feature could be *used*
+wrongly, rather than a value it gets wrong.
+
+| # | Obligation | What a wrong implementation does |
+|---|-------------|----------------------------------|
+| A1 | **A run cannot be created without a scope.** | starts collecting from nowhere, or defaults to a range the caller did not ask for |
+| A2 | **A malformed scope is a 400 with a readable reason, and nothing was contacted.** | a 500, or a 400 that says "invalid", or a 400 after some commands have already run |
+| A3 | **A seed that resolves outside the scope is refused, and the refusal names the address it resolved to.** | collects from outside the area, or refuses without saying which address |
+| A4 | **The rate limiter is consulted once per run, not once per device.** | a run with fifty devices counts as fifty requests and is refused halfway through, so a legitimate run fails for no reason — and a caller can evade the limit by asking for one device at a time |
+| A5 | **A per-client concurrent-run cap is enforced.** | one client starts fifty runs and exhausts the machine |
+| A6 | **One client cannot read or cancel another client's run.** | any client can stop any run, and can read a run's results |
+| A7 | **A device that failed to collect is reported as a failure, never as an empty success.** | a router whose routing table could not be read appears as a router with no routes — a false negative that reads like a finding |
+| A8 | **A device that was NOT reached does not appear as an ordinary node with empty fields.** it appears as unknown, or as a failure | the graph shows a device that was never contacted, as though it had been seen and had nothing |
+| A9 | **The audit trail records commands that RAN, and a refused command is not recorded as though it had run.** | the trail claims a command was executed when it was refused, so the audit trail cannot be trusted as evidence of what touched the network |
+
+**A4 deserves a note.** The natural implementation consults the limiter per
+device, because that is where the network access happens. The requirement is
+the opposite: a *run* is the unit of work a caller asks for, so the limiter
+counts runs. A device is not a request.
+
+**A9 deserves a note too.** A refusal must not leave a trace that reads as
+an attempt. If the trail is what an operator later reads to answer "what did
+this tool do to my network?", a trail that lists refused commands as
+executed is worse than no trail.
+
 **[contract-pending]** — the exact isolation mechanism (a per-run token, or
-per-process state) is one of the three decisions.
+per-process state) is still open. A5 and A6 depend on it.
 
 ---
 
@@ -413,6 +486,21 @@ browser checks are the only place that is proved.
 | **A device that failed to collect** | the device, and the reason it failed, marked as failed and distinguished from a device with nothing on it |
 | **The backend is not reachable** | that the backend could not be reached — not an empty graph, and not a crash |
 
+### 7.1 The selectors these checks assume
+
+Agent C has not published the view's selectors yet, so the browser checks
+are written against the contract below. They skip with a reason naming what
+is missing until the view exists, and will start running when it does.
+
+```
+the nav item        "Router Discovery"
+the run form        #rd-scope, #rd-seeds, #rd-start
+the devices         .rd-device, .rd-device-name, .rd-device-failed
+the edges           .rd-edge, .rd-edge-provenance
+the findings        .rd-finding
+the run status      .rd-status, .rd-status-reason
+```
+
 Rules for the browser checks:
 - The view **never** shows a device, a link or a finding the backend did not
   report. The test must feed a known set through the API and assert the
@@ -424,6 +512,9 @@ Rules for the browser checks:
   distinction is visible in the text, not only in a colour or a shape.
 - A missing **application** skips with a reason; a missing **feature**
   fails.
+- A missing **view** skips with a reason naming that it has not been built.
+  That is a different thing from the view being broken, and conflating them
+  would mean a view that never appears looks like a view that works.
 
 ---
 
@@ -473,5 +564,19 @@ record is empty, not that the output looks right.
 | Area | File | Notes |
 |------|------|-------|
 | The whole contract | `backend/tests/test_router_discovery_contract.py` | independent, written from this plan, using fakes only |
+
+**The contract tests were proved to bite.** They were run against a
+deliberately naive reference implementation — one that matches the allowlist
+on a prefix, checks the scope against the name rather than the resolved
+address, defaults a missing scope, queues ARP neighbours, identifies devices
+by address, ignores the bounds, consults the rate limiter per device, lets
+any client read any run, and records refused commands as though they ran.
+**Twenty-two of the thirty-five checks failed against it.** Correcting the
+reference implementation made twenty of them pass; the rest correspond to
+defects in the reference that were not corrected, not to checks that cannot
+be satisfied.
+
+The reference implementation lives outside the repository. It is scaffolding
+for proving the tests work, not part of the product.
 | The new view | `backend/tests/test_e2e_browser.py` | added to the existing file, using the existing `app_available` fixture |
 | The ICMP sweep | `backend/tests/test_discovery_api.py` and `test_discovery.py` | **untouched** — the new module must not break them, and the existing suite is the regression check |

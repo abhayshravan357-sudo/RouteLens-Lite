@@ -2451,3 +2451,183 @@ class TestVirtualLabLifecycle:
             assert phrase not in body, (
                 f"after a refused build the lab says {phrase!r}"
             )
+
+
+# =============================================================================
+# The router-discovery view.
+#
+# The view has not been built yet, and Agent C has not published its
+# selectors. These checks are written against the contract below, and skip
+# with a reason naming what is missing until the view exists. They will
+# start running when it does.
+#
+#   the nav item       "Router Discovery"
+#   the run form       #rd-scope, #rd-seeds, #rd-start
+#   the devices        .rd-device, .rd-device-name, .rd-device-failed
+#   the edges          .rd-edge, .rd-edge-provenance
+#   the findings       .rd-finding
+#   the run status     .rd-status, .rd-status-reason
+#
+# What they assert is what the interface is allowed to SAY, not how it
+# looks: a device, a link or a finding the backend did not report must
+# not appear; a packet must never be claimed to have been sent; an
+# observed edge must be distinguishable from an inferred one; a failed
+# collection must be shown as a failure; and a failed run must say why.
+# =============================================================================
+
+
+RD_VIEW = "Router Discovery"
+
+
+def open_router_discovery(page):
+    """
+    Open the router-discovery view.
+
+    Skips with a reason when the view has not been built, which is a
+    different thing from the view being broken.
+    """
+    open_page(page)
+    nav = page.locator(".sidebar-nav .nav-item", has_text=RD_VIEW)
+    if nav.count() == 0:
+        pytest.skip(
+            "the router-discovery view has not been built yet, so there is "
+            "nothing for the browser to check"
+        )
+    nav.first.click()
+    page.wait_for_timeout(1500)
+
+
+class TestRouterDiscoveryView:
+    """The router-discovery view must not say more than the backend said."""
+
+    def test_the_view_never_shows_a_device_the_backend_did_not_report(self, page, app_available):
+        """
+        Every device on screen came from the backend.
+
+        A device invented by the interface is the worst kind of lie: it
+        looks exactly like a discovered one.
+        """
+        open_router_discovery(page)
+
+        # Nothing has been run, so nothing may be shown as a device.
+        devices = page.locator(".rd-device")
+        assert devices.count() == 0, (
+            f"{devices.count()} devices are shown before any run was made"
+        )
+
+    def test_the_view_never_shows_a_link_the_backend_did_not_report(self, page, app_available):
+        """Every edge on screen came from the backend."""
+        open_router_discovery(page)
+
+        edges = page.locator(".rd-edge")
+        assert edges.count() == 0, (
+            f"{edges.count()} links are shown before any run was made"
+        )
+
+    def test_the_view_never_shows_a_finding_the_backend_did_not_report(self, page, app_available):
+        """Every finding on screen came from the backend."""
+        open_router_discovery(page)
+
+        findings = page.locator(".rd-finding")
+        assert findings.count() == 0, (
+            f"{findings.count()} findings are shown before any run was made"
+        )
+
+    def test_the_view_never_says_a_packet_was_sent(self, page, app_available):
+        """
+        Nothing here sends a packet.
+
+        This feature talks to management interfaces. Saying a packet was
+        sent would be claiming a measurement it never made.
+        """
+        open_router_discovery(page)
+
+        body = page.inner_text("body")
+        for phrase in (
+            "Transmitting packet",
+            "Packet sent",
+            "Transmitted",
+            "pinged",
+            "probed the host",
+        ):
+            assert phrase not in body, (
+                f"the router-discovery view says {phrase!r}, which it has not "
+                "earned"
+            )
+
+    def test_the_view_distinguishes_an_observed_edge_from_an_inferred_one(self, page, app_available):
+        """
+        An observed edge and an inferred one must be told apart.
+
+        Both are links on the screen; only one of them is something
+        somebody saw. Every edge must therefore carry its provenance in
+        words, not only in a colour or a shape.
+        """
+        open_router_discovery(page)
+
+        edges = page.locator(".rd-edge")
+        if edges.count() == 0:
+            pytest.skip(
+                "no edges are on screen, so there is no provenance to "
+                "distinguish; this needs a run to have produced one"
+            )
+
+        for edge in edges.all():
+            provenance = edge.locator(".rd-edge-provenance")
+            assert provenance.count() >= 1, (
+                "an edge does not say whether it was observed or inferred"
+            )
+            text = provenance.first.inner_text().strip().lower()
+            assert text in ("observed", "inferred"), (
+                f"an edge's provenance reads {text!r}"
+            )
+
+    def test_a_failed_device_is_shown_as_failed(self, page, app_available):
+        """A device that could not be collected must not look like an empty one."""
+        open_router_discovery(page)
+
+        failed = page.locator(".rd-device-failed")
+        for device in failed.all():
+            text = device.inner_text().lower()
+            assert "failed" in text or "could not" in text or "error" in text, (
+                f"a failed device does not say it failed: {text!r}"
+            )
+
+    def test_a_failed_run_says_why(self, page, app_available):
+        """A run that failed must show its reason, not an empty result."""
+        open_router_discovery(page)
+
+        status = page.locator(".rd-status")
+        if status.count() == 0:
+            pytest.skip("the view has no status area yet")
+
+        reason = page.locator(".rd-status-reason")
+        if reason.count() == 0:
+            pytest.skip("the view has no reason area yet")
+
+        text = status.first.inner_text().lower()
+        if "fail" in text or "error" in text:
+            assert reason.first.inner_text().strip(), (
+                "the run failed but no reason was shown"
+            )
+
+    def test_the_scope_field_says_what_it_permits(self, page, app_available):
+        """
+        The scope must say what it allows.
+
+        A field labelled "Scope" tells a reader nothing; one that says which
+        networks may be contacted tells them whether their answer is safe.
+        """
+        open_router_discovery(page)
+
+        scope = page.locator("#rd-scope")
+        if scope.count() == 0:
+            pytest.skip("the view has no scope field yet")
+
+        label = page.locator("label[for='rd-scope']")
+        assert label.count() >= 1, "the scope field has no label"
+
+        text = label.first.inner_text().lower()
+        assert any(
+            word in text for word in ("network", "address", "allowed", "permit", "within")
+        ), f"the scope label does not say what it permits: {text!r}"

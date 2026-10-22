@@ -200,7 +200,7 @@ python -m pytest -q --ignore=tests/test_e2e_browser.py
 
 The counts move as the work lands, so run the command rather than trusting
 a number in this file. When this README was written, the backend suite was
-`683 passed, 2 skipped`. Both skips say why: one is a test that needs a
+`684 passed, 2 skipped`. Both skips say why: one is a test that needs a
 kernel interface this machine does not have, and one needs root to build
 network namespaces.
 
@@ -231,9 +231,11 @@ ROUTELENS_HEALTH=http://127.0.0.1:8000/health \
 python -m pytest tests/test_e2e_browser.py -q -p no:cacheprovider
 ```
 
-When this README was written the browser file was `93 passed`, with no
-expected failures. The counts move as the work lands, so run the command
-rather than trusting a number in this file.
+When this README was written the browser file was `93 passed, 8 skipped`.
+The eight skips are the checks for the router-discovery view, which has not
+been built yet; they skip with a reason naming that, rather than passing
+vacuously. The counts move as the work lands, so run the command rather
+than trusting a number in this file.
 
 A check that cannot fail is not a check, so none of these are written as
 "skip if the element is missing" — a missing required element is a failure

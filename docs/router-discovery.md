@@ -187,6 +187,51 @@ Two things will hold whatever the final shape is:
 
 ---
 
+## What has not been verified
+
+This feature is not finished and **nothing about it has been proven against
+a real router**. The design and the rules above are a specification. Here is
+exactly what is missing, so that a reader can tell the difference between
+what is written down and what is known to work.
+
+| Not available here | What that leaves unproven |
+|---|---|
+| **No router** | the whole feature end to end: finding a device, reading its identity, reading its routing table |
+| **No FRR** | reading a real routing table through `vtysh`, and the shape of the output that has to be parsed |
+| **No containerlab** | the standard way to build a lab topology: a containerlab definition, a topology file, and a way to bring it up and tear it down |
+| **No root** | creating the network namespaces the lab would use, and the privileges the management sessions would need |
+| **No SNMP agent** | reading a routing table over SNMP, and the MIB values that have to be interpreted |
+| **No LLDP or CDP speaker** | an *observed* edge from a management protocol — the one thing that is genuinely observed rather than inferred |
+| **No second management address** | the identity rule in anger: one device, two addresses, collected once |
+
+**What has been done instead.** The contract in
+[`docs/router-discovery-test-plan.md`](router-discovery-test-plan.md) is
+written out, and the independent tests in
+`backend/tests/test_router_discovery_contract.py` are written against it
+using a fake collector and a fake runner. Those tests prove what the
+behaviour must be; they do not prove that any of it has been implemented
+yet, because the module does not exist yet.
+
+**What would be needed to close the gap**, in order of usefulness:
+
+1. **A router.** A containerlab topology with FRR and one vendor image
+   would give a routing table to read, an LLDP neighbour to observe, and
+   a second address to identify a device by. Docker and containerlab, plus
+   root or a user namespace with `ip netns` permitted, are what that needs.
+2. **A fixed set of recorded command outputs.** If the outputs of
+   `vtysh -c "show ip route"`, `lldpcli show neighbors -f json` and
+   `ip -j route show` were captured once from a real router and checked
+   in, the parser could be tested against real shapes without a router
+   being present. This is the cheapest of the three and would catch most
+   of the parsing bugs.
+3. **An SNMP agent** and **an LLDP speaker**, each in a container, to cover
+   those two methods.
+
+Until at least the first of those exists, any statement that this feature
+"works" is a statement about the design, not about the software.
+
+---
+
 ## See also
 
 - [`docs/router-discovery-test-plan.md`](router-discovery-test-plan.md) — the
