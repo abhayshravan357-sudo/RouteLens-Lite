@@ -929,21 +929,23 @@ export interface Neighbor {
 /** Everything the backend managed to read from one device. */
 export interface DeviceSnapshot {
   device_id: string;
-  hostname: string | null;
-  mgmt_target: string | null;
-  method: string | null;
-  collected_at: string | null;
+  /** The name the device reports for itself. */
+  hostname: string;
+  mgmt_target: string;
+  /** How the device was reached. */
+  method: 'ssh' | 'snmp' | 'docker' | 'local' | (string & {});
+  collected_at: string;
   interfaces: IfaceInfo[];
   routes: RouteEntry[];
   neighbors: Neighbor[];
-  /** Why parts of this device could not be read. */
-  errors: string[];
   /**
-   * Whether this reading was measured or deduced.
+   * Why parts of this device could not be read.
    *
-   * A route read out of a device is observed. Absent means unknown.
+   * This is the authoritative list. A device with entries here was not
+   * collected, and nothing may be claimed about its tables.
    */
-  provenance?: RouterDiscoveryProvenance;
+  errors: string[];
+  provenance: 'observed' | (string & {});
 }
 
 /** A link between two devices. */
@@ -960,9 +962,10 @@ export interface RouterDiscoveryEdge {
 
 /** A device in the discovered graph. */
 export interface RouterDiscoveryNode {
+  /** The key the device is known by. */
   device_id: string;
-  /** What the reader sees on the map. */
-  label: string;
+  /** The name the device reports for itself. This is what the map shows. */
+  hostname: string;
   /**
    * Where this device's reading came from.
    *
@@ -971,10 +974,16 @@ export interface RouterDiscoveryNode {
    * with empty fields. Absent means unknown, never observed.
    */
   provenance?: RouterDiscoveryProvenance;
-  /** Set when the device refused, timed out, or returned something unreadable. */
-  error: string | null;
-  /** Partial failures while collecting this device. */
+  /**
+   * Why the device could not be collected.
+   *
+   * This list is the authoritative record. A device with anything in it was
+   * not collected, and the drawer must not claim its empty table is a
+   * real reading.
+   */
   errors: string[];
+  /** A short summary for the badge, if the backend offers one. */
+  error?: string | null;
 }
 
 /** The graph the backend built from a run. */
@@ -991,7 +1000,13 @@ export interface RouterDiscoveryDevice extends DeviceSnapshot {
 
 /** Something the backend noticed worth telling the student about. */
 export interface RouterDiscoveryFinding {
-  device_id: string;
+  /**
+   * The devices this finding is about.
+   *
+   * A list, because a finding can be about a pair — an asymmetry is
+   * about two devices, not one.
+   */
+  devices: string[];
   /** What sort of finding this is. */
   kind: string;
   /** How serious the backend judged it to be. */
@@ -1005,10 +1020,30 @@ export interface RouterDiscoveryFinding {
   /**
    * Whether the finding was measured or deduced.
    *
-   * A finding that is an inference has to say so, or a student cannot tell
-   * a suspicion from a measurement.
+   * A finding that is an inference has to say so, or a student cannot
+   * tell a suspicion from a measurement.
    */
   provenance?: RouterDiscoveryProvenance;
+  /**
+   * Whether the topology could be represented.
+   *
+   * False means the finding rests on a partial view, which is a limit on
+   * the finding itself and not a detail a reader can afford to miss.
+   */
+  representable?: boolean;
+}
+
+/** The findings of one run. */
+export interface RouterDiscoveryFindings {
+  findings: RouterDiscoveryFinding[];
+  /**
+   * How the analysis was done, in the backend's own words.
+   *
+   * This is the honest answer to "how do I know this is right", and it
+   * is the difference between a tool that measures and a tool that
+   * calculates. Shown when the API carries it.
+   */
+  method_description?: string | null;
 }
 
 /** The state of one discovery run. */

@@ -57,7 +57,7 @@ import type {
   RouterDiscoveryDiff,
   RouteEntry,
 } from '../types/routing';
-import ProvenanceBadge from './ProvenanceBadge';
+import ProvenanceBadge, { type Provenance } from './ProvenanceBadge';
 import './RouterDiscoveryPage.css';
 
 /* ==========================================================================
@@ -134,6 +134,8 @@ function DiscoveryNode({
     : collected
     ? NODE_COLORS[provenance] ?? NODE_COLORS.unknown
     : NODE_COLORS.unknown;
+  // The device's own name is what the map shows; the id is the key.
+  const displayName = node.hostname || node.device_id;
 
   return (
     <div
@@ -148,15 +150,17 @@ function DiscoveryNode({
       <Handle type="source" position={Position.Right} className="dnode-handle" />
 
       <span className="dnode-dot" style={{ background: color }} aria-hidden="true" />
-      <span className="dnode-label" title={node.label}>
-        {node.label}
+      <span className="dnode-label" title={displayName}>
+        {displayName}
       </span>
-      <span className="dnode-id" title={node.device_id}>
-        {node.device_id}
-      </span>
+      {node.hostname && node.hostname !== node.device_id && (
+        <span className="dnode-id" title={node.device_id}>
+          {node.device_id}
+        </span>
+      )}
 
       {failed && (
-        <span className="dnode-state failed" title={node.error ?? undefined}>
+        <span className="dnode-state failed" title={node.errors.join('; ')}>
           not collected
         </span>
       )}
@@ -249,6 +253,25 @@ function looksLikeSeed(value: string): boolean {
 }
 
 /**
+ * Map whatever the backend sent onto the four words the badge knows.
+ *
+ * A value outside the vocabulary is not silently accepted as one of
+ * them: it reads as "unknown", which is the honest reading of a
+ * provenance nobody has established.
+ */
+function toProvenance(value: string | null | undefined): Provenance {
+  if (
+    value === 'observed' ||
+    value === 'inferred' ||
+    value === 'simulated' ||
+    value === 'unknown'
+  ) {
+    return value;
+  }
+  return 'unknown';
+}
+
+/**
  * Say what went wrong in terms the reader can act on.
  *
  * A 404 in particular means this backend does not have the router
@@ -310,6 +333,14 @@ export default function RouterDiscoveryPage() {
   // --- What the run found ---
   const [graph, setGraph] = useState<RouterDiscoveryGraph | null>(null);
   const [findings, setFindings] = useState<RouterDiscoveryFinding[]>([]);
+  /**
+   * How the analysis was done, in the backend's own words.
+   *
+   * This is the honest answer to "how do I know this is right". It is
+   * shown only if the API carries it — an absent field is not filled in
+   * with a guess.
+   */
+  const [methodDescription, setMethodDescription] = useState<string | null>(null);
   const [loadingGraph, setLoadingGraph] = useState(false);
   const [graphError, setGraphError] = useState<string | null>(null);
 
@@ -348,9 +379,9 @@ export default function RouterDiscoveryPage() {
       (graph?.nodes ?? []).map((node) => {
         // Three states, told apart because they mean different things: the
         // device was read, it refused or timed out, or nothing was heard
-        // from it at all.
+        // from it at all. The `errors` list is the authoritative record.
         const failed =
-          Boolean(node.error) || (node.errors?.length ?? 0) > 0;
+          (node.errors?.length ?? 0) > 0 || Boolean(node.error);
         const provenance = node.provenance ?? 'unknown';
         const notReached = !failed && provenance === 'unknown';
         const collected = !failed && !notReached;
@@ -527,6 +558,7 @@ export default function RouterDiscoveryPage() {
             if (cancelled) return;
             setGraph(foundGraph);
             setFindings(foundFindings.findings ?? []);
+            setMethodDescription(foundFindings.method_description ?? null);
             setGraphError(null);
           } catch (err) {
             if (!cancelled) {
@@ -617,16 +649,18 @@ export default function RouterDiscoveryPage() {
 
   const selectedNodeWasNotCollected = useMemo(() => {
     if (!selectedNode) return false;
-    return Boolean(selectedNode.error) || (selectedNode.errors?.length ?? 0) > 0;
+    return (
+      (selectedNode.errors?.length ?? 0) > 0 || Boolean(selectedNode.error)
+    );
   }, [selectedNode]);
 
   const selectedNodeFailureReason = useMemo(() => {
     if (!selectedNode) return null;
-    if (selectedNode.error) return selectedNode.error;
+    // The list is authoritative; the summary string is a convenience.
     if (selectedNode.errors && selectedNode.errors.length > 0) {
       return selectedNode.errors.join('; ');
     }
-    return null;
+    return selectedNode.error ?? null;
   }, [selectedNode]);
 
   /**
@@ -1060,32 +1094,32 @@ export default function RouterDiscoveryPage() {
                   <div className="detail-item">
                     <span className="detail-label">Hostname</span>
                     <span className="detail-value mono">
-                      {device.hostname ?? 'not reported'}
+                      {device.hostname || 'not reported'}
                     </span>
                   </div>
                   <div className="detail-item">
                     <span className="detail-label">Management target</span>
                     <span className="detail-value mono">
-                      {device.mgmt_target ?? 'not reported'}
+                      {device.mgmt_target || 'not reported'}
                     </span>
                   </div>
                   <div className="detail-item">
                     <span className="detail-label">Collected by</span>
                     <span className="detail-value">
-                      {device.method ?? 'not reported'}
+                      {device.method || 'not reported'}
                     </span>
                   </div>
                   <div className="detail-item">
                     <span className="detail-label">Collected at</span>
                     <span className="detail-value mono">
-                      {device.collected_at ?? 'not reported'}
+                      {device.collected_at || 'not reported'}
                     </span>
                   </div>
                   <div className="detail-item">
                     <span className="detail-label">Provenance</span>
                     <span className="detail-value">
                       <ProvenanceBadge
-                        provenance={device.provenance ?? 'unknown'}
+                        provenance={toProvenance(device.provenance)}
                         size="small"
                       />
                     </span>
@@ -1319,6 +1353,15 @@ export default function RouterDiscoveryPage() {
             </span>
           </div>
           <div className="card-body">
+            {methodDescription && (
+              <div className="discovery-method-description">
+                <span className="discovery-method-label">
+                  How this was worked out
+                </span>
+                <p>{methodDescription}</p>
+              </div>
+            )}
+
             {findings.length === 0 ? (
               <div className="empty-state">
                 <p>The backend reported no findings for this run.</p>
@@ -1343,7 +1386,7 @@ export default function RouterDiscoveryPage() {
                           reader might mistake for "observed".
                         */}
                         <ProvenanceBadge
-                          provenance={finding.provenance ?? 'unknown'}
+                          provenance={toProvenance(finding.provenance)}
                           size="small"
                         />
                         <span className="discovery-finding-severity">
@@ -1357,14 +1400,36 @@ export default function RouterDiscoveryPage() {
                         {finding.evidence}
                       </p>
                     )}
-                    {finding.device_id && (
-                      <button
-                        type="button"
-                        className="discovery-finding-device"
-                        onClick={() => handleSelectDevice(finding.device_id)}
-                      >
-                        about {finding.device_id}
-                      </button>
+
+                    {/*
+                      A finding that could not be represented rests on a
+                      partial view. That is a limit on the finding itself,
+                      not a detail a reader can afford to miss.
+                    */}
+                    {finding.representable === false && (
+                      <p className="discovery-finding-partial">
+                        <span aria-hidden="true">⚠</span> This finding rests on
+                        a partial view of the network, so it may not be
+                        complete.
+                      </p>
+                    )}
+
+                    {finding.devices && finding.devices.length > 0 && (
+                      <div className="discovery-finding-devices">
+                        <span className="discovery-finding-devices-label">
+                          About
+                        </span>
+                        {finding.devices.map((deviceId) => (
+                          <button
+                            key={deviceId}
+                            type="button"
+                            className="discovery-finding-device"
+                            onClick={() => handleSelectDevice(deviceId)}
+                          >
+                            {deviceId}
+                          </button>
+                        ))}
+                      </div>
                     )}
                   </li>
                 ))}

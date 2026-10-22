@@ -582,3 +582,86 @@
   font-size: var(--text-sm);
   line-height: 1.6;
 }
+
+/* ==========================================================================
+   Findings
+   ========================================================================== */
+
+/* A finding that could not be represented rests on a partial view. */
+.discovery-finding-partial {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: var(--space-2) 0 0 0;
+  padding: 6px var(--space-3);
+  background: var(--warning-soft);
+  border: 1px solid var(--warning-border);
+  border-radius: var(--radius-sm);
+  color: var(--warning-text);
+  font-size: var(--text-xs);
+  line-height: 1.55;
+}
+
+/* A finding can be about more than one device — an asymmetry is about a
+   pair — so every device is listed and each is reachable. */
+.discovery-finding-devices {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  margin-top: var(--space-2);
+}
+
+.discovery-finding-devices-label {
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+}
+
+.discovery-finding-device {
+  padding: 2px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-active);
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+
+.discovery-finding-device:hover {
+  color: var(--color-text);
+  border-color: var(--color-border-strong);
+}
+
+.discovery-finding-device:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* How the analysis was done, in the backend's own words. */
+.discovery-method-description {
+  padding: var(--space-4);
+  margin-bottom: var(--space-4);
+  background: var(--surface-inset);
+  border: 1px solid var(--color-border);
+  border-left: 2px solid var(--color-primary);
+  border-radius: var(--radius-md);
+}
+
+.discovery-method-label {
+  display: block;
+  margin-bottom: 4px;
+  font-family: var(--font-mono);
+  font-size: 0.5625rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.discovery-method-description p {
+  margin: 0;
+  font-size: var(--text-sm);
+  line-height: 1.7;
+  color: var(--color-text);
+}
