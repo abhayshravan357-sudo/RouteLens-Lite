@@ -1,11 +1,7 @@
 name: RouteLens checks
 
-# The same checks the orchestrator runs locally, so a push cannot
-# quietly break something the developer's machine accepts.
-#
-# The browser checks are a separate job because they need a Chromium
-# and a running backend and frontend. They are not allowed to fail the
-# build on their own: a flaky browser must not block a merge.
+# Run the project checks on pushes and pull requests.
+# Browser checks remain non-blocking, as in the existing workflow.
 
 on:
   push:
@@ -29,9 +25,9 @@ jobs:
         run: |
           python -m venv .venv
           . .venv/bin/activate
-          pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pytest pytest-asyncio httpx
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install pytest pytest-asyncio httpx
 
       - name: Run the test suite
         working-directory: backend
@@ -47,7 +43,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
@@ -76,23 +72,28 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      - name: Install dependencies
+      - name: Install Python dependencies
+        working-directory: backend
         run: |
-          cd backend
           python -m venv .venv
           . .venv/bin/activate
-          pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pytest pytest-asyncio httpx playwright
-          cd ../frontend
-          npm ci
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install pytest pytest-asyncio httpx playwright
 
-      - name: Install the browser
-        run: python -m playwright install --with-deps chromium
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        working-directory: backend
+        run: |
+          . .venv/bin/activate
+          python -m playwright install --with-deps chromium
 
       - name: Start the backend
         working-directory: backend
@@ -100,18 +101,26 @@ jobs:
           . .venv/bin/activate
           python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 &
           for i in $(seq 1 30); do
-            curl -sf http://127.0.0.1:8000/health && break
+            if curl -sf http://127.0.0.1:8000/health; then
+              exit 0
+            fi
             sleep 1
           done
+          echo "Backend failed to start"
+          exit 1
 
       - name: Start the frontend
         working-directory: frontend
         run: |
           npm run dev -- --host 127.0.0.1 --port 5173 &
           for i in $(seq 1 30); do
-            curl -sf http://127.0.0.1:5173/ && break
+            if curl -sf http://127.0.0.1:5173/; then
+              exit 0
+            fi
             sleep 1
           done
+          echo "Frontend failed to start"
+          exit 1
 
       - name: Run the browser checks
         working-directory: backend
@@ -127,6 +136,28 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Check for whitespace errors
-        run: git diff --check ${{ github.event.before }} ${{ github.sha }}
+        env:
+          EVENT_BEFORE: ${{ github.event.before }}
+          EVENT_SHA: ${{ github.sha }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -eu
+
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            BASE_SHA="$PR_BASE_SHA"
+          else
+            BASE_SHA="$EVENT_BEFORE"
+          fi
+
+          # A new branch or initial push can have an all-zero "before" SHA.
+          if [ -z "$BASE_SHA" ] || ! git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
+            echo "Base commit unavailable; checking the latest commit instead."
+            git diff-tree --check --root --no-commit-id -r "$EVENT_SHA"
+          else
+            git diff --check "$BASE_SHA" "$EVENT_SHA"
+          fi
