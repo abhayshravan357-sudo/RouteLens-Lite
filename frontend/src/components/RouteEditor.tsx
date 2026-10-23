@@ -142,7 +142,7 @@ export default function RouteEditor({ scenario, nodeId, onSaved }: RouteEditorPr
       )}
       {saved && !error && (
         <div className="route-editor-saved">
-          Saved. Trace a packet again to see the difference.
+          Saved. The trace updates automatically to show the effect.
         </div>
       )}
 

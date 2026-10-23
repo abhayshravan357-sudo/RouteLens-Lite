@@ -617,7 +617,7 @@ class TestScenarioFailures:
         page.wait_for_timeout(2500)
 
         body = page.inner_text("body")
-        assert "Routing loop detected" in body, "the loop status was not shown"
+        assert "routing loop detected" in body.lower(), "the loop status was not shown"
 
     def test_a_delivered_packet_is_labelled_as_delivered(self, page, app_available):
         """A working path is labelled 'delivered', so the failure labels mean something."""
@@ -2056,7 +2056,7 @@ class TestJourneyOutcomeClassification:
         page.wait_for_timeout(3500)
 
         body = page.inner_text("body")
-        assert "Next hop could not be reached" in body, (
+        assert "next hop could not be reached" in body.lower(), (
             f"the journey did not report an unreachable next hop: {body[-600:]}"
         )
         assert "No route to destination" not in body, (

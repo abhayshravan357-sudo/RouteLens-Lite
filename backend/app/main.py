@@ -17,7 +17,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from app.routing import (
+from .routing import (
     MatchedRoute,
     PacketHopResponse,
     PacketJourneyRequest,
@@ -117,12 +117,6 @@ app.include_router(discovery_router)
 app.include_router(report_router)
 app.include_router(pcap_router, prefix="/api/pcap")
 app.include_router(router_discovery_router)
-
-
-# Serve the frontend static files (built frontend)
-frontend_dir = pathlib.Path(__file__).parent.parent / 'frontend' / 'dist'
-if frontend_dir.exists():
-    app.mount('/', StaticFiles(directory=str(frontend_dir), html=True), name='frontend')
 
 
 @app.get("/health", tags=["Health"])
@@ -960,3 +954,10 @@ async def trace_route(request: TracerouteRequest, http_request: Request):
             )
 
     return response
+
+
+# Serve the frontend static files (built frontend) last, so all API routes
+# are matched first and unmatched paths fall through to the SPA.
+frontend_dir = pathlib.Path(__file__).parent.parent.parent / "frontend" / "dist"
+if frontend_dir.exists():
+    app.mount('/', StaticFiles(directory=str(frontend_dir), html=True), name='frontend')
