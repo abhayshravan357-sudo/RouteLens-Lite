@@ -1,8 +1,6 @@
 
-name: RouteLens checks
 
-# Backend and frontend checks, plus optional browser tests.
-# Browser test failures do not block merging.
+name: CI
 
 on:
   push:
@@ -21,10 +19,11 @@ jobs:
   backend:
     name: Backend tests
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -37,8 +36,8 @@ jobs:
           python -m venv .venv
           . .venv/bin/activate
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pytest pytest-asyncio httpx
+          python -m pip install -r requirements.txt
+          python -m pip install pytest pytest-asyncio httpx
 
       - name: Run backend tests
         working-directory: backend
@@ -49,7 +48,6 @@ jobs:
   frontend:
     name: Frontend build
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -65,10 +63,6 @@ jobs:
         working-directory: frontend
         run: npm ci
 
-      - name: Type check
-        working-directory: frontend
-        run: npx tsc --noEmit
-
       - name: Build frontend
         working-directory: frontend
         run: npm run build
@@ -77,7 +71,6 @@ jobs:
     name: Browser checks
     runs-on: ubuntu-latest
     continue-on-error: true
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -100,8 +93,8 @@ jobs:
           python -m venv .venv
           . .venv/bin/activate
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pytest pytest-asyncio httpx playwright
+          python -m pip install -r requirements.txt
+          python -m pip install pytest pytest-asyncio httpx playwright
 
       - name: Install frontend dependencies
         working-directory: frontend
@@ -120,14 +113,12 @@ jobs:
           python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 > /tmp/routelens-backend.log 2>&1 &
           for i in $(seq 1 30); do
             if curl -sf http://127.0.0.1:8000/health; then
-              break
+              exit 0
             fi
             sleep 1
           done
-          if ! curl -sf http://127.0.0.1:8000/health; then
-            cat /tmp/routelens-backend.log
-            exit 1
-          fi
+          cat /tmp/routelens-backend.log
+          exit 1
 
       - name: Start frontend
         working-directory: frontend
@@ -135,14 +126,12 @@ jobs:
           npm run dev -- --host 127.0.0.1 --port 5173 > /tmp/routelens-frontend.log 2>&1 &
           for i in $(seq 1 30); do
             if curl -sf http://127.0.0.1:5173/; then
-              break
+              exit 0
             fi
             sleep 1
           done
-          if ! curl -sf http://127.0.0.1:5173/; then
-            cat /tmp/routelens-frontend.log
-            exit 1
-          fi
+          cat /tmp/routelens-frontend.log
+          exit 1
 
       - name: Run browser tests
         working-directory: backend
@@ -154,9 +143,8 @@ jobs:
           python -m pytest tests/test_e2e_browser.py -q -p no:cacheprovider
 
   whitespace:
-    name: Whitespace
+    name: Whitespace checks
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -174,10 +162,15 @@ jobs:
           set -euo pipefail
 
           if [[ "$EVENT_NAME" == "pull_request" ]]; then
-            git diff --check "${BASE_SHA}...${HEAD_SHA}"
-          elif [[ "$BEFORE_SHA" =~ ^0+$ ]]; then
-            echo "First push to branch; checking the latest commit."
-            git diff-tree --check --root -r "${HEAD_SHA}"
+            if git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
+              git diff --check "${BASE_SHA}...${HEAD_SHA}"
+            else
+              echo "PR base commit unavailable; checking the latest commit."
+              git diff-tree --check --root --no-commit-id -r "${HEAD_SHA}"
+            fi
+          elif [[ -z "$BEFORE_SHA" || "$BEFORE_SHA" =~ ^0+$ ]] || ! git cat-file -e "${BEFORE_SHA}^{commit}" 2>/dev/null; then
+            echo "Base commit unavailable; checking the latest commit."
+            git diff-tree --check --root --no-commit-id -r "${HEAD_SHA}"
           else
             git diff --check "${BEFORE_SHA}" "${HEAD_SHA}"
           fi

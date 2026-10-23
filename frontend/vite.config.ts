@@ -8,6 +8,7 @@ export default defineConfig(({ mode }) => {
   const backend = loadEnv(mode, process.cwd(), '').ROUTELENS_BACKEND_URL || 'http://127.0.0.1:8000'
 
   return {
+    base: '/RouteLens-Lite/',
     plugins: [react()],
     server: {
       port: 5173,
