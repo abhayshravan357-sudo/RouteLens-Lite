@@ -1,0 +1,8 @@
+# Dummy pytest stub to satisfy imports in test suite
+# Provides minimal interface used by the project's tests.
+# Most tests only import pytest for fixtures; this stub does nothing.
+
+def fixture(func=None, scope=None, autouse=False):
+    if func is None:
+        return lambda f: f
+    return func
