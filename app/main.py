@@ -22,4 +22,3 @@ _spec.loader.exec_module(_backend_app)
 
 # Expose the FastAPI instance expected by the test suite
 app = _backend_app.app
-
