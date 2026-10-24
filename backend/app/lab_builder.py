@@ -242,13 +242,19 @@ def run_all(
     return {"status": "ok", "log": log}
 
 
-def run_teardown(commands: List[List[str]]) -> dict:
+def run_teardown(commands: List[List[str]], dry_run: bool = False) -> dict:
     """
     Execute teardown commands idempotently.
 
     Missing namespaces (already gone) are not treated as errors.
     Other failures are reported.
     """
+    if dry_run:
+        return {
+            "status": "dry_run",
+            "commands": [" ".join(cmd) for cmd in commands],
+        }
+
     reason = _guard()
     if reason:
         return {"status": "unavailable", "reason": reason}

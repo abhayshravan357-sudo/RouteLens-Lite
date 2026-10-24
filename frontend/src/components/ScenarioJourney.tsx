@@ -524,7 +524,11 @@ export default function ScenarioJourney({
               🔬 Expert Mode
             </button>
           </div>
-          <ProvenanceBadge provenance="simulated" label="Simulated" showDescription />
+          <ProvenanceBadge
+            provenance={trace?.provenance ?? 'unknown'}
+            label={trace?.provenance === 'simulated' ? 'Simulated' : undefined}
+            showDescription
+          />
         </div>
       </div>
 
@@ -791,7 +795,10 @@ export default function ScenarioJourney({
                     <span className="diagnosis-badge">{STATUS_LABELS[trace.status]}</span>
                   </div>
                 </div>
-                <ProvenanceBadge provenance="simulated" size="small" />
+                <ProvenanceBadge
+                  provenance={trace?.provenance ?? 'unknown'}
+                  size="small"
+                />
               </div>
 
               <div className="diagnosis-grid">

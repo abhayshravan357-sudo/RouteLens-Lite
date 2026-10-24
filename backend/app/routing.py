@@ -254,13 +254,16 @@ class PacketHopResponse(BaseModel):
     )
     explanation: str
     matched_route: Optional[MatchedRoute] = Field(
-        default=None, exclude_if=lambda value: value is None
+        default=None,
+        description="The route that was selected, when one was matched",
     )
     next_hop_ip: Optional[str] = Field(
-        default=None, exclude_if=lambda value: value is None
+        default=None,
+        description="The address the packet was handed to",
     )
     egress_interface: Optional[str] = Field(
-        default=None, exclude_if=lambda value: value is None
+        default=None,
+        description="The interface the packet left by",
     )
 
 

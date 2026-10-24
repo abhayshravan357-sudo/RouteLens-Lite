@@ -141,6 +141,10 @@ function App() {
           message: err.message,
           router_info: null,
           error: err.message,
+          condition: null,
+          next_steps: [],
+          optional_steps: [],
+          detail: null,
         });
         setLabState('unavailable');
       } else {

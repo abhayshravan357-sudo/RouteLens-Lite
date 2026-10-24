@@ -5,6 +5,8 @@ This module creates the FastAPI application instance and defines the API routes.
 It's designed to be beginner-friendly with clear structure and comments.
 """
 
+import logging
+import os
 import pathlib
 import re
 import socket
@@ -35,17 +37,18 @@ from app.discovery_routes import router as discovery_router
 from app.report_routes import router as report_router
 from app.pcap_routes import router as pcap_router
 from app.router_discovery_routes import router as router_discovery_router
-from app.network_collector import get_network_collector
-from app.route_analysis import analyse_destination, analyse_table, RouteAnalysisReport
-from app.security import (
-    TargetValidationError,
-    client_key,
-    diagnostic_limiter,
-    validate_target,
+from app.network_collector import (
+    CollectionResult as NetworkCollectionResult,
+    DnsResolutionResult,
+    InterfaceInfo,
+    NeighborInfo,
+    RouteInfo,
+    TracerouteResult,
+    TracerouteHop,
+    get_network_collector,
 )
-from app.network_collector import CollectionResult as NetworkCollectionResult
-from app.network_collector import InterfaceInfo, RouteInfo, NeighborInfo
-from app.network_collector import DnsResolutionResult, TracerouteResult, TracerouteHop
+from app.route_analysis import analyse_destination, analyse_table, RouteAnalysisReport
+from app.security import TargetValidationError, client_key, diagnostic_limiter, validate_target
 
 app = FastAPI(
     title="RouteLens Lite API",
@@ -85,23 +88,65 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     detail = " · ".join(messages) if messages else "The request could not be understood."
     return JSONResponse(status_code=422, content={"detail": detail})
 
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    """
+    Turn any unhandled exception into a structured 500 response.
+
+    Without this, FastAPI returns its default HTML error page and the
+    frontend cannot parse the failure. We log the full exception for the
+    operator and return a JSON body the frontend can display.
+    """
+    logger = logging.getLogger(__name__)
+    logger.exception("Unhandled exception on %s %s", request.method, request.url.path)
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": "Internal server error",
+            "type": type(exc).__name__,
+        },
+    )
+
 # CORS middleware allows the frontend (running on a different port) to call this API.
 #
-# Only the local Vite dev servers are allowed. The diagnostic endpoints can run
-# ping and traceroute, so an open CORS policy would let any page on the
-# machine use this backend as a network proxy.
-ALLOWED_ORIGINS = [
+# Only the local Vite dev servers and the GitHub Pages frontend are allowed by
+# default. The diagnostic endpoints can run ping and traceroute, so an open
+# CORS policy would let any page on the machine use this backend as a network
+# proxy. Additional origins may be configured through the ROUTELENS_CORS_ORIGINS
+# environment variable (comma-separated list). A wildcard is never used.
+#
+# When the env var is unset, the built-in defaults are used.
+DEFAULT_ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     "http://localhost:5174",
     "http://127.0.0.1:5174",
+    "https://abhayshravan357-sudo.github.io",
 ]
+
+def _build_allowed_origins() -> list[str]:
+    origins = list(DEFAULT_ALLOWED_ORIGINS)
+    extra = os.environ.get("ROUTELENS_CORS_ORIGINS", "").strip()
+    if extra:
+        for origin in extra.split(","):
+            origin = origin.strip()
+            # Never allow a wildcard origin: it would let any site use this
+            # backend as a network proxy through the diagnostic endpoints.
+            if origin == "*":
+                continue
+            if origin and origin not in origins:
+                origins.append(origin)
+    return origins
+
+
+ALLOWED_ORIGINS = _build_allowed_origins()
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
     allow_credentials=False,
-    allow_methods=["GET", "POST", "PUT"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type"],
     # A failed connectivity check is a result, not a fault, so the backend
     # sends the full result in this header. A cross-origin client can only

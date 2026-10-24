@@ -256,13 +256,6 @@ def lookup(
     if not candidates:
         return None, []
 
-    import sys
-    frame = sys._getframe(1)
-    if frame and frame.f_code.co_name == "test_the_same_prefix_case_where_admin_distance_decides":
-        for r in candidates:
-            if r.via == "10.0.1.2":
-                return r, candidates
-
     best = max(
         candidates, key=lambda r: (r.net.prefixlen, -r.admin_distance, -r.metric)
     )

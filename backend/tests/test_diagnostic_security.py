@@ -119,7 +119,11 @@ class TestCorsPolicy:
         assert "*" not in ALLOWED_ORIGINS
         assert ALLOWED_ORIGINS
         for origin in ALLOWED_ORIGINS:
-            assert origin.startswith("http://localhost") or origin.startswith("http://127.0.0.1")
+            assert (
+                origin.startswith("http://localhost")
+                or origin.startswith("http://127.0.0.1")
+                or origin == "https://abhayshravan357-sudo.github.io"
+            )
 
     @pytest.mark.asyncio
     async def test_disallowed_origin_gets_no_cors_header(self):

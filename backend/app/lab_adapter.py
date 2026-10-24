@@ -29,6 +29,22 @@ class CheckStatus(str, Enum):
 
 
 @dataclass
+class PrivilegeStatus:
+    """Whether the lab's privilege is available, and why not if it is not.
+
+    The lab needs CAP_SYS_ADMIN to create a network namespace. The backend
+    can get that by already being root, or by escalating with pkexec/sudo.
+    Which of those is true is the difference between "the lab is not built
+    yet" and "the lab cannot be built by this backend", and the two need
+    different next steps.
+    """
+
+    available: bool
+    mechanism: Optional[str] = None
+    detail: str = ""
+
+
+@dataclass
 class InterfaceInfo:
     name: str
     ipv4_address: Optional[str] = None
@@ -67,6 +83,18 @@ class LabReadinessReport:
     missing_tools: list[str]
     permission_issues: list[str]
     summary: str
+    #: Namespaces that do not exist at all. Different from a namespace that
+    #: exists and cannot be read: the first means "not built yet", the
+    #: second means "not allowed to look".
+    missing_namespaces: list[str] = field(default_factory=list)
+    #: What was wrong with a lab that exists but holds the wrong thing.
+    topology_issues: list[str] = field(default_factory=list)
+    #: Whether the lab's privilege is available, and how it can be got.
+    privilege: PrivilegeStatus = field(
+        default_factory=lambda: PrivilegeStatus(available=True)
+    )
+    #: Tools the optional four-router topology needs and does not have.
+    containerlab_missing: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -449,6 +477,14 @@ class LabAdapter:
             if ns_status.error and "permission" in ns_status.error.lower():
                 permission_issues.append(f"{component}: {ns_status.error}")
 
+        # Namespaces that do not exist at all: "not built yet", distinct
+        # from a namespace that exists but cannot be read.
+        missing_namespaces = [
+            str(ns.name.value if hasattr(ns.name, "value") else ns.name)
+            for ns in namespaces.values()
+            if not ns.exists
+        ]
+
         # Validate expected topology (only if accessible)
         topology_ok = True
         expected = EXPECTED_TOPOLOGY
@@ -527,6 +563,12 @@ class LabAdapter:
                 else "Lab is not ready: the expected topology was not found."
             )
 
+        privilege = PrivilegeStatus(
+            available=self._privilege_available,
+            mechanism="pkexec" if self.use_pkexec else "sudo",
+            detail="" if self._privilege_available else "Privilege escalation not available for namespace operations",
+        )
+
         return LabReadinessReport(
             timestamp=timestamp,
             overall_ready=overall_ready,
@@ -535,6 +577,10 @@ class LabAdapter:
             missing_tools=missing_tools,
             permission_issues=permission_issues,
             summary=summary,
+            missing_namespaces=missing_namespaces,
+            topology_issues=issues,
+            privilege=privilege,
+            containerlab_missing=[],
         )
 
     async def ping(

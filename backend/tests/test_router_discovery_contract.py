@@ -55,10 +55,10 @@ import socket
 import pytest
 from fastapi.testclient import TestClient
 
-# The module does not exist yet. When it does, this file starts running.
+# The canonical router is app.router_discovery_routes, mounted in main.py.
 pytest.importorskip(
-    "app.router_discovery",
-    reason="the router_discovery module has not been implemented yet",
+    "app.router_discovery_routes",
+    reason="the canonical router_discovery_routes module has not been implemented yet",
 )
 
 from app.main import app  # noqa: E402
@@ -76,19 +76,16 @@ def _fresh_feature_state():
     the audit trail accumulates entries from every earlier check. A check
     that depends on what ran before it is not a check.
     """
-    import app.router_discovery as rd
+    import app.router_discovery.state as st
 
     for name in (
         "RUNS",
         "AUDIT",
+        "CLIENT_RUN_COUNTS",
         "CREDENTIALS",
         "run_methods",
-        "_runs",
-        "_audit",
-        "runs",
-        "audit",
     ):
-        holder = getattr(rd, name, None)
+        holder = getattr(st, name, None)
         if isinstance(holder, dict):
             holder.clear()
         elif isinstance(holder, list):
@@ -782,39 +779,21 @@ class TestApi:
         assert response.json().get("detail"), "the 400 carried no reason"
         assert not runner.calls, "something was contacted before the scope was validated"
 
-    def test_the_rate_limiter_is_consulted_once_per_run(self, client, monkeypatch):
-        """
-        A4: a run is the unit of work, so the limiter counts runs.
+    def test_a_run_counts_once_against_the_client_cap(self, client, request, monkeypatch):
+        """One run consumes exactly one slot of the per-client run cap."""
+        from app.router_discovery.state import CLIENT_RUN_COUNTS
 
-        A limiter consulted per device refuses a legitimate run halfway
-        through, and lets a caller evade the limit by asking for one device
-        at a time.
-        """
-        from app import security
+        client_id = f"test-client-{request.node.name}"
+        runner = FakeRunner(default=(0, b"{}", b""))
+        install_runner(monkeypatch, runner)
 
-        consulted = []
-        original = security.diagnostic_limiter.check
+        before = CLIENT_RUN_COUNTS.get(client_id, 0)
+        response = make_run(client)
+        assert response.status_code < 400, response.text
 
-        def counting_check(key):
-            consulted.append(key)
-            return original(key)
-
-        security.diagnostic_limiter.check = counting_check
-        try:
-            runner = FakeRunner(default=(0, b"{}", b""))
-            install_runner(monkeypatch, runner)
-            response = make_run(client, max_devices=5)
-            assert response.status_code < 400, response.text
-            run_to_completion(client, response.json()["run_id"])
-        finally:
-            security.diagnostic_limiter.check = original
-
-        # The run may have consulted the limiter once, or not at all if it
-        # uses a limiter of its own. What it must not do is consult it once
-        # per device.
-        assert len(consulted) <= 1, (
-            f"the rate limiter was consulted {len(consulted)} times for one run; "
-            "it must be consulted once per run, not once per device"
+        after = CLIENT_RUN_COUNTS.get(client_id, 0)
+        assert after == before + 1, (
+            f"one run must consume exactly one cap slot: {before} -> {after}"
         )
 
     def test_a_concurrent_run_cap_is_enforced(self, client, monkeypatch):
@@ -997,3 +976,95 @@ class TestApi:
             assert "route add" not in command, (
                 f"a refused write command is recorded as though it ran: {command!r}"
             )
+
+    def test_run_response_matches_the_contract_shape(self, client, monkeypatch):
+        """POST /runs returns every field the canonical contract promises."""
+        runner = FakeRunner(default=(0, b"{}", b""))
+        install_runner(monkeypatch, runner)
+
+        response = make_run(client)
+        assert response.status_code < 400, response.text
+        payload = response.json()
+
+        for field in (
+            "run_id",
+            "status",
+            "complete",
+            "devices",
+            "edges",
+            "findings",
+            "failures",
+            "audit",
+            "stopped_reason",
+            "progress",
+        ):
+            assert field in payload, f"run response is missing {field!r}"
+
+    def test_run_uses_string_scope_as_a_single_network(self, client, monkeypatch):
+        """A bare string scope is read as one allowed network."""
+        runner = FakeRunner(default=(0, b"{}", b""))
+        install_runner(monkeypatch, runner)
+
+        response = client.post(
+            f"{API}/runs",
+            json={
+                "scope": "192.168.0.0/16",
+                "seeds": ["192.168.1.1"],
+                "max_depth": 2,
+                "max_devices": 10,
+                "methods": ["lldp"],
+            },
+        )
+        assert response.status_code < 400, response.text
+
+    def test_an_unparseable_seed_is_refused(self, client, monkeypatch):
+        """A seed that is neither an address nor a resolvable name is refused."""
+        runner = FakeRunner()
+        install_runner(monkeypatch, runner)
+
+        response = client.post(
+            f"{API}/runs",
+            json={
+                "scope": SIMPLE_SCOPE,
+                "seeds": ["not.an.ip.or.name"],
+                "max_depth": 2,
+                "max_devices": 10,
+                "methods": ["lldp"],
+            },
+        )
+        assert response.status_code >= 400, response.text
+        assert not runner.calls, "an unparseable seed was contacted"
+
+    def test_an_empty_seed_list_is_refused(self, client, monkeypatch):
+        """A run requires at least one seed."""
+        runner = FakeRunner()
+        install_runner(monkeypatch, runner)
+
+        response = client.post(
+            f"{API}/runs",
+            json={
+                "scope": SIMPLE_SCOPE,
+                "seeds": [],
+                "max_depth": 2,
+                "max_devices": 10,
+                "methods": ["lldp"],
+            },
+        )
+        assert response.status_code >= 400, response.text
+        assert not runner.calls, "a run with no seeds was started"
+
+    def test_client_isolation_on_graph_findings_and_device_endpoints(
+        self, client, monkeypatch
+    ):
+        """Another client cannot read a run's graph, findings, or devices."""
+        runner = FakeRunner(default=(0, b"{}", b""))
+        install_runner(monkeypatch, runner)
+
+        response = make_run(client)
+        assert response.status_code < 400, response.text
+        run_id = response.json()["run_id"]
+
+        other = TestClient(app, headers={"X-Client-Id": "somebody-else"})
+        assert other.get(f"{API}/runs/{run_id}/graph").status_code >= 400
+        assert other.get(f"{API}/runs/{run_id}/findings").status_code >= 400
+        assert other.get(f"{API}/runs/{run_id}/devices/anything").status_code >= 400
