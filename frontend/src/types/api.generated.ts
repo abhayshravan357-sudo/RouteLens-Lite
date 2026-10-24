@@ -147,6 +147,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/scenarios/{sid}/links": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set Link State
+         * @description Toggle a link between UP and DOWN in an isolated workspace.
+         *
+         *     Identifies the link by its endpoints (a and b in either direction),
+         *     updates only a copy of the scenario in a workspace, and returns the
+         *     updated workspace id. The shared scenario definition is never corrupted.
+         */
+        put: operations["set_link_state_api_scenarios__sid__links_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/scenarios/{sid}/lab/apply": {
         parameters: {
             query?: never;
@@ -488,7 +512,14 @@ export interface paths {
          */
         get: operations["get_report_api_report_get"];
         put?: never;
-        post?: never;
+        /**
+         * Post Report
+         * @description Build a report incorporating the user's active experiment.
+         *
+         *     Captures the exact scenario, packet trace, failure diagnostics,
+         *     and before-and-after comparison from the active user session.
+         */
+        post: operations["post_report_api_report_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -527,6 +558,206 @@ export interface paths {
          *         - 200 with parsed=false: Unsupported format, truncated file, invalid magic
          */
         post: operations["analyze_pcap_api_pcap_analyze_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/router-discovery/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start Run
+         * @description Start a new router discovery run.
+         */
+        post: operations["start_run_api_router_discovery_runs_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/router-discovery/runs/{run_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Run
+         * @description Get the status, devices, edges, and findings of a run.
+         */
+        get: operations["get_run_api_router_discovery_runs__run_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/router-discovery/runs/{run_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancel Run
+         * @description Cancel an active discovery run.
+         */
+        post: operations["cancel_run_api_router_discovery_runs__run_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/router-discovery/audit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Audit
+         * @description Get the audit trail of executed commands.
+         */
+        get: operations["get_audit_api_router_discovery_audit_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/router-discovery/runs/{run_id}/graph": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Run Graph
+         * @description Get graph visualization nodes and edges for a run.
+         */
+        get: operations["get_run_graph_api_router_discovery_runs__run_id__graph_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/router-discovery/runs/{run_id}/findings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Run Findings
+         * @description Get findings for a run.
+         */
+        get: operations["get_run_findings_api_router_discovery_runs__run_id__findings_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/router-discovery/runs/{run_id}/devices/{device_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Run Device
+         * @description Get a single device from a run.
+         */
+        get: operations["get_run_device_api_router_discovery_runs__run_id__devices__device_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/router-discovery/runs/{run_id}/devices/{device_id}/routes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Run Device Routes
+         * @description Get routes of a device from a run.
+         */
+        get: operations["get_run_device_routes_api_router_discovery_runs__run_id__devices__device_id__routes_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/router-discovery/runs/{run_id}/trace": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Trace Run
+         * @description Trace the forwarding path from a source to a destination within a run.
+         */
+        post: operations["trace_run_api_router_discovery_runs__run_id__trace_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/router-discovery/diff": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Diff Runs
+         * @description Diff two runs: devices, edges, and findings.
+         */
+        get: operations["diff_runs_api_router_discovery_diff_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1213,7 +1444,11 @@ export interface components {
         };
         /**
          * DiscoveryRequest
-         * @description A request to discover hosts on a network.
+         * @description Request to discover hosts on an authorized network.
+         *
+         *     The target must be a CIDR network or a single address that the operator
+         *     has explicitly authorized. The description makes clear this is a network‑
+         *     scoped operation.
          */
         DiscoveryRequest: {
             /**
@@ -1482,6 +1717,40 @@ export interface components {
             router_info?: components["schemas"]["RouterInfoModel"] | null;
             /** Error */
             error?: string | null;
+            /** Condition */
+            condition?: string | null;
+            /** Next Steps */
+            next_steps?: components["schemas"]["NextStepModel"][];
+            /** Optional Steps */
+            optional_steps?: components["schemas"]["NextStepModel"][];
+            /** Detail */
+            detail?: string | null;
+        };
+        /**
+         * LinkStateUpdate
+         * @description Request to toggle a link's physical/logical state (UP/DOWN).
+         */
+        LinkStateUpdate: {
+            /**
+             * Link A
+             * @description First endpoint as 'node:iface'
+             */
+            link_a: string;
+            /**
+             * Link B
+             * @description Second endpoint as 'node:iface'
+             */
+            link_b: string;
+            /**
+             * Is Up
+             * @description Desired link state (True=UP, False=DOWN)
+             */
+            is_up: boolean;
+            /**
+             * Workspace
+             * @description Existing workspace id if continuing an experiment
+             */
+            workspace?: string | null;
         };
         /**
          * MatchedRoute
@@ -1509,6 +1778,29 @@ export interface components {
          * @enum {string}
          */
         NextHopType: "gateway" | "direct";
+        /**
+         * NextStepModel
+         * @description One thing the reader can do, in the order they should do it.
+         *
+         *     The order is the order. A reader who does these in the given order
+         *     ends up with a working lab; a reader who does them in another order
+         *     probably does not.
+         */
+        NextStepModel: {
+            /** Order */
+            order: number;
+            /** Title */
+            title: string;
+            /** Detail */
+            detail: string;
+            /** Command */
+            command?: string | null;
+            /**
+             * Optional
+             * @default false
+             */
+            optional: boolean;
+        };
         /**
          * PacketHopResponse
          * @description One hop of a packet journey.
@@ -1542,10 +1834,17 @@ export interface components {
             action: string;
             /** Explanation */
             explanation: string;
+            /** @description The route that was selected, when one was matched */
             matched_route?: components["schemas"]["MatchedRoute"] | null;
-            /** Next Hop Ip */
+            /**
+             * Next Hop Ip
+             * @description The address the packet was handed to
+             */
             next_hop_ip?: string | null;
-            /** Egress Interface */
+            /**
+             * Egress Interface
+             * @description The interface the packet left by
+             */
             egress_interface?: string | null;
         };
         /**
@@ -1834,6 +2133,25 @@ export interface components {
          */
         "Provenance-Input": "observed" | "inferred" | "simulated" | "unknown";
         /**
+         * ReportRequest
+         * @description Payload to build a report with optional active simulation experiment.
+         */
+        ReportRequest: {
+            /**
+             * Format
+             * @description 'json' or 'markdown'
+             * @default json
+             */
+            format: string;
+            /**
+             * Active Experiment
+             * @description Active packet trace experiment and before/after comparison
+             */
+            active_experiment?: {
+                [key: string]: unknown;
+            } | null;
+        };
+        /**
          * Route
          * @description A routing table entry.
          */
@@ -1860,11 +2178,17 @@ export interface components {
              */
             metric: number;
             /**
+             * Admin Distance
+             * @description Administrative distance (lower wins)
+             * @default 0
+             */
+            admin_distance: number;
+            /**
              * Source
              * @default static
              * @enum {string}
              */
-            source: "connected" | "static";
+            source: "connected" | "static" | "ospf" | "bgp";
         };
         /**
          * RouteAnalysisReport
@@ -2220,6 +2544,11 @@ export interface components {
             label: string;
             /** Detail */
             detail?: string | null;
+            /**
+             * Is Up
+             * @default true
+             */
+            is_up: boolean;
         };
         /**
          * TopologyGraph
@@ -2286,15 +2615,15 @@ export interface components {
              * Status
              * @enum {string}
              */
-            status: "delivered" | "no_route" | "unresolved_next_hop" | "not_forwarding" | "loop" | "max_hops";
+            status: "delivered" | "no_route" | "unresolved_next_hop" | "link_down" | "not_forwarding" | "loop" | "max_hops";
             /** Hops */
             hops: components["schemas"]["Hop"][];
             /**
              * Provenance
              * @default simulated
-             * @constant
+             * @enum {string}
              */
-            provenance: "simulated";
+            provenance: "simulated" | "observed" | "inferred";
         };
         /**
          * TracerouteHopResponse
@@ -2597,6 +2926,41 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["RouteUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_link_state_api_scenarios__sid__links_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sid: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LinkStateUpdate"];
             };
         };
         responses: {
@@ -3076,6 +3440,39 @@ export interface operations {
             };
         };
     };
+    post_report_api_report_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReportRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     analyze_pcap_api_pcap_analyze_post: {
         parameters: {
             query?: never;
@@ -3119,6 +3516,285 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    start_run_api_router_discovery_runs_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    get_run_api_router_discovery_runs__run_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cancel_run_api_router_discovery_runs__run_id__cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_audit_api_router_discovery_audit_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    get_run_graph_api_router_discovery_runs__run_id__graph_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_run_findings_api_router_discovery_runs__run_id__findings_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_run_device_api_router_discovery_runs__run_id__devices__device_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+                device_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_run_device_routes_api_router_discovery_runs__run_id__devices__device_id__routes_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+                device_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    trace_run_api_router_discovery_runs__run_id__trace_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    diff_runs_api_router_discovery_diff_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
         };

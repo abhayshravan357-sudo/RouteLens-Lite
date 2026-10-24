@@ -281,6 +281,10 @@ export default function VirtualLabPanel({
           err instanceof Error ? err.message : 'The lab is not available',
         router_info: null,
         error: err instanceof Error ? err.message : null,
+        condition: null,
+        next_steps: [],
+        optional_steps: [],
+        detail: null,
       });
       return null;
     }

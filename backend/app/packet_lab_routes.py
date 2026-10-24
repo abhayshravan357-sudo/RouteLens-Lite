@@ -6,9 +6,12 @@ FastAPI routes for the virtual router lab operations.
 
 from fastapi import APIRouter, HTTPException
 from fastapi import status as http_status
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator
 from ipaddress import IPv4Address
 from typing import Optional
+
+import json
 
 from app.packet_lab import (
     PacketLab,
@@ -106,23 +109,40 @@ class RouterInfoModel(BaseModel):
     server_ip: Optional[str] = None
 
 
+class NextStepModel(BaseModel):
+    """
+    One thing the reader can do, in the order they should do it.
+
+    The order is the order. A reader who does these in the given order
+    ends up with a working lab; a reader who does them in another order
+    probably does not.
+    """
+
+    order: int
+    title: str
+    detail: str
+    command: Optional[str] = None
+    optional: bool = False
+
+
 class LabStatusResponse(BaseModel):
     available: bool
     state: str
     message: str
     router_info: Optional[RouterInfoModel] = None
     error: Optional[str] = None
-    # New fields for detailed lab lifecycle status
-    built: bool = False
-    running: bool = False
-    requires_root: bool = True
-    error_message: Optional[str] = None
-    next_step: Optional[str] = None
-    available: bool
-    state: str
-    message: str
-    router_info: Optional[RouterInfoModel] = None
-    error: Optional[str] = None
+    #: Which condition the lab is in. The interface can branch on this
+    #: instead of reading the message and guessing.
+    condition: Optional[str] = None
+    #: The ordered steps for that condition.
+    next_steps: list[NextStepModel] = Field(default_factory=list)
+    #: The separate, optional four-router topology. Never a blocker for the
+    #: lab in the application.
+    optional_steps: list[NextStepModel] = Field(default_factory=list)
+    #: The same human-readable message as `message`, under the name the
+    #: error-handling code already looks for. Kept so that a client that
+    #: only knows how to read a string still gets a useful one.
+    detail: Optional[str] = None
 
 
 class SimulateResponseModel(BaseModel):
@@ -155,25 +175,25 @@ async def get_lab_status() -> LabStatusResponse:
     lab = get_packet_lab()
     lab_status: LabStatus = await lab.get_status()
 
-    # Return appropriate HTTP status code
-    if not lab_status.available:
-        raise HTTPException(
-            status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=lab_status.error or "Virtual router not ready",
-        )
-
-    return LabStatusResponse(
+    body = LabStatusResponse(
         available=lab_status.available,
         state=lab_status.state.value,
         message=lab_status.message,
         router_info=lab_status.router_info,
         error=lab_status.error,
-        built=lab_status.state != LabState.UNAVAILABLE,  # Assume built if not unavailable
-        running=lab_status.state == LabState.READY,
-        requires_root=True,  # Lab requires root permissions
-        error_message=lab_status.error,
-        next_step="verify" if lab_status.state == LabState.READY else "setup",
+        condition=lab_status.condition,
+        next_steps=[NextStepModel(**s) for s in lab_status.next_steps],
+        optional_steps=[NextStepModel(**s) for s in lab_status.optional_steps],
+        detail=lab_status.message,
     )
+
+    if not lab_status.available:
+        return JSONResponse(
+            status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE,
+            content=json.loads(body.model_dump_json()),
+        )
+
+    return body
 
 
 @router.post(

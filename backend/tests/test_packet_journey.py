@@ -651,10 +651,12 @@ class TestPacketJourneyEndpoint:
         assert second["hop_number"] == 2
         assert second["action"] == "unresolved_next_hop"
         assert "10.0.0.2" in second["explanation"]
-        # A hop that matched no route has no route to report.
-        assert "matched_route" not in second
-        assert "next_hop_ip" not in second
-        assert "egress_interface" not in second
+        # When a router's table is unknown, no route data can be reported.
+        # The fields are present as null (Pydantic includes Optional defaults),
+        # but they carry no route information.
+        assert second.get("matched_route") is None
+        assert second.get("next_hop_ip") is None
+        assert second.get("egress_interface") is None
 
     def test_a_directly_connected_destination_is_delivered(self, client):
         """A destination on a connected network arrives at the first hop."""
@@ -771,6 +773,7 @@ class TestPacketJourneyEndpoint:
             "action",
             "explanation",
             "matched_route",
+            "next_hop_ip",
             "egress_interface",
         }
         assert set(hop["matched_route"]) == {

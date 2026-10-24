@@ -357,6 +357,10 @@ class TestNetworkCollector:
         assert result.data == {"test": "data"}
         assert result.command == "ip -j addr show"
         assert result.duration_ms == 10.5
+        # Provenance defaults to unknown when no collection mechanism is
+        # specified — missing metadata must never be assumed to be real host data.
+        assert result.source_type == "unknown"
+        assert result.source_description == ""
 
         failed = CollectionResult(
             timestamp="2024-01-01T00:00:00Z",
@@ -365,6 +369,45 @@ class TestNetworkCollector:
         )
         assert failed.success is False
         assert failed.error == "Command failed"
+
+    def test_collection_result_source_provenance(self):
+        """Test CollectionResult carries source_type and source_description."""
+        # Real host success result.
+        real = CollectionResult(
+            timestamp="2024-01-01T00:00:00Z",
+            success=True,
+            data=["eth0"],
+            command="ip -j addr show",
+            source_type="real_host",
+            source_description="Read from the host using ip -j addr show",
+        )
+        assert real.source_type == "real_host"
+        assert real.source_description == "Read from the host using ip -j addr show"
+
+        # Simulated lab result.
+        sim = CollectionResult(
+            timestamp="2024-01-01T00:00:00Z",
+            success=True,
+            data={"route": "10.0.0.0/8"},
+            command="scenario.trace()",
+            source_type="simulated_lab",
+            source_description="Calculated from the scenario routing table",
+        )
+        assert sim.source_type == "simulated_lab"
+        assert sim.source_description == "Calculated from the scenario routing table"
+
+        # Unknown provenance when origin cannot be established.
+        unknown = CollectionResult(
+            timestamp="2024-01-01T00:00:00Z",
+            success=False,
+            error="collection failed",
+            command="ip -j route show",
+            source_type="unknown",
+            source_description="Origin could not be established",
+        )
+        assert unknown.source_type == "unknown"
+        assert unknown.source_description == "Origin could not be established"
+
 
     def test_interface_info_dataclass(self):
         """Test InterfaceInfo dataclass."""
@@ -443,6 +486,9 @@ class TestNetworkCollectorEdgeCases:
 
             assert result.success is True
             assert result.data == []
+            # Successful empty host result retains real_host provenance.
+            assert result.source_type == "real_host"
+            assert result.source_description == "Read from the host using ip -j addr show"
 
     @pytest.mark.asyncio
     async def test_collect_routes_empty_output(self, collector):
@@ -454,6 +500,9 @@ class TestNetworkCollectorEdgeCases:
 
             assert result.success is True
             assert result.data == []
+            # Successful empty host result retains real_host provenance.
+            assert result.source_type == "real_host"
+            assert result.source_description == "Read from the host using `ip -j route show`"
 
     @pytest.mark.asyncio
     async def test_collect_neighbors_empty_output(self, collector):
@@ -465,6 +514,9 @@ class TestNetworkCollectorEdgeCases:
 
             assert result.success is True
             assert result.data == []
+            # Successful empty host result retains real_host provenance.
+            assert result.source_type == "real_host"
+            assert result.source_description == "Read from the host using `ip -j neigh show`"
 
     @pytest.mark.asyncio
     async def test_collect_interfaces_timeout(self, collector):

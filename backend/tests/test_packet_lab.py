@@ -19,6 +19,7 @@ from app.lab_adapter import (
     LabComponent,
     ToolMissingError,
     LabOperationResult,
+    PrivilegeStatus,
 )
 from app.lab_builder import (
     build_commands,
@@ -378,6 +379,7 @@ class TestPacketLab:
             missing_tools=[],
             permission_issues=["Permission denied"],
             summary="Permission issues: Permission denied",
+            privilege=PrivilegeStatus(available=False),
         )
         mock_adapter.check_lab_readiness = AsyncMock(return_value=mock_readiness)
 
@@ -386,10 +388,41 @@ class TestPacketLab:
 
         assert status.available is False
         assert status.state == LabState.UNAVAILABLE
-        assert "Permission issues" in status.message
+        assert status.condition == "privileges_missing"
+        assert "CAP_SYS_ADMIN" in status.message
 
     @pytest.mark.asyncio
-    async def test_simulate_invalid_request(self):
+    async def test_get_status_unavailable_with_namespace_permission_error(self):
+        """An unavailable lab with a namespace-specific permission error
+        must not report condition="ready".
+
+        When privilege.available=True but a namespace-specific permission
+        error exists, diagnose() must return privileges_missing, not ready.
+        """
+        mock_adapter = AsyncMock()
+        mock_readiness = LabReadinessReport(
+            timestamp="2024-01-01T00:00:00Z",
+            overall_ready=False,
+            namespaces={
+                "rl260-client": NamespaceStatus(name="rl260-client", exists=True, accessible=True, interfaces=[], routes=[]),
+                "rl260-router": NamespaceStatus(name="rl260-router", exists=True, accessible=False, interfaces=[], routes=[], error="permission denied"),
+                "rl260-server": NamespaceStatus(name="rl260-server", exists=True, accessible=True, interfaces=[], routes=[]),
+            },
+            expected_topology={},
+            missing_tools=[],
+            permission_issues=["rl260-router: permission denied"],
+            summary="Permission issues: rl260-router: permission denied",
+            privilege=PrivilegeStatus(available=True),
+        )
+        mock_adapter.check_lab_readiness = AsyncMock(return_value=mock_readiness)
+
+        lab = PacketLab(adapter=mock_adapter)
+        status = await lab.get_status()
+
+        assert status.available is False
+        assert status.state == LabState.UNAVAILABLE
+        assert status.condition == "privileges_missing"
+        assert "rl260-router" in status.message
         """Test simulation with invalid request."""
         lab = PacketLab()
         request = SimulateRequest(
@@ -614,6 +647,45 @@ class TestPacketLab:
         assert error is not None
         assert "Packet length out of range" in error
 
+    @pytest.mark.asyncio
+    async def test_ping_invalid_destination_returns_failure(self):
+        """An invalid destination IP yields a failed PingResult, not an exception."""
+        lab = PacketLab()
+        result = await lab.adapter.ping(
+            source_namespace="rl260-client",
+            destination="not.an.ip",
+        )
+        assert result.success is False
+        assert result.packet_loss_percent == 100.0
+
+    @pytest.mark.asyncio
+    async def test_simulate_capture_exception_returns_error_state(self):
+        """A capture failure propagates as an ERROR state, never a fabricated success."""
+        mock_adapter = AsyncMock()
+        mock_readiness = LabReadinessReport(
+            timestamp="2024-01-01T00:00:00Z",
+            overall_ready=True,
+            namespaces={},
+            expected_topology={},
+            missing_tools=[],
+            permission_issues=[],
+            summary="OK",
+        )
+        mock_adapter.check_lab_readiness = AsyncMock(return_value=mock_readiness)
+        mock_adapter.run_ping_with_capture = AsyncMock(
+            side_effect=RuntimeError("capture broke")
+        )
+
+        lab = PacketLab(adapter=mock_adapter)
+        request = SimulateRequest(
+            source_ip="192.168.10.2",
+            destination_ip="192.168.20.2",
+        )
+        response = await lab.simulate(request)
+
+        assert response.state == LabState.ERROR
+        assert "capture broke" in response.error
+
 
 class TestLabBuilder:
     """Tests for the LabBuilder command generation and execution."""
@@ -830,6 +902,31 @@ class TestLabBuilder:
         assert result["commands"][0] == "echo hello"
         assert result["commands"][1] == "echo world"
 
+    def test_run_teardown_dry_run_executes_nothing(self):
+        """Teardown dry run reports commands without executing."""
+        cmds = teardown_commands(CLIENT_ROUTER_SERVER)
+        result = run_teardown(cmds, dry_run=True)
+        assert result["status"] == "dry_run"
+        assert result["commands"] == [" ".join(cmd) for cmd in cmds]
+
+    def test_run_teardown_idempotent_skip_missing_namespace(self):
+        """A namespace that is already gone is treated as success (idempotent)."""
+        cmds = teardown_commands(CLIENT_ROUTER_SERVER)
+
+        class FakeResult:
+            returncode = 1
+            stderr = "rl_client: does not exist"
+            stdout = ""
+
+        with patch("app.lab_builder._guard", return_value=None), patch(
+            "subprocess.run", return_value=FakeResult()
+        ):
+            result = run_teardown(cmds)
+
+        assert result["status"] == "ok"
+        for entry in result["log"]:
+            assert entry.get("idempotent_skip") is True
+
     def test_probe_distinguishes_failures(self):
         """Test that probe distinguishes timeout, missing binary, permission denied, unreachable."""
         # Test each failure mode separately with fresh mocks
@@ -1027,6 +1124,33 @@ class TestPacketLabRoutes:
                 })
 
         assert response.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_apply_lab_invalid_route_returns_422(self):
+        """POST /api/scenarios/{sid}/lab/apply returns 422 when the scenario's routes are invalid."""
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            with patch("app.lab_builder.build_commands", side_effect=ValueError("via not in subnet")):
+                response = await client.post("/api/scenarios/client-router-server/lab/apply", json={})
+
+        assert response.status_code == 422
+        data = response.json()
+        assert "via not in subnet" in data["detail"]
+
+    @pytest.mark.asyncio
+    async def test_teardown_lab_route_honors_dry_run(self):
+        """GET-style dry-run teardown reports commands without deleting anything."""
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post(
+                "/api/scenarios/client-router-server/lab/teardown",
+                params={"dry_run": "true"},
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "dry_run"
+        assert isinstance(data["commands"], list)
 
 
 class TestPacketLabSingleton:

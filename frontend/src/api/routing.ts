@@ -1,6 +1,13 @@
 /**
  * API module for communicating with the RouteLens Lite backend.
- * All requests are proxied through Vite to http://localhost:8000.
+ *
+ * In local development the Vite dev server proxies API calls to
+ * http://127.0.0.1:8000 (see frontend/vite.config.ts), so an unset or empty
+ * VITE_API_URL means "use relative URLs" and the proxy handles the rest.
+ *
+ * In production (GitHub Pages) VITE_API_URL points at the separately hosted
+ * FastAPI backend, e.g. https://api.example.com. A trailing slash is stripped
+ * so that concatenating it with an endpoint never produces a double slash.
  */
 
 import type {
@@ -55,7 +62,11 @@ import type {
   TraceResult,
 } from '../types/routing';
 
-const API_BASE = '';
+const API_BASE = (() => {
+  const raw = import.meta.env.VITE_API_URL ?? '';
+  // Strip a trailing slash so `${API_BASE}${endpoint}` never has a double slash.
+  return raw.replace(/\/$/, '');
+})();
 const DEFAULT_TIMEOUT = 10000;
 const LAB_TIMEOUT = 30000; // Longer timeout for lab operations
 const NETWORK_TIMEOUT = 15000; // Timeout for network collection
@@ -710,7 +721,7 @@ export async function fetchReportJson(): Promise<unknown> {
 }
 
 export async function fetchReportMarkdown(activeExperiment?: Record<string, unknown> | null): Promise<string> {
-  const url = '/api/report';
+  const url = `${API_BASE}/api/report`;
   let response: Response;
   if (activeExperiment) {
     response = await fetch(url, {
@@ -722,7 +733,7 @@ export async function fetchReportMarkdown(activeExperiment?: Record<string, unkn
       }),
     });
   } else {
-    response = await fetch('/api/report?format=markdown');
+    response = await fetch(`${API_BASE}/api/report?format=markdown`);
   }
   if (!response.ok) {
     throw new ApiError(

@@ -505,7 +505,7 @@ export default function RouterDiscoveryPage() {
     const request: RouterDiscoveryRunRequest = {
       seeds,
       scope: scope.trim(),
-      method,
+      methods: [method],
       max_depth: maxDepth,
       max_devices: maxDevices,
     };
@@ -543,7 +543,7 @@ export default function RouterDiscoveryPage() {
         if (cancelled) return;
         setRun(status);
 
-        const finished = ['done', 'complete', 'completed', 'failed', 'error', 'finished'].includes(
+        const finished = ['done', 'complete', 'completed', 'failed', 'error', 'finished', 'stopped', 'cancelled'].includes(
           status.status.toLowerCase()
         );
 
@@ -688,7 +688,7 @@ export default function RouterDiscoveryPage() {
   const filteredRoutes = useMemo(() => {
     if (!device) return [];
     const needle = routeFilter.trim().toLowerCase();
-    return device.routes.filter((route: RouteEntry) => {
+    return (device?.routes ?? []).filter((route: RouteEntry) => {
       if (
         protocolFilter !== 'all' &&
         (route.protocol ?? '').toLowerCase() !== protocolFilter.toLowerCase()
@@ -807,7 +807,6 @@ export default function RouterDiscoveryPage() {
                 <option value="lldp">LLDP</option>
                 <option value="cdp">CDP</option>
                 <option value="snmp">SNMP</option>
-                <option value="ssh">SSH</option>
               </select>
             </div>
 
@@ -1536,37 +1535,95 @@ export default function RouterDiscoveryPage() {
               {diff && (
                 <div className="discovery-diff">
                   <div className="discovery-diff-group">
-                    <h4>Added</h4>
-                    {diff.added.length === 0 ? (
+                    <h4>Devices added</h4>
+                    {diff.devices.added.length === 0 ? (
                       <p className="device-muted">Nothing was added.</p>
                     ) : (
                       <ul>
-                        {diff.added.map((item, i) => (
-                          <li key={i}>{String(item)}</li>
+                        {diff.devices.added.map((item, i) => (
+                          <li key={i}>
+                            {item.hostname || item.device_id}
+                          </li>
                         ))}
                       </ul>
                     )}
                   </div>
                   <div className="discovery-diff-group">
-                    <h4>Removed</h4>
-                    {diff.removed.length === 0 ? (
+                    <h4>Devices removed</h4>
+                    {diff.devices.removed.length === 0 ? (
                       <p className="device-muted">Nothing was removed.</p>
                     ) : (
                       <ul>
-                        {diff.removed.map((item, i) => (
-                          <li key={i}>{String(item)}</li>
+                        {diff.devices.removed.map((item, i) => (
+                          <li key={i}>
+                            {item.hostname || item.device_id}
+                          </li>
                         ))}
                       </ul>
                     )}
                   </div>
                   <div className="discovery-diff-group">
-                    <h4>Changed</h4>
-                    {diff.changed.length === 0 ? (
+                    <h4>Devices changed</h4>
+                    {diff.devices.changed.length === 0 ? (
                       <p className="device-muted">Nothing changed.</p>
                     ) : (
                       <ul>
-                        {diff.changed.map((item, i) => (
-                          <li key={i}>{String(item)}</li>
+                        {diff.devices.changed.map((item, i) => (
+                          <li key={i}>
+                            {item.device_id} changed between runs
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                  <div className="discovery-diff-group">
+                    <h4>Edges added</h4>
+                    {diff.edges.added.length === 0 ? (
+                      <p className="device-muted">Nothing was added.</p>
+                    ) : (
+                      <ul>
+                        {diff.edges.added.map((item, i) => (
+                          <li key={i}>
+                            {item.a} → {item.b} ({item.kind})
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                  <div className="discovery-diff-group">
+                    <h4>Edges removed</h4>
+                    {diff.edges.removed.length === 0 ? (
+                      <p className="device-muted">Nothing was removed.</p>
+                    ) : (
+                      <ul>
+                        {diff.edges.removed.map((item, i) => (
+                          <li key={i}>
+                            {item.a} → {item.b} ({item.kind})
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                  <div className="discovery-diff-group">
+                    <h4>Findings added</h4>
+                    {diff.findings.added.length === 0 ? (
+                      <p className="device-muted">Nothing was added.</p>
+                    ) : (
+                      <ul>
+                        {diff.findings.added.map((item, i) => (
+                          <li key={i}>{item.title}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                  <div className="discovery-diff-group">
+                    <h4>Findings removed</h4>
+                    {diff.findings.removed.length === 0 ? (
+                      <p className="device-muted">Nothing was removed.</p>
+                    ) : (
+                      <ul>
+                        {diff.findings.removed.map((item, i) => (
+                          <li key={i}>{item.title}</li>
                         ))}
                       </ul>
                     )}

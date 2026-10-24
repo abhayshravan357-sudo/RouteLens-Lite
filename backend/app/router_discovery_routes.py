@@ -29,7 +29,7 @@ from typing import Any, Dict, List, Optional, Set, Union
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from app.router_discovery.analysis import analyse
+from app.router_discovery.analysis import analyse, build_fib, _next_hop_chain, _owner_index
 from app.router_discovery.collectors.base import (
     CommandNotAllowed,
     MAX_AUDIT_ENTRIES,
@@ -62,6 +62,11 @@ router = APIRouter(prefix="/api/router-discovery", tags=["Router Discovery"])
 
 MAX_RUNS_PER_CLIENT = 10
 FORBIDDEN_CREDENTIAL_KEYS = ("password", "community", "private_key", "token", "secret")
+
+
+class TraceRequest(BaseModel):
+    source: str
+    destination: str
 
 
 def _record_audit(target: str, argv: List[str], outcome: str, error: Optional[str] = None) -> None:
@@ -115,12 +120,19 @@ def _validate_scope_networks(scope_input: Any) -> List[str]:
 
 
 async def _run_command_async(argv: List[str]) -> tuple[int, bytes, bytes]:
-    """Run a subprocess command via asyncio.create_subprocess_exec."""
-    proc = await asyncio.create_subprocess_exec(
-        *argv,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
+    """Run a subprocess command via asyncio.create_subprocess_exec.
+
+    A missing executable is reported as a non-zero return code with an
+    error message, not as an unhandled exception that crashes the request.
+    """
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *argv,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    except FileNotFoundError as exc:
+        return -1, b"", f"Command not found: {argv[0]}".encode("utf-8")
     stdout, stderr = await proc.communicate()
     return proc.returncode or 0, stdout, stderr
 
@@ -541,6 +553,7 @@ async def start_run(request: Request, background_tasks: BackgroundTasks):
         "findings": [],
         "failures": [],
         "audit": [],
+        "progress": [],
         "stopped_reason": None,
     }
 
@@ -643,3 +656,235 @@ async def get_run_device_routes(run_id: str, device_id: str, request: Request):
         if d.get("id") == device_id or d.get("device_id") == device_id:
             return {"routes": d.get("routes") or []}
     raise HTTPException(status_code=404, detail=f"Device {device_id} not found")
+
+
+def _snapshot_from_run_device(device_dict: dict) -> DeviceSnapshot:
+    """Rebuild a DeviceSnapshot from a run's stored device dict."""
+    interfaces = [
+        IfaceInfo(
+            name=str(item.get("name", "eth0")),
+            addresses=[str(a) for a in (item.get("addresses") or [])],
+            up=bool(item.get("up", True)),
+        )
+        for item in (device_dict.get("interfaces") or [])
+    ]
+    routes = [
+        RouteEntry(
+            prefix=str(item.get("prefix", "")),
+            next_hop=item.get("next_hop"),
+            interface=item.get("interface"),
+            metric=item.get("metric"),
+            protocol=item.get("protocol", "static"),
+            admin_distance=item.get("admin_distance"),
+            selected=bool(item.get("selected", True)),
+        )
+        for item in (device_dict.get("routes") or [])
+    ]
+    addresses = device_dict.get("addresses") or []
+    mgmt_target = str(addresses[0]).split("/")[0] if addresses else str(
+        device_dict.get("device_id") or device_dict.get("id") or ""
+    )
+    return DeviceSnapshot(
+        device_id=str(device_dict.get("device_id") or device_dict.get("id") or ""),
+        hostname=str(device_dict.get("hostname") or device_dict.get("device_id") or ""),
+        mgmt_target=mgmt_target,
+        method="local",
+        collected_at=datetime.now(timezone.utc),
+        interfaces=interfaces,
+        routes=routes,
+        neighbors=[],
+        errors=[],
+        provenance="observed",
+    )
+
+
+def _first_address_of_snapshot(device: DeviceSnapshot) -> str:
+    """The first owned address of a device, or its device id."""
+    for interface in device.interfaces:
+        for address in interface.addresses:
+            text = str(address).split("/")[0].strip()
+            try:
+                ipaddress.ip_address(text)
+                return text
+            except ValueError:
+                continue
+    return device.device_id
+
+
+def _find_device_in_run(run: Dict[str, Any], identifier: str) -> Optional[dict]:
+    """Find a stored device dict by device id, hostname, or owned address."""
+    for d in run.get("devices", []):
+        if (
+            d.get("device_id") == identifier
+            or d.get("id") == identifier
+            or d.get("hostname") == identifier
+        ):
+            return d
+    for d in run.get("devices", []):
+        for address in d.get("addresses") or []:
+            if str(address).split("/")[0].strip() == identifier:
+                return d
+    return None
+
+
+@router.post("/runs/{run_id}/trace")
+async def trace_run(run_id: str, request: Request):
+    """Trace the forwarding path from a source to a destination within a run."""
+    run = RUNS.get(run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+    _check_owner(run, request)
+
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="Body must be an object")
+
+    source = str(body.get("source", "")).strip()
+    destination = str(body.get("destination", "")).strip()
+    if not source or not destination:
+        raise HTTPException(status_code=400, detail="source and destination are required")
+
+    devices = [_snapshot_from_run_device(d) for d in run.get("devices", [])]
+    if not devices:
+        raise HTTPException(status_code=404, detail="No devices in run")
+
+    owner_by_address = _owner_index(devices)
+    by_id = {d.device_id: d for d in devices}
+
+    start = by_id.get(source) or next(
+        (d for d in devices if d.hostname == source), None
+    )
+    if start is None:
+        start = owner_by_address.get(source)
+    if start is None:
+        raise HTTPException(
+            status_code=404, detail=f"Source {source!r} not found in run"
+        )
+
+    target_device = by_id.get(destination) or next(
+        (d for d in devices if d.hostname == destination), None
+    )
+    if target_device is not None:
+        target_address = _first_address_of_snapshot(target_device)
+        target_device_id = target_device.device_id
+    else:
+        target_address = destination
+        target_device_id = owner_by_address.get(destination)
+        target_device_id = target_device_id.device_id if target_device_id else None
+
+    fib_by_device = {d.device_id: build_fib(d.routes) for d in devices}
+    chain, looped = _next_hop_chain(
+        fib_by_device,
+        owner_by_address,
+        start,
+        target_address,
+        target_device_id=target_device_id,
+    )
+
+    reached_target = (
+        target_device_id is not None
+        and chain
+        and chain[-1] == target_device_id
+    )
+
+    return {
+        "run_id": run_id,
+        "source": source,
+        "destination": destination,
+        "path": chain,
+        "complete": not looped,
+        "looped": looped,
+        "reached_target": reached_target,
+        "hops": max(0, len(chain) - 1),
+    }
+
+
+@router.get("/diff")
+async def diff_runs(request: Request):
+    """Diff two runs: devices, edges, and findings."""
+    run_a_id = request.query_params.get("a") or request.query_params.get("run_a")
+    run_b_id = request.query_params.get("b") or request.query_params.get("run_b")
+    if not run_a_id or not run_b_id:
+        raise HTTPException(
+            status_code=400, detail="run_a and run_b query parameters are required"
+        )
+
+    run_a = RUNS.get(run_a_id)
+    run_b = RUNS.get(run_b_id)
+    if not run_a:
+        raise HTTPException(status_code=404, detail=f"Run {run_a_id} not found")
+    if not run_b:
+        raise HTTPException(status_code=404, detail=f"Run {run_b_id} not found")
+    _check_owner(run_a, request)
+    _check_owner(run_b, request)
+
+    devices_a = {
+        d.get("device_id") or d.get("id"): d for d in run_a.get("devices", [])
+    }
+    devices_b = {
+        d.get("device_id") or d.get("id"): d for d in run_b.get("devices", [])
+    }
+
+    added_devices = [devices_b[k] for k in devices_b if k not in devices_a]
+    removed_devices = [devices_a[k] for k in devices_a if k not in devices_b]
+    changed_devices = [
+        {"device_id": k, "run_a": devices_a[k], "run_b": devices_b[k]}
+        for k in devices_a
+        if k in devices_b and devices_a[k] != devices_b[k]
+    ]
+
+    edges_a = run_a.get("edges", [])
+    edges_b = run_b.get("edges", [])
+    key_a = {(e.get("a"), e.get("b"), e.get("kind")): e for e in edges_a}
+    key_b = {(e.get("a"), e.get("b"), e.get("kind")): e for e in edges_b}
+    added_edges = [key_b[k] for k in key_b if k not in key_a]
+    removed_edges = [key_a[k] for k in key_a if k not in key_b]
+
+    def finding_key(finding: dict) -> tuple:
+        return (
+            finding.get("kind"),
+            finding.get("title"),
+            tuple(sorted(str(d) for d in (finding.get("devices") or []))),
+        )
+
+    findings_a = run_a.get("findings", [])
+    findings_b = run_b.get("findings", [])
+    fkey_a = {finding_key(f): f for f in findings_a}
+    fkey_b = {finding_key(f): f for f in findings_b}
+    added_findings = [fkey_b[k] for k in fkey_b if k not in fkey_a]
+    removed_findings = [fkey_a[k] for k in fkey_a if k not in fkey_b]
+
+    identical = (
+        not added_devices
+        and not removed_devices
+        and not changed_devices
+        and not added_edges
+        and not removed_edges
+        and not added_findings
+        and not removed_findings
+    )
+
+    return {
+        "run_a": run_a_id,
+        "run_b": run_b_id,
+        "identical": identical,
+        "devices": {
+            "added": added_devices,
+            "removed": removed_devices,
+            "changed": changed_devices,
+            "common": len(set(devices_a) & set(devices_b)),
+        },
+        "edges": {
+            "added": added_edges,
+            "removed": removed_edges,
+            "common": len(set(key_a) & set(key_b)),
+        },
+        "findings": {
+            "added": added_findings,
+            "removed": removed_findings,
+            "common": len(set(fkey_a) & set(fkey_b)),
+        },
+    }

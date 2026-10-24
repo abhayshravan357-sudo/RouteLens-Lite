@@ -240,7 +240,11 @@ def apply_lab(sid: str, dry_run: bool = True):
     requires root and is refused otherwise.
     """
     scenario = _scenario(sid)
-    return lab.run_all(lab.build_commands(scenario), dry_run=dry_run)
+    try:
+        commands = lab.build_commands(scenario)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=f"Invalid scenario: {exc}")
+    return lab.run_all(commands, dry_run=dry_run)
 
 
 @router.post("/{sid}/lab/teardown", response_model=LabResult)

@@ -13,6 +13,7 @@ import re
 from typing import Any, Optional
 
 from app.lab_adapter import LabAdapter, get_lab_adapter, LabOperationResult, PingResult, PacketCaptureResult
+from app.lab_next_steps import diagnose
 
 
 class LabState(str, Enum):
@@ -51,6 +52,14 @@ class LabStatus:
     message: str
     router_info: Optional[dict[str, Any]] = None
     error: Optional[str] = None
+    #: Which condition the lab is in, so the interface does not have to
+    #: work it out from the message.
+    condition: Optional[str] = None
+    #: The ordered things to do about it, in the order to do them.
+    next_steps: list[dict[str, Any]] = field(default_factory=list)
+    #: The separate, optional four-router topology. Never a blocker for the
+    #: lab in the application, and kept apart so the two are not confused.
+    optional_steps: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -175,18 +184,38 @@ class PacketLab:
         self._current_state = state
 
     async def get_status(self) -> LabStatus:
-        """Check lab availability and return router info."""
+        """Check lab availability and return router info.
+
+        The report names the condition the lab is in and the ordered steps
+        for it, so the reader is told what to do rather than only what is
+        true. The condition and the steps come from
+        `app.lab_next_steps`, which is also what `lab/README.md` and
+        `scripts/lab-up.sh --help` are written from.
+        """
         self._set_state(LabState.IDLE)
 
         readiness = await self.adapter.check_lab_readiness()
+
+        guidance = diagnose(
+            missing_tools=readiness.missing_tools,
+            privilege_available=readiness.privilege.available,
+            privilege_detail=readiness.privilege.detail,
+            permission_issues=readiness.permission_issues,
+            missing_namespaces=readiness.missing_namespaces,
+            topology_issues=readiness.topology_issues,
+            containerlab_missing=readiness.containerlab_missing,
+        )
 
         if not readiness.overall_ready:
             self._set_state(LabState.UNAVAILABLE)
             return LabStatus(
                 available=False,
                 state=LabState.UNAVAILABLE,
-                message=readiness.summary,
+                message=guidance.summary,
                 error=readiness.summary,
+                condition=guidance.condition.value,
+                next_steps=[s.as_dict() for s in guidance.steps],
+                optional_steps=[s.as_dict() for s in guidance.optional_steps],
             )
 
         # Build router info from actual lab topology
@@ -207,32 +236,21 @@ class PacketLab:
                     "interface": route.interface,
                 })
 
-        # Report detailed readiness info
-        blockers = []
-        if readiness.missing_tools:
-            blockers.append(f"Missing tools: {', '.join(readiness.missing_tools)}")
-        if readiness.permission_issues:
-            blockers.append(f"Permission issues: {'; '.join(readiness.permission_issues)}")
-        # Check topology completeness
-        if not (router_ns and router_ns.accessible and client_ns and client_ns.accessible and server_ns and server_ns.accessible):
-            blockers.append("Lab topology incomplete")
-
-        message = "Packet lab is ready"
-        if blockers:
-            message = "Packet lab has issues: " + "; ".join(blockers)
-
         self._set_state(LabState.READY)
         return LabStatus(
-            available=readiness.overall_ready,
-            state=LabState.READY if readiness.overall_ready else LabState.UNAVAILABLE,
-            message=message,
+            available=True,
+            state=LabState.READY,
+            message=guidance.summary,
             router_info={
                 "interfaces": interfaces,
                 "routing_table": routing_table,
                 "client_ip": next((i.ipv4_address for i in client_ns.interfaces if i.name == "rlc0"), None) if client_ns else None,
                 "server_ip": next((i.ipv4_address for i in server_ns.interfaces if i.name == "rls0"), None) if server_ns else None,
             },
-            error=readiness.summary if not readiness.overall_ready else None,
+            error=None,
+            condition=guidance.condition.value,
+            next_steps=[s.as_dict() for s in guidance.steps],
+            optional_steps=[s.as_dict() for s in guidance.optional_steps],
         )
 
     def _validate_request(self, request: SimulateRequest) -> Optional[str]:
