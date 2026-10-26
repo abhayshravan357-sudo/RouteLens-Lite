@@ -297,7 +297,7 @@ class TestLookupRoute:
         result = lookup_route("not.an.ip", routes)
         assert result.matched is False
         assert result.error is not None
-        assert "Invalid IPv4 address" in result.error
+        assert "Invalid IP address" in result.error
 
     def test_invalid_route_data_returns_error(self):
         """Test invalid route data returns error."""

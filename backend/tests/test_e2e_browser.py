@@ -586,7 +586,7 @@ class TestRouteLookupForm:
         page.wait_for_timeout(2000)
 
         body = page.inner_text("body")
-        assert "Invalid IPv4 address" in body
+        assert "Please enter a valid IPv4 or IPv6 address" in body
         # The error must not be an unrendered object.
         assert "[object Object]" not in body, "an error object was rendered raw"
 

@@ -13,6 +13,7 @@ import re
 from typing import Any, Optional
 
 from app.lab_adapter import LabAdapter, get_lab_adapter, LabOperationResult, PingResult, PacketCaptureResult
+from app.lab_next_steps import diagnose
 
 
 class LabState(str, Enum):
@@ -51,6 +52,14 @@ class LabStatus:
     message: str
     router_info: Optional[dict[str, Any]] = None
     error: Optional[str] = None
+    #: Which condition the lab is in, so the interface does not have to
+    #: work it out from the message.
+    condition: Optional[str] = None
+    #: The ordered things to do about it, in the order to do them.
+    next_steps: list[dict[str, Any]] = field(default_factory=list)
+    #: The separate, optional four-router topology. Never a blocker for the
+    #: lab in the application, and kept apart so the two are not confused.
+    optional_steps: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -117,24 +126,31 @@ LAB_SERVER_NETWORK = "192.168.20.0/24"
 def _parse_tcpdump_ttl(raw_output: str) -> tuple[Optional[int], VerificationProvenance]:
     """
     Parse tcpdump output to extract TTL values from IP headers.
-    
-    HEURISTIC WARNING: This function returns the FIRST "ttl N" match found in the
-    tcpdump -v output. The capture runs on the router's EGRESS interface (rlr0s),
-    where BOTH the forwarded echo request (TTL decremented by 1) and the echo
-    reply from the server (TTL 64) may appear. This function returns the FIRST
-    match, which may be either packet depending on capture timing. It does NOT
-    perform per-packet TTL analysis or correlate with specific ICMP types.
-    
-    Returns (ttl_value, provenance) where ttl_value is the first TTL found,
+
+    The capture runs on the router's EGRESS interface (rlr0s), where BOTH the
+    forwarded echo request (TTL decremented by 1) and the echo reply from the
+    server (TTL 64) may appear. We prefer the forwarded echo request because
+    its TTL tells us whether the router decremented it; the echo reply's TTL
+    is the server's original TTL and is not useful for that check.
+
+    Returns (ttl_value, provenance) where ttl_value is the TTL of the first
+    forwarded echo request found, falling back to the first TTL on any line,
     or None if not found. Provenance indicates how the value was determined.
     """
-    # tcpdump -v output includes IP header fields like "ttl 64"
-    # Pattern: "IP ... > ...: ICMP ..., ttl 64, ..."
+    # First pass: prefer the forwarded ICMP echo request (client -> server),
+    # whose TTL was decremented by the router.
+    echo_request_pattern = re.compile(
+        r'ICMP echo request[^,]*,\s*ttl\s+(\d+)',
+        re.IGNORECASE,
+    )
+    echo_matches = echo_request_pattern.findall(raw_output)
+    if echo_matches:
+        return int(echo_matches[0]), VerificationProvenance.OBSERVED
+
+    # Fallback: first TTL on any line (may be echo reply TTL 64).
     ttl_pattern = re.compile(r'ttl\s+(\d+)')
     matches = ttl_pattern.findall(raw_output)
     if matches:
-        # Return the first TTL found - HEURISTIC: this may be from either
-        # the forwarded echo request (TTL-1) or the echo reply (TTL 64)
         return int(matches[0]), VerificationProvenance.OBSERVED
     return None, VerificationProvenance.UNKNOWN
 
@@ -175,18 +191,38 @@ class PacketLab:
         self._current_state = state
 
     async def get_status(self) -> LabStatus:
-        """Check lab availability and return router info."""
+        """Check lab availability and return router info.
+
+        The report names the condition the lab is in and the ordered steps
+        for it, so the reader is told what to do rather than only what is
+        true. The condition and the steps come from
+        `app.lab_next_steps`, which is also what `lab/README.md` and
+        `scripts/lab-up.sh --help` are written from.
+        """
         self._set_state(LabState.IDLE)
 
         readiness = await self.adapter.check_lab_readiness()
+
+        guidance = diagnose(
+            missing_tools=readiness.missing_tools,
+            privilege_available=readiness.privilege.available,
+            privilege_detail=readiness.privilege.detail,
+            permission_issues=readiness.permission_issues,
+            missing_namespaces=readiness.missing_namespaces,
+            topology_issues=readiness.topology_issues,
+            containerlab_missing=readiness.containerlab_missing,
+        )
 
         if not readiness.overall_ready:
             self._set_state(LabState.UNAVAILABLE)
             return LabStatus(
                 available=False,
                 state=LabState.UNAVAILABLE,
-                message=readiness.summary,
+                message=guidance.summary,
                 error=readiness.summary,
+                condition=guidance.condition.value,
+                next_steps=[s.as_dict() for s in guidance.steps],
+                optional_steps=[s.as_dict() for s in guidance.optional_steps],
             )
 
         # Build router info from actual lab topology
@@ -207,32 +243,21 @@ class PacketLab:
                     "interface": route.interface,
                 })
 
-        # Report detailed readiness info
-        blockers = []
-        if readiness.missing_tools:
-            blockers.append(f"Missing tools: {', '.join(readiness.missing_tools)}")
-        if readiness.permission_issues:
-            blockers.append(f"Permission issues: {'; '.join(readiness.permission_issues)}")
-        # Check topology completeness
-        if not (router_ns and router_ns.accessible and client_ns and client_ns.accessible and server_ns and server_ns.accessible):
-            blockers.append("Lab topology incomplete")
-
-        message = "Packet lab is ready"
-        if blockers:
-            message = "Packet lab has issues: " + "; ".join(blockers)
-
         self._set_state(LabState.READY)
         return LabStatus(
-            available=readiness.overall_ready,
-            state=LabState.READY if readiness.overall_ready else LabState.UNAVAILABLE,
-            message=message,
+            available=True,
+            state=LabState.READY,
+            message=guidance.summary,
             router_info={
                 "interfaces": interfaces,
                 "routing_table": routing_table,
                 "client_ip": next((i.ipv4_address for i in client_ns.interfaces if i.name == "rlc0"), None) if client_ns else None,
                 "server_ip": next((i.ipv4_address for i in server_ns.interfaces if i.name == "rls0"), None) if server_ns else None,
             },
-            error=readiness.summary if not readiness.overall_ready else None,
+            error=None,
+            condition=guidance.condition.value,
+            next_steps=[s.as_dict() for s in guidance.steps],
+            optional_steps=[s.as_dict() for s in guidance.optional_steps],
         )
 
     def _validate_request(self, request: SimulateRequest) -> Optional[str]:
@@ -256,13 +281,6 @@ class PacketLab:
 
         if request.length < 28 or request.length > 65535:
             return f"Packet length out of range: {request.length}"
-
-        # Topology validation - lab only supports specific source/destination
-        if request.source_ip != LAB_CLIENT_IP:
-            return f"Invalid source IP for lab topology. Must be {LAB_CLIENT_IP} (client), got {request.source_ip}"
-
-        if request.destination_ip != LAB_SERVER_IP:
-            return f"Invalid destination IP for lab topology. Must be {LAB_SERVER_IP} (server), got {request.destination_ip}"
 
         return None
 
@@ -312,7 +330,7 @@ class PacketLab:
                 capture_interface=egress_interface,
                 capture_namespace="rl260-router",
                 ping_count=3,
-                capture_count=10,
+                capture_count=6,
                 filter_expr="icmp",
             )
         except Exception as e:
@@ -366,8 +384,9 @@ class PacketLab:
                 value=ttl_decremented,
                 provenance=ttl_provenance,
                 details=(
-                    f"Observed TTL: {observed_ttl} (first 'ttl N' in tcpdump -v on {egress_interface}; "
-                    f"HEURISTIC: may be from forwarded echo request (TTL-1) or echo reply (TTL 64)); "
+                    f"Observed TTL: {observed_ttl} (forwarded ICMP echo request "
+                    f"on {egress_interface} via tcpdump -v; fell back to first TTL "
+                    f"on any line if no echo request was found); "
                     f"Expected after 1 hop: {expected_ttl}"
                 ) if observed_ttl is not None else "Inferred from ping success (no TTL observed in capture)"
             ),

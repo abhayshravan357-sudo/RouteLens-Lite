@@ -16,6 +16,8 @@ from __future__ import annotations
 import ipaddress
 import json
 import subprocess
+import threading
+import time
 from datetime import datetime, timezone
 from typing import Callable, Dict, List, Optional
 
@@ -32,9 +34,18 @@ MAX_OUTPUT_CHARS = 500_000
 #: talking cannot exhaust the backend.
 READ_CHUNK_CHARS = 65_536
 
+#: How long one read() on the device's pipe may wait for data before the
+#: device is treated as stalled and killed. `read(n)` blocks until a full
+#: buffer or EOF, so a dribbler that writes a few bytes and holds the pipe
+#: open would block the runner forever without this per-read deadline.
+READ_DEADLINE_SECONDS = 5
+
 _SYSTEM_SUBPROCESS_RUN = subprocess.run
 
-#: How long one command may take.
+#: How long one command may take, from start to finish.
+#: A per-read deadline alone is not enough: a dribbler that writes a few
+#: bytes every few seconds can keep the read loop running indefinitely.
+#: The overall deadline bounds the entire collection operation.
 COMMAND_TIMEOUT_SECONDS = 10
 
 
@@ -192,9 +203,44 @@ def docker_runner(container_map: Dict[str, str]) -> Callable[[str, str], str]:
 
         chunks: List[str] = []
         total = 0
+        #: An overall deadline bounds the entire collection operation, not
+        #: just each individual read. A dribbler that produces a few bytes
+        #: every few seconds would never trigger the per-read deadline, so
+        #: the overall deadline is checked on every loop iteration.
+        start_time = time.monotonic()
         try:
             while True:
-                chunk = process.stdout.read(READ_CHUNK_CHARS)
+                # Bound the entire operation. If the overall deadline has
+                # passed, kill the process regardless of read progress.
+                elapsed = time.monotonic() - start_time
+                if elapsed >= COMMAND_TIMEOUT_SECONDS:
+                    process.kill()
+                    break
+
+                # Bound each read so a dribbler that holds the pipe open
+                # cannot block the runner forever. The read runs on a
+                # daemon thread joined with the remaining deadline.
+                read_state: dict = {"chunk": None}
+
+                def _do_read() -> None:
+                    read_state["chunk"] = process.stdout.read(READ_CHUNK_CHARS)
+
+                remaining = max(0.0, COMMAND_TIMEOUT_SECONDS - elapsed)
+                read_thread = threading.Thread(target=_do_read, daemon=True)
+                read_thread.start()
+                read_thread.join(timeout=min(READ_DEADLINE_SECONDS, remaining))
+
+                if read_thread.is_alive():
+                    # The device stopped talking within the per-read
+                    # deadline. Kill it so the pipe closes, then let the
+                    # blocked read drain whatever was already written.
+                    process.kill()
+                    read_thread.join(timeout=READ_DEADLINE_SECONDS)
+                    if read_state["chunk"]:
+                        chunks.append(read_state["chunk"])
+                        total += len(read_state["chunk"])
+                    break
+                chunk = read_state["chunk"]
                 if not chunk:
                     break
                 total += len(chunk)

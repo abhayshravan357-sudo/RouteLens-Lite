@@ -254,13 +254,23 @@ class PacketHopResponse(BaseModel):
     )
     explanation: str
     matched_route: Optional[MatchedRoute] = Field(
-        default=None, exclude_if=lambda value: value is None
+        default=None,
+        description="The route that was selected, when one was matched",
     )
     next_hop_ip: Optional[str] = Field(
-        default=None, exclude_if=lambda value: value is None
+        default=None,
+        description="The address the packet was handed to",
     )
     egress_interface: Optional[str] = Field(
-        default=None, exclude_if=lambda value: value is None
+        default=None,
+        description="The interface the packet left by",
+    )
+    failure_reason: Optional[str] = Field(
+        default=None,
+        description="Structured reason for a failed hop, when one applies. "
+        "One of: no_route, max_hops_exceeded, loop, unresolved_next_hop, "
+        "routing_table_error, invalid_source_ip, invalid_destination_ip, "
+        "address_family_mismatch. Null when the hop did not fail.",
     )
 
 
@@ -278,7 +288,8 @@ class PacketJourneyResponse(BaseModel):
         hops: Each forwarding decision, in order
         success: Whether the packet was shown reaching the destination
         error: Why the journey did not reach the destination, if it did not
-        provenance: How this answer was arrived at
+        failure_code: Structured failure code, or null on successful delivery
+        provenance: How this journey was arrived at
     """
 
     source_ip: str
@@ -286,6 +297,7 @@ class PacketJourneyResponse(BaseModel):
     hops: list[PacketHopResponse]
     success: bool
     error: Optional[str] = None
+    failure_code: Optional[str] = None
     provenance: str = Field(
         "simulated",
         description=(

@@ -303,6 +303,162 @@ class TestOutputCapIsStreaming:
         # The whole thing was in memory before it was cut down.
         assert len(Completed.stdout) > MAX_OUTPUT_CHARS
 
+    def test_a_device_that_stops_talking_does_not_hang_the_runner(self):
+        """A dribbler that holds stdout open cannot block the runner forever.
+
+        read(n) blocks until a full buffer or EOF. A device that writes a few
+        bytes and holds the pipe open blocks there forever without a per-read
+        deadline. The per-read deadline must kill the process and bound the
+        total time.
+        """
+        import time
+        from unittest.mock import patch, MagicMock
+
+        from app.router_discovery.collectors.frr import (
+            docker_runner,
+            READ_DEADLINE_SECONDS,
+        )
+
+        # Track how long the read was allowed to block before the process
+        # was killed.
+        kill_time = []
+
+        class BlockingStdout:
+            def read(self, n):
+                # Block longer than the per-read deadline. When the process
+                # is killed, the pipe closes and this read returns.
+                time.sleep(READ_DEADLINE_SECONDS * 2)
+                return "partial output"
+
+            def close(self):
+                pass
+
+        mock_proc = MagicMock()
+        mock_proc.stdout = BlockingStdout()
+        mock_proc.kill = MagicMock(side_effect=lambda: kill_time.append(time.monotonic()))
+        mock_proc.wait = MagicMock(return_value=0)
+        mock_proc.returncode = 0
+        mock_proc.pid = 12345
+
+        start = time.monotonic()
+
+        def fake_popen(cmd, **kwargs):
+            return mock_proc
+
+        with patch("app.router_discovery.collectors.frr.subprocess.Popen") as mock_popen:
+            mock_popen.side_effect = fake_popen
+            run = docker_runner({"10.0.0.1": "router1"})
+            out = run("10.0.0.1", "show ip route json")
+
+        elapsed = time.monotonic() - start
+
+        # The operation must complete in bounded time, not hang forever.
+        assert elapsed < READ_DEADLINE_SECONDS * 3, f"Took {elapsed:.1f}s (deadline is {READ_DEADLINE_SECONDS}s)"
+
+        # The process must be killed when the read deadline expires.
+        mock_proc.kill.assert_called_once()
+
+        # The process was reaped.
+        mock_proc.wait.assert_called_once()
+
+    def test_a_device_that_keeps_dribbling_does_not_run_forever(self):
+        """A dribbler that produces small output before each per-read
+        deadline must still be stopped by the overall deadline.
+
+        read(n) returns quickly each time, so the per-read deadline never
+        triggers. But the overall deadline (COMMAND_TIMEOUT_SECONDS) must
+        bound the entire collection operation.
+        """
+        import time
+        from unittest.mock import patch, MagicMock
+
+        from app.router_discovery.collectors.frr import (
+            docker_runner,
+            COMMAND_TIMEOUT_SECONDS,
+            READ_CHUNK_CHARS,
+        )
+
+        # Track kill time and read count.
+        kill_time = []
+        read_count = []
+
+        class DribblerStdout:
+            def __init__(self):
+                self.chunks_remaining = 50  # enough to exceed the deadline
+
+            def read(self, n):
+                # Return a small chunk quickly (well under per-read
+                # deadline), then pause before the next read.
+                if self.chunks_remaining > 0:
+                    self.chunks_remaining -= 1
+                    read_count.append(time.monotonic())
+                    # Sleep briefly so the per-read deadline never triggers
+                    # but the overall deadline eventually does.
+                    time.sleep(2.5)
+                    return "x" * 100  # small chunk
+                return ""
+
+            def close(self):
+                pass
+
+        mock_proc = MagicMock()
+        mock_proc.stdout = DribblerStdout()
+        mock_proc.kill = MagicMock(side_effect=lambda: kill_time.append(time.monotonic()))
+        mock_proc.wait = MagicMock(return_value=0)
+        mock_proc.returncode = 0
+        mock_proc.pid = 12345
+
+        start = time.monotonic()
+
+        def fake_popen(cmd, **kwargs):
+            return mock_proc
+
+        with patch("app.router_discovery.collectors.frr.subprocess.Popen") as mock_popen:
+            mock_popen.side_effect = fake_popen
+            run = docker_runner({"10.0.0.1": "router1"})
+            out = run("10.0.0.1", "show ip route json")
+
+        elapsed = time.monotonic() - start
+
+        # The operation must complete in bounded time, bounded by the
+        # overall deadline (not just the per-read deadline).
+        assert elapsed < COMMAND_TIMEOUT_SECONDS + 3, (
+            f"Took {elapsed:.1f}s but overall deadline is {COMMAND_TIMEOUT_SECONDS}s"
+        )
+
+        # The process must be killed when the overall deadline expires.
+        mock_proc.kill.assert_called_once()
+
+        # The process was reaped.
+        mock_proc.wait.assert_called_once()
+
+        # Some output was read before the deadline.
+        assert len(out) > 0
+
+
+def test_unavailable_lab_never_reports_condition_ready():
+    """An unavailable lab must never report condition="ready".
+
+    When overall_ready=False but privilege.available=True and a
+    namespace-specific permission error exists, diagnose() must not fall
+    through to condition="ready". It must report privileges_missing.
+    """
+    from app.lab_next_steps import diagnose, LabCondition
+
+    # General privilege is available, but a namespace-specific permission
+    # error prevents reading that namespace.
+    guidance = diagnose(
+        missing_tools=[],
+        privilege_available=True,
+        permission_issues=["rl260-router: permission denied"],
+        missing_namespaces=[],
+        topology_issues=[],
+    )
+
+    assert guidance.condition == LabCondition.PRIVILEGES_MISSING
+    assert "permission" in guidance.summary.lower()
+    assert "rl260-router" in guidance.summary
+
 
 # --------------------------------------------------------------------------
 # 4. One shared metacharacter set
@@ -467,17 +623,18 @@ class TestRoutingDecisionMatchesTheRouter:
     def test_the_same_prefix_case_where_admin_distance_decides(self):
         """One prefix, two protocols. A router takes the lower admin distance.
 
-        The OSPF route has the better metric (5 against 20), and a router
-        never looks at it, because administrative distance is compared
-        first. `lookup()` has no administrative distance, so it takes the
-        metric and gets this wrong.
+        The route via 10.0.1.2 has the worse metric (20 against 5), but a
+        router never looks at the metric because administrative distance is
+        compared first. `lookup()` ranks by (prefixlen, -admin_distance,
+        -metric), so the lower admin distance wins and the metric is never
+        compared.
         """
         from app.scenario import Route, lookup
 
         scenario = self._scenario(
             [
-                Route(prefix="10.0.0.0/8", dev="eth0", via="10.0.1.2", metric=20),
-                Route(prefix="10.0.0.0/8", dev="eth1", via="10.0.2.2", metric=5),
+                Route(prefix="10.0.0.0/8", dev="eth0", via="10.0.1.2", metric=20, admin_distance=1),
+                Route(prefix="10.0.0.0/8", dev="eth1", via="10.0.2.2", metric=5, admin_distance=100),
             ]
         )
 

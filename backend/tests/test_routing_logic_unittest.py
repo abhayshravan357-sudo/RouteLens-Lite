@@ -44,7 +44,7 @@ class TestRoutingLogic(unittest.TestCase):
     def test_lookup_invalid_ip(self):
         result = lookup_route("not-an-ip", [])
         self.assertFalse(result.matched)
-        self.assertTrue(result.error.startswith("Invalid IPv4 address"))
+        self.assertTrue(result.error.startswith("Invalid IP address"))
 
     def test_lookup_no_match(self):
         routes = [make_route("192.168.1.0/24")]

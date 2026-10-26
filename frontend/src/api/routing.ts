@@ -1,6 +1,13 @@
 /**
  * API module for communicating with the RouteLens Lite backend.
- * All requests are proxied through Vite to http://localhost:8000.
+ *
+ * In local development the Vite dev server proxies API calls to
+ * http://127.0.0.1:8000 (see frontend/vite.config.ts), so an unset or empty
+ * VITE_API_URL means "use relative URLs" and the proxy handles the rest.
+ *
+ * In production (GitHub Pages) VITE_API_URL points at the separately hosted
+ * FastAPI backend, e.g. https://api.example.com. A trailing slash is stripped
+ * so that concatenating it with an endpoint never produces a double slash.
  */
 
 import type {
@@ -55,11 +62,16 @@ import type {
   TraceResult,
 } from '../types/routing';
 
-const API_BASE = '';
+const API_BASE = (() => {
+  const raw = import.meta.env.VITE_API_URL ?? '';
+  // Strip a trailing slash so `${API_BASE}${endpoint}` never has a double slash.
+  return raw.replace(/\/$/, '');
+})();
 const DEFAULT_TIMEOUT = 10000;
 const LAB_TIMEOUT = 30000; // Longer timeout for lab operations
 const NETWORK_TIMEOUT = 15000; // Timeout for network collection
 const DIAGNOSTICS_TIMEOUT = 30000; // Longer timeout for diagnostics
+const REPORT_TIMEOUT = 30000; // Report generation can take time
 
 export class ApiError extends Error {
   constructor(
@@ -134,12 +146,12 @@ function formatDetail(detail: unknown, fallback: string): string {
 async function fetchWithTimeout<T>(
   endpoint: string,
   timeoutMs = DEFAULT_TIMEOUT,
-  options: RequestInit & { params?: Record<string, string> } = {}
+  options: RequestInit & { params?: Record<string, string>; responseType?: 'json' | 'text' } = {}
 ): Promise<T> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
-  const { params, ...init } = options;
+  const { params, responseType, ...init } = options;
   let url = `${API_BASE}${endpoint}`;
   if (params) {
     const query = new URLSearchParams(params).toString();
@@ -174,7 +186,9 @@ async function fetchWithTimeout<T>(
       );
     }
 
-    return response.json();
+    const responseType = options.responseType ?? 'json';
+
+    return (responseType === 'text' ? response.text() : response.json()) as Promise<T>;
   } catch (error) {
     clearTimeout(timeoutId);
 
@@ -706,31 +720,24 @@ export async function fetchDiscoveryAudit(): Promise<DiscoveryAuditEntry[]> {
 
 // Report export
 export async function fetchReportJson(): Promise<unknown> {
-  return fetchWithTimeout<unknown>('/api/report?format=json', 30000);
+  return fetchWithTimeout<unknown>('/api/report?format=json', REPORT_TIMEOUT);
 }
 
 export async function fetchReportMarkdown(activeExperiment?: Record<string, unknown> | null): Promise<string> {
-  const url = '/api/report';
-  let response: Response;
   if (activeExperiment) {
-    response = await fetch(url, {
+    return fetchWithTimeout<string>('/api/report', REPORT_TIMEOUT, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         format: 'markdown',
         active_experiment: activeExperiment,
       }),
+      responseType: 'text',
     });
-  } else {
-    response = await fetch('/api/report?format=markdown');
   }
-  if (!response.ok) {
-    throw new ApiError(
-      `Could not build the report: ${response.status}`,
-      response.status
-    );
-  }
-  return response.text();
+  return fetchWithTimeout<string>('/api/report?format=markdown', REPORT_TIMEOUT, {
+    responseType: 'text',
+  });
 }
 
 // PCAP Analysis API

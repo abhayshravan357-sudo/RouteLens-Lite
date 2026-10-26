@@ -153,13 +153,17 @@ class RoutingTable:
             InvalidRouteError: If the route is invalid
             IndexOutOfRangeError: If the index is out of range
         """
-        self._validate_route(route)
+        with self._lock:
+            # The index range is checked before the route is validated, so an
+            # out-of-range index is reported even when the supplied route is
+            # also invalid.
+            if index < 0 or index >= len(self._routes):
+                raise IndexOutOfRangeError(f"Route index {index} out of range (0-{len(self._routes) - 1})")
+            self._validate_route(route)
         # The same reasoning as in add_route: a route in the teaching table
         # is part of the model.
         route.provenance = Provenance.SIMULATED
         with self._lock:
-            if index < 0 or index >= len(self._routes):
-                raise IndexOutOfRangeError(f"Route index {index} out of range (0-{len(self._routes) - 1})")
             self._routes[index] = deepcopy(route)
         self._save()
         return deepcopy(route)

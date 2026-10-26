@@ -281,18 +281,23 @@ export default function VirtualLabPanel({
           err instanceof Error ? err.message : 'The lab is not available',
         router_info: null,
         error: err instanceof Error ? err.message : null,
+        condition: null,
+        next_steps: [],
+        optional_steps: [],
+        detail: null,
       });
       return null;
     }
   }, []);
 
-  // Take the parent's reading when it changes, unless the panel is in the
-  // middle of doing something to the lab itself.
+  // Take the parent's reading only on the initial mount; after that the panel
+  // owns labStatus (it re-reads it whenever the lab may have changed).
   useEffect(() => {
     if (busy) return;
     if (phase === 'preparing' || phase === 'cleanup') return;
+    if (labStatus !== null) return;
     setLabStatus(status);
-  }, [status, busy, phase]);
+  }, [status, busy, phase, labStatus]);
 
   // The backend is the only authority on whether the lab is there.
   useEffect(() => {
@@ -352,6 +357,7 @@ export default function VirtualLabPanel({
     setTestResult(null);
     setTestOutcome(null);
     setActionError(null);
+    setPhase('unavailable');
     try {
       const definition = await fetchScenario(id);
       setScenario(definition);
@@ -433,9 +439,9 @@ export default function VirtualLabPanel({
       });
       setTestResult(result);
       setTestOutcome(readTestResult(result));
-      setPhase('ready');
+      setPhase(labStatus?.available ? 'ready' : 'unavailable');
     } catch (err) {
-      setPhase('ready');
+      setPhase(labStatus?.available ? 'ready' : 'unavailable');
       setActionError(
         err instanceof Error ? err.message : 'The test could not be run'
       );

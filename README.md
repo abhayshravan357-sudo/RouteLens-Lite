@@ -104,7 +104,7 @@ talks to routers' management interfaces.
 ## Setup
 
 You need **Python 3.11 or newer** (CI uses 3.12) and **Node.js 18 or newer**
-(CI uses 20).
+(CI uses 22).
 
 ### Backend
 

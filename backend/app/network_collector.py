@@ -116,7 +116,19 @@ class NameLookupSummary:
 
 @dataclass
 class CollectionResult:
-    """Result of a network data collection operation."""
+    """Result of a network data collection operation.
+
+    `source_type` says where the data came from: `real_host` when it was
+    read from the machine running the backend, `simulated_lab` when it was
+    produced by the virtual/simulated lab, `calculated` when it was derived
+    from supplied data without a system operation, `mock` for test fixtures,
+    and `unknown` when the origin cannot be established.
+
+    `source_description` explains the actual collection mechanism, for
+    example "Read from the host using ip -j addr show". It is populated at
+    the point where the source is known, so the frontend can tell a student
+    what to trust.
+    """
     timestamp: str
     success: bool
     data: Optional[Any] = None
@@ -125,6 +137,8 @@ class CollectionResult:
     duration_ms: float = 0.0
     ip_version: str = "ipv4"
     name_lookup: Optional[NameLookupSummary] = None
+    source_type: str = "unknown"
+    source_description: str = ""
 
 
 class NetworkCollectorError(Exception):
@@ -307,17 +321,18 @@ class NetworkCollector:
         """
         start_time = datetime.now()
         command = "ip -j addr show"
-        
+
         if not self._check_tool("ip"):
             return CollectionResult(
                 timestamp=start_time.isoformat() + "Z",
                 success=False,
                 error="`ip` command not available",
                 command=command,
+                source_description="Attempted `ip -j addr show` on the host",
             )
 
         rc, stdout, stderr = await self._run_command(["ip", "-j", "addr", "show"])
-        
+
         duration_ms = (datetime.now() - start_time).total_seconds() * 1000
 
         if rc != 0:
@@ -327,6 +342,7 @@ class NetworkCollector:
                 error=f"Command failed (rc={rc}): {stderr}",
                 command=command,
                 duration_ms=duration_ms,
+                source_description="Attempted `ip -j addr show` on the host",
             )
 
         try:
@@ -338,6 +354,7 @@ class NetworkCollector:
                 error=f"Failed to parse JSON output: {e}",
                 command=command,
                 duration_ms=duration_ms,
+                source_description="Attempted `ip -j addr show` on the host",
             )
 
         interfaces = []
@@ -352,6 +369,8 @@ class NetworkCollector:
             command=command,
             duration_ms=duration_ms,
             ip_version="both",
+            source_type="real_host",
+            source_description="Read from the host using ip -j addr show",
         )
 
     def _parse_interface(self, data: dict) -> InterfaceInfo:
@@ -419,6 +438,7 @@ class NetworkCollector:
                 error=f"Unsupported address family: {ip_version}. Use 'ipv4' or 'ipv6'.",
                 command="",
                 ip_version=ip_version,
+                source_description="No command attempted; invalid address family",
             )
 
         cmd = ["ip", "-j", "route", "show"]
@@ -433,6 +453,7 @@ class NetworkCollector:
                 error="`ip` command not available",
                 command=command,
                 ip_version=ip_version,
+                source_description=f"Attempted `{command}` on the host",
             )
 
         rc, stdout, stderr = await self._run_command(cmd)
@@ -447,6 +468,7 @@ class NetworkCollector:
                 command=command,
                 duration_ms=duration_ms,
                 ip_version=ip_version,
+                source_description=f"Attempted `{command}` on the host",
             )
 
         try:
@@ -459,6 +481,7 @@ class NetworkCollector:
                 command=command,
                 duration_ms=duration_ms,
                 ip_version=ip_version,
+                source_description=f"Attempted `{command}` on the host",
             )
 
         routes = []
@@ -473,6 +496,8 @@ class NetworkCollector:
             command=command,
             duration_ms=duration_ms,
             ip_version=ip_version,
+            source_type="real_host",
+            source_description=f"Read from the host using `{command}`",
         )
 
     def _parse_route(self, data: dict, ip_version: str = "ipv4") -> RouteInfo:
@@ -545,6 +570,7 @@ class NetworkCollector:
                 error=f"Unsupported address family: {ip_version}. Use 'ipv4' or 'ipv6'.",
                 command="",
                 ip_version=ip_version,
+                source_description="No command attempted; invalid address family",
             )
 
         cmd = ["ip", "-j", "neigh", "show"]
@@ -559,6 +585,7 @@ class NetworkCollector:
                 error="`ip` command not available",
                 command=command,
                 ip_version=ip_version,
+                source_description=f"Attempted `{command}` on the host",
             )
 
         rc, stdout, stderr = await self._run_command(cmd)
@@ -573,6 +600,7 @@ class NetworkCollector:
                 command=command,
                 duration_ms=duration_ms,
                 ip_version=ip_version,
+                source_description=f"Attempted `{command}` on the host",
             )
 
         try:
@@ -585,6 +613,7 @@ class NetworkCollector:
                 command=command,
                 duration_ms=duration_ms,
                 ip_version=ip_version,
+                source_description=f"Attempted `{command}` on the host",
             )
 
         neighbors = []
@@ -609,6 +638,8 @@ class NetworkCollector:
             duration_ms=duration_ms,
             ip_version=ip_version,
             name_lookup=summary,
+            source_type="real_host",
+            source_description=f"Read from the host using `{command}`",
         )
 
     # -- reverse name lookup ---------------------------------------------

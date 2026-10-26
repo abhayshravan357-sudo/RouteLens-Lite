@@ -112,6 +112,8 @@ class CompareResult(BaseModel):
     simulated: dict
     lab: dict
     agree: Optional[bool] = None
+    hops_match: Optional[bool] = None
+    failure_match: Optional[bool] = None
     note: str
 
 
@@ -240,14 +242,22 @@ def apply_lab(sid: str, dry_run: bool = True):
     requires root and is refused otherwise.
     """
     scenario = _scenario(sid)
-    return lab.run_all(lab.build_commands(scenario), dry_run=dry_run)
+    try:
+        commands = lab.build_commands(scenario)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=f"Invalid scenario: {exc}")
+    return lab.run_all(commands, dry_run=dry_run)
 
 
 @router.post("/{sid}/lab/teardown", response_model=LabResult)
 def teardown_lab(sid: str, dry_run: bool = True):
-    """Remove the namespaces for a scenario."""
+    """Remove the namespaces for a scenario.
+
+    Uses run_teardown so that missing namespaces (already torn down) are
+    treated as an idempotent success rather than a failure.
+    """
     scenario = _scenario(sid)
-    return lab.run_all(lab.teardown_commands(scenario), dry_run=dry_run, stop_on_error=False)
+    return lab.run_teardown(lab.teardown_commands(scenario), dry_run=dry_run)
 
 
 @router.post("/{sid}/compare", response_model=CompareResult)
@@ -263,14 +273,44 @@ def compare(sid: str, req: TraceRequest):
     real = lab.probe(req.src, req.dst)
 
     agree: Optional[bool] = None
+    hops_match: Optional[bool] = None
+    failure_match: Optional[bool] = None
     if real.get("status") != "unavailable":
         agree = (simulated.status == "delivered") == (real.get("status") == "delivered")
+        hops_match = None
+        if not agree:
+            def _failure_category(status: str) -> str:
+                if status == "delivered":
+                    return "delivered"
+                if status in (
+                    "no_route",
+                    "unresolved_next_hop",
+                    "link_down",
+                    "not_forwarding",
+                    "unreachable",
+                ):
+                    return "unreachable"
+                if status in ("loop", "max_hops", "timeout"):
+                    return "loop_or_timeout"
+                if status == "permission_denied":
+                    return "permission"
+                return "other"
+
+            sim_cat = _failure_category(simulated.status)
+            real_cat = _failure_category(real.get("status", ""))
+            failure_match = sim_cat == real_cat
 
     return {
         "simulated": simulated.model_dump(),
         "lab": real,
         "agree": agree,
-        "note": "agree=null means the lab was unavailable; no result was faked.",
+        "hops_match": hops_match,
+        "failure_match": failure_match,
+        "note": (
+            "agree=null means the lab was unavailable; no result was faked. "
+            "hops_match=null because a single-packet probe reports no hop count. "
+            "failure_match compares broad failure categories when both sides fail."
+        ),
     }
 
 

@@ -470,7 +470,7 @@ class TestHopLimit:
         assert hops[-1].action == "drop"
         assert "Maximum hop count" in hops[-1].explanation
         assert not any(h.action == "deliver" for h in hops)
-        assert len(hops) == MAX_HOPS + 2
+        assert len(hops) == MAX_HOPS + 1
 
     def test_the_limit_is_thirty_hops(self):
         """The documented limit has not changed."""
@@ -651,10 +651,12 @@ class TestPacketJourneyEndpoint:
         assert second["hop_number"] == 2
         assert second["action"] == "unresolved_next_hop"
         assert "10.0.0.2" in second["explanation"]
-        # A hop that matched no route has no route to report.
-        assert "matched_route" not in second
-        assert "next_hop_ip" not in second
-        assert "egress_interface" not in second
+        # When a router's table is unknown, no route data can be reported.
+        # The fields are present as null (Pydantic includes Optional defaults),
+        # but they carry no route information.
+        assert second.get("matched_route") is None
+        assert second.get("next_hop_ip") is None
+        assert second.get("egress_interface") is None
 
     def test_a_directly_connected_destination_is_delivered(self, client):
         """A destination on a connected network arrives at the first hop."""
@@ -672,15 +674,18 @@ class TestPacketJourneyEndpoint:
         assert data["hops"][0]["matched_route"]["destination"] == "10.0.0.0/8"
         assert data["hops"][0]["matched_route"]["interface"] == "eth2"
 
-    def test_a_cross_family_destination_is_rejected(self, client):
-        """The endpoint refuses an address it cannot use."""
+    def test_a_cross_family_destination_is_handled_by_engine(self, client):
+        """The endpoint accepts either IP family; the engine reports family mismatch."""
         response = client.post(
             "/packet-journey",
             json={"source_ip": "192.168.1.10", "destination_ip": "2001:db8::1"},
         )
 
-        assert response.status_code == 400
-        assert "Invalid IP address" in response.json()["detail"]
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is False
+        assert data["failure_code"] == "address_family_mismatch"
+        assert data["error"] is not None
 
     def test_the_response_carries_the_addresses_not_the_device_names(self, client):
         """source_ip is an address, not a label such as Device(192.168.1.10)."""
@@ -770,7 +775,9 @@ class TestPacketJourneyEndpoint:
             "destination_ip",
             "action",
             "explanation",
+            "failure_reason",
             "matched_route",
+            "next_hop_ip",
             "egress_interface",
         }
         assert set(hop["matched_route"]) == {

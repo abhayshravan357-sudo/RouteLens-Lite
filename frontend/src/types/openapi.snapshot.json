@@ -66,6 +66,9 @@
           "408": {
             "description": "Capture timeout"
           },
+          "503": {
+            "description": "Lab unavailable"
+          },
           "422": {
             "description": "Validation Error",
             "content": {
@@ -75,9 +78,6 @@
                 }
               }
             }
-          },
-          "503": {
-            "description": "Lab unavailable"
           }
         }
       }
@@ -236,6 +236,57 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/RouteUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/scenarios/{sid}/links": {
+      "put": {
+        "tags": [
+          "scenarios"
+        ],
+        "summary": "Set Link State",
+        "description": "Toggle a link between UP and DOWN in an isolated workspace.\n\nIdentifies the link by its endpoints (a and b in either direction),\nupdates only a copy of the scenario in a workspace, and returns the\nupdated workspace id. The shared scenario definition is never corrupted.",
+        "operationId": "set_link_state_api_scenarios__sid__links_put",
+        "parameters": [
+          {
+            "name": "sid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Sid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LinkStateUpdate"
               }
             }
           }
@@ -893,6 +944,44 @@
             }
           }
         }
+      },
+      "post": {
+        "tags": [
+          "report"
+        ],
+        "summary": "Post Report",
+        "description": "Build a report incorporating the user's active experiment.\n\nCaptures the exact scenario, packet trace, failure diagnostics,\nand before-and-after comparison from the active user session.",
+        "operationId": "post_report_api_report_post",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReportRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/pcap/analyze": {
@@ -937,6 +1026,371 @@
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
                 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/router-discovery/runs": {
+      "post": {
+        "tags": [
+          "Router Discovery"
+        ],
+        "summary": "Start Run",
+        "description": "Start a new router discovery run.",
+        "operationId": "start_run_api_router_discovery_runs_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/router-discovery/runs/{run_id}": {
+      "get": {
+        "tags": [
+          "Router Discovery"
+        ],
+        "summary": "Get Run",
+        "description": "Get the status, devices, edges, and findings of a run.",
+        "operationId": "get_run_api_router_discovery_runs__run_id__get",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/router-discovery/runs/{run_id}/cancel": {
+      "post": {
+        "tags": [
+          "Router Discovery"
+        ],
+        "summary": "Cancel Run",
+        "description": "Cancel an active discovery run.",
+        "operationId": "cancel_run_api_router_discovery_runs__run_id__cancel_post",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/router-discovery/audit": {
+      "get": {
+        "tags": [
+          "Router Discovery"
+        ],
+        "summary": "Get Audit",
+        "description": "Get the audit trail of executed commands.",
+        "operationId": "get_audit_api_router_discovery_audit_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/router-discovery/runs/{run_id}/graph": {
+      "get": {
+        "tags": [
+          "Router Discovery"
+        ],
+        "summary": "Get Run Graph",
+        "description": "Get graph visualization nodes and edges for a run.",
+        "operationId": "get_run_graph_api_router_discovery_runs__run_id__graph_get",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/router-discovery/runs/{run_id}/findings": {
+      "get": {
+        "tags": [
+          "Router Discovery"
+        ],
+        "summary": "Get Run Findings",
+        "description": "Get findings for a run.",
+        "operationId": "get_run_findings_api_router_discovery_runs__run_id__findings_get",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/router-discovery/runs/{run_id}/devices/{device_id}": {
+      "get": {
+        "tags": [
+          "Router Discovery"
+        ],
+        "summary": "Get Run Device",
+        "description": "Get a single device from a run.",
+        "operationId": "get_run_device_api_router_discovery_runs__run_id__devices__device_id__get",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          },
+          {
+            "name": "device_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Device Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/router-discovery/runs/{run_id}/devices/{device_id}/routes": {
+      "get": {
+        "tags": [
+          "Router Discovery"
+        ],
+        "summary": "Get Run Device Routes",
+        "description": "Get routes of a device from a run.",
+        "operationId": "get_run_device_routes_api_router_discovery_runs__run_id__devices__device_id__routes_get",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          },
+          {
+            "name": "device_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Device Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/router-discovery/runs/{run_id}/trace": {
+      "post": {
+        "tags": [
+          "Router Discovery"
+        ],
+        "summary": "Trace Run",
+        "description": "Trace the forwarding path from a source to a destination within a run.",
+        "operationId": "trace_run_api_router_discovery_runs__run_id__trace_post",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/router-discovery/diff": {
+      "get": {
+        "tags": [
+          "Router Discovery"
+        ],
+        "summary": "Diff Runs",
+        "description": "Diff two runs: devices, edges, and findings.",
+        "operationId": "diff_runs_api_router_discovery_diff_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
               }
             }
           }
@@ -1662,23 +2116,23 @@
           },
           "timeout": {
             "type": "number",
-            "maximum": 30,
+            "maximum": 30.0,
             "minimum": 0.5,
             "title": "Timeout",
             "description": "Per-attempt timeout in seconds",
-            "default": 5
+            "default": 5.0
           },
           "count": {
             "type": "integer",
-            "maximum": 10,
-            "minimum": 1,
+            "maximum": 10.0,
+            "minimum": 1.0,
             "title": "Count",
             "description": "Number of attempts (for ICMP ping)",
             "default": 3
           },
           "interval": {
             "type": "number",
-            "maximum": 5,
+            "maximum": 5.0,
             "minimum": 0.1,
             "title": "Interval",
             "description": "Interval between attempts in seconds",
@@ -1905,15 +2359,15 @@
           },
           "max_hosts": {
             "type": "integer",
-            "maximum": 1024,
-            "minimum": 1,
+            "maximum": 1024.0,
+            "minimum": 1.0,
             "title": "Max Hosts",
             "description": "Most addresses to probe",
             "default": 256
           },
           "interval": {
             "type": "number",
-            "maximum": 10,
+            "maximum": 10.0,
             "minimum": 0.05,
             "title": "Interval",
             "description": "Seconds to wait between probes",
@@ -1921,11 +2375,11 @@
           },
           "timeout": {
             "type": "number",
-            "maximum": 10,
+            "maximum": 10.0,
             "minimum": 0.1,
             "title": "Timeout",
             "description": "Seconds to wait for a reply",
-            "default": 1
+            "default": 1.0
           },
           "confirmed": {
             "type": "boolean",
@@ -1951,7 +2405,7 @@
           "target"
         ],
         "title": "DiscoveryRequest",
-        "description": "A request to discover hosts on a network."
+        "description": "Request to discover hosts on an authorized network.\n\nThe target must be a CIDR network or a single address that the operator\nhas explicitly authorized. The description makes clear this is a network\u2011\nscoped operation."
       },
       "DiscoveryResponse": {
         "properties": {
@@ -1985,7 +2439,7 @@
           "duration_seconds": {
             "type": "number",
             "title": "Duration Seconds",
-            "default": 0
+            "default": 0.0
           },
           "cancelled": {
             "type": "boolean",
@@ -2031,11 +2485,11 @@
           },
           "timeout": {
             "type": "number",
-            "maximum": 30,
+            "maximum": 30.0,
             "minimum": 0.5,
             "title": "Timeout",
             "description": "Timeout in seconds",
-            "default": 5
+            "default": 5.0
           },
           "ipv6": {
             "type": "boolean",
@@ -2475,6 +2929,42 @@
               }
             ],
             "title": "Error"
+          },
+          "condition": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Condition"
+          },
+          "next_steps": {
+            "items": {
+              "$ref": "#/components/schemas/NextStepModel"
+            },
+            "type": "array",
+            "title": "Next Steps"
+          },
+          "optional_steps": {
+            "items": {
+              "$ref": "#/components/schemas/NextStepModel"
+            },
+            "type": "array",
+            "title": "Optional Steps"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
           }
         },
         "type": "object",
@@ -2484,6 +2974,45 @@
           "message"
         ],
         "title": "LabStatusResponse"
+      },
+      "LinkStateUpdate": {
+        "properties": {
+          "link_a": {
+            "type": "string",
+            "title": "Link A",
+            "description": "First endpoint as 'node:iface'"
+          },
+          "link_b": {
+            "type": "string",
+            "title": "Link B",
+            "description": "Second endpoint as 'node:iface'"
+          },
+          "is_up": {
+            "type": "boolean",
+            "title": "Is Up",
+            "description": "Desired link state (True=UP, False=DOWN)"
+          },
+          "workspace": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workspace",
+            "description": "Existing workspace id if continuing an experiment"
+          }
+        },
+        "type": "object",
+        "required": [
+          "link_a",
+          "link_b",
+          "is_up"
+        ],
+        "title": "LinkStateUpdate",
+        "description": "Request to toggle a link's physical/logical state (UP/DOWN)."
       },
       "MatchedRoute": {
         "properties": {
@@ -2529,6 +3058,46 @@
         "title": "NextHopType",
         "description": "Type of next hop for a routing entry."
       },
+      "NextStepModel": {
+        "properties": {
+          "order": {
+            "type": "integer",
+            "title": "Order"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "detail": {
+            "type": "string",
+            "title": "Detail"
+          },
+          "command": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Command"
+          },
+          "optional": {
+            "type": "boolean",
+            "title": "Optional",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "order",
+          "title",
+          "detail"
+        ],
+        "title": "NextStepModel",
+        "description": "One thing the reader can do, in the order they should do it.\n\nThe order is the order. A reader who does these in the given order\nends up with a working lab; a reader who does them in another order\nprobably does not."
+      },
       "PacketHopResponse": {
         "properties": {
           "hop_number": {
@@ -2560,7 +3129,8 @@
               {
                 "type": "null"
               }
-            ]
+            ],
+            "description": "The route that was selected, when one was matched"
           },
           "next_hop_ip": {
             "anyOf": [
@@ -2571,7 +3141,8 @@
                 "type": "null"
               }
             ],
-            "title": "Next Hop Ip"
+            "title": "Next Hop Ip",
+            "description": "The address the packet was handed to"
           },
           "egress_interface": {
             "anyOf": [
@@ -2582,7 +3153,20 @@
                 "type": "null"
               }
             ],
-            "title": "Egress Interface"
+            "title": "Egress Interface",
+            "description": "The interface the packet left by"
+          },
+          "failure_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Reason",
+            "description": "Structured reason for a failed hop, when one applies. One of: no_route, max_hops_exceeded, loop, unresolved_next_hop, routing_table_error, invalid_source_ip, invalid_destination_ip, address_family_mismatch. Null when the hop did not fail."
           }
         },
         "type": "object",
@@ -2649,6 +3233,17 @@
             ],
             "title": "Error"
           },
+          "failure_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Code"
+          },
           "provenance": {
             "type": "string",
             "title": "Provenance",
@@ -2664,7 +3259,7 @@
           "success"
         ],
         "title": "PacketJourneyResponse",
-        "description": "Response model for packet journey trace.\n\nThe journey is worked out from a routing table. No packet is sent,\nso the answer is a calculated decision rather than an observation of\ntraffic, and `provenance` says so.\n\nAttributes:\n    source_ip: The address the packet started from\n    destination_ip: The address the packet was heading for\n    hops: Each forwarding decision, in order\n    success: Whether the packet was shown reaching the destination\n    error: Why the journey did not reach the destination, if it did not\n    provenance: How this answer was arrived at"
+        "description": "Response model for packet journey trace.\n\nThe journey is worked out from a routing table. No packet is sent,\nso the answer is a calculated decision rather than an observation of\ntraffic, and `provenance` says so.\n\nAttributes:\n    source_ip: The address the packet started from\n    destination_ip: The address the packet was heading for\n    hops: Each forwarding decision, in order\n    success: Whether the packet was shown reaching the destination\n    error: Why the journey did not reach the destination, if it did not\n    failure_code: Structured failure code, or null on successful delivery\n    provenance: How this journey was arrived at"
       },
       "PacketResponseModel": {
         "properties": {
@@ -3292,6 +3887,32 @@
         "title": "Provenance",
         "description": "Provenance of routing information - how was this route determined."
       },
+      "ReportRequest": {
+        "properties": {
+          "format": {
+            "type": "string",
+            "title": "Format",
+            "description": "'json' or 'markdown'",
+            "default": "json"
+          },
+          "active_experiment": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active Experiment",
+            "description": "Active packet trace experiment and before/after comparison"
+          }
+        },
+        "type": "object",
+        "title": "ReportRequest",
+        "description": "Payload to build a report with optional active simulation experiment."
+      },
       "Route": {
         "properties": {
           "prefix": {
@@ -3318,16 +3939,25 @@
           },
           "metric": {
             "type": "integer",
-            "minimum": 0,
+            "minimum": 0.0,
             "title": "Metric",
             "description": "Route metric (lower is better)",
+            "default": 0
+          },
+          "admin_distance": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Admin Distance",
+            "description": "Administrative distance (lower wins)",
             "default": 0
           },
           "source": {
             "type": "string",
             "enum": [
               "connected",
-              "static"
+              "static",
+              "ospf",
+              "bgp"
             ],
             "title": "Source",
             "default": "static"
@@ -3791,16 +4421,16 @@
           },
           "ttl": {
             "type": "integer",
-            "maximum": 255,
-            "minimum": 1,
+            "maximum": 255.0,
+            "minimum": 1.0,
             "title": "Ttl",
             "description": "Time to live (not currently used in packet generation)",
             "default": 64
           },
           "length": {
             "type": "integer",
-            "maximum": 65535,
-            "minimum": 28,
+            "maximum": 65535.0,
+            "minimum": 28.0,
             "title": "Length",
             "description": "Packet length in bytes (not currently used in packet generation)",
             "default": 84
@@ -3953,6 +4583,11 @@
               }
             ],
             "title": "Detail"
+          },
+          "is_up": {
+            "type": "boolean",
+            "title": "Is Up",
+            "default": true
           }
         },
         "type": "object",
@@ -4100,6 +4735,7 @@
               "delivered",
               "no_route",
               "unresolved_next_hop",
+              "link_down",
               "not_forwarding",
               "loop",
               "max_hops"
@@ -4115,7 +4751,11 @@
           },
           "provenance": {
             "type": "string",
-            "const": "simulated",
+            "enum": [
+              "simulated",
+              "observed",
+              "inferred"
+            ],
             "title": "Provenance",
             "default": "simulated"
           }
@@ -4195,35 +4835,35 @@
           },
           "max_hops": {
             "type": "integer",
-            "maximum": 64,
-            "minimum": 1,
+            "maximum": 64.0,
+            "minimum": 1.0,
             "title": "Max Hops",
             "description": "Maximum number of hops",
             "default": 30
           },
           "timeout_per_hop": {
             "type": "number",
-            "maximum": 10,
+            "maximum": 10.0,
             "minimum": 0.5,
             "title": "Timeout Per Hop",
             "description": "Timeout per hop in seconds",
-            "default": 2
+            "default": 2.0
           },
           "probes_per_hop": {
             "type": "integer",
-            "maximum": 3,
-            "minimum": 1,
+            "maximum": 3.0,
+            "minimum": 1.0,
             "title": "Probes Per Hop",
             "description": "Number of probes per hop",
             "default": 1
           },
           "overall_timeout": {
             "type": "number",
-            "maximum": 300,
-            "minimum": 5,
+            "maximum": 300.0,
+            "minimum": 5.0,
             "title": "Overall Timeout",
             "description": "Overall timeout in seconds",
-            "default": 60
+            "default": 60.0
           }
         },
         "type": "object",

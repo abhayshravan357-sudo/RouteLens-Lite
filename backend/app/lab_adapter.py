@@ -29,6 +29,22 @@ class CheckStatus(str, Enum):
 
 
 @dataclass
+class PrivilegeStatus:
+    """Whether the lab's privilege is available, and why not if it is not.
+
+    The lab needs CAP_SYS_ADMIN to create a network namespace. The backend
+    can get that by already being root, or by escalating with pkexec/sudo.
+    Which of those is true is the difference between "the lab is not built
+    yet" and "the lab cannot be built by this backend", and the two need
+    different next steps.
+    """
+
+    available: bool
+    mechanism: Optional[str] = None
+    detail: str = ""
+
+
+@dataclass
 class InterfaceInfo:
     name: str
     ipv4_address: Optional[str] = None
@@ -67,6 +83,18 @@ class LabReadinessReport:
     missing_tools: list[str]
     permission_issues: list[str]
     summary: str
+    #: Namespaces that do not exist at all. Different from a namespace that
+    #: exists and cannot be read: the first means "not built yet", the
+    #: second means "not allowed to look".
+    missing_namespaces: list[str] = field(default_factory=list)
+    #: What was wrong with a lab that exists but holds the wrong thing.
+    topology_issues: list[str] = field(default_factory=list)
+    #: Whether the lab's privilege is available, and how it can be got.
+    privilege: PrivilegeStatus = field(
+        default_factory=lambda: PrivilegeStatus(available=True)
+    )
+    #: Tools the optional four-router topology needs and does not have.
+    containerlab_missing: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -449,6 +477,14 @@ class LabAdapter:
             if ns_status.error and "permission" in ns_status.error.lower():
                 permission_issues.append(f"{component}: {ns_status.error}")
 
+        # Namespaces that do not exist at all: "not built yet", distinct
+        # from a namespace that exists but cannot be read.
+        missing_namespaces = [
+            str(ns.name.value if hasattr(ns.name, "value") else ns.name)
+            for ns in namespaces.values()
+            if not ns.exists
+        ]
+
         # Validate expected topology (only if accessible)
         topology_ok = True
         expected = EXPECTED_TOPOLOGY
@@ -527,6 +563,12 @@ class LabAdapter:
                 else "Lab is not ready: the expected topology was not found."
             )
 
+        privilege = PrivilegeStatus(
+            available=self._privilege_available,
+            mechanism="pkexec" if self.use_pkexec else "sudo",
+            detail="" if self._privilege_available else "Privilege escalation not available for namespace operations",
+        )
+
         return LabReadinessReport(
             timestamp=timestamp,
             overall_ready=overall_ready,
@@ -535,6 +577,10 @@ class LabAdapter:
             missing_tools=missing_tools,
             permission_issues=permission_issues,
             summary=summary,
+            missing_namespaces=missing_namespaces,
+            topology_issues=issues,
+            privilege=privilege,
+            containerlab_missing=[],
         )
 
     async def ping(
@@ -632,31 +678,46 @@ class LabAdapter:
         start_time = time.time()
         timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
-        # Use -v for verbose output including TTL and checksum
-        cmd = ["timeout", str(int(self.capture_timeout)), "tcpdump", "-v", "-i", interface, "-n", "-c", str(count), filter_expr]
-        rc, stdout, stderr = await self._run_in_namespace(namespace, cmd, timeout=self.capture_timeout + 2)
+        # tcpdump writes packet detail lines to stdout, but writes its final
+        # capture statistics ("N packets captured", "N packets received by
+        # filter", "N packets dropped") to stderr. Parse both streams so the
+        # capture count is not always zero when statistics appear in stderr.
+        # Note: we do not wrap tcpdump in `timeout` here because _run_command
+        # already bounds the total execution time (capture_timeout + 2s).
+        # Using both `timeout` and _run_command's timeout creates a race
+        # condition where asyncio.wait_for can time out before tcpdump
+        # finishes writing its statistics to stderr, losing all capture data.
+        cmd = ["tcpdump", "-v", "-i", interface, "-n", "-c", str(count), filter_expr]
+        rc, stdout, stderr = await self._run_in_namespace(
+            namespace, cmd, timeout=self.capture_timeout + 5
+        )
 
         packets_captured = 0
         packets_received = 0
         packets_dropped = 0
 
-        if stdout:
-            for line in stdout.splitlines():
-                if "packets captured" in line:
-                    try:
-                        packets_captured = int(line.split()[0])
-                    except (ValueError, IndexError):
-                        pass
-                elif "packets received by filter" in line:
-                    try:
-                        packets_received = int(line.split()[0])
-                    except (ValueError, IndexError):
-                        pass
-                elif "packets dropped" in line:
-                    try:
-                        packets_dropped = int(line.split()[0])
-                    except (ValueError, IndexError):
-                        pass
+        # tcpdump writes packet detail lines to stdout, but writes its final
+        # capture statistics ("N packets captured", "N packets received by
+        # filter", "N packets dropped") to stderr. Parse both streams so the
+        # capture count is not always zero when statistics appear in stderr.
+        for stream in (stdout, stderr):
+            if stream:
+                for line in stream.splitlines():
+                    if "packets captured" in line:
+                        try:
+                            packets_captured = int(line.split()[0])
+                        except (ValueError, IndexError):
+                            pass
+                    elif "packets received by filter" in line:
+                        try:
+                            packets_received = int(line.split()[0])
+                        except (ValueError, IndexError):
+                            pass
+                    elif "packets dropped" in line:
+                        try:
+                            packets_dropped = int(line.split()[0])
+                        except (ValueError, IndexError):
+                            pass
 
         return PacketCaptureResult(
             interface=interface,
@@ -682,7 +743,9 @@ class LabAdapter:
         start_time = time.time()
         timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
-        # Start capture in background
+        # Start capture in background, then run ping immediately. Both run
+        # in parallel so capture is already initializing by the time ping
+        # sends its first packet; no arbitrary sleep is needed.
         capture_task = asyncio.create_task(
             self.capture_packets(
                 namespace=capture_namespace,
@@ -691,9 +754,6 @@ class LabAdapter:
                 count=capture_count,
             )
         )
-
-        # Small delay to let capture start
-        await asyncio.sleep(0.5)
 
         # Run ping
         ping_result = await self.ping(
@@ -707,7 +767,10 @@ class LabAdapter:
 
         duration_ms = (time.time() - start_time) * 1000
 
-        success = ping_result.success and capture_result.packets_captured > 0
+        # The network path worked if the ping succeeded. Capture is reported
+        # separately via capture_verified; a capture filter mismatch or capture
+        # timeout must not turn a successful ping into a failed operation.
+        success = ping_result.success
 
         return LabOperationResult(
             operation="ping_with_capture",

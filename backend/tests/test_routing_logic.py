@@ -40,7 +40,7 @@ def test_interface_tiebreaker():
 def test_lookup_route_invalid_ip():
     result = lookup_route("not-an-ip", [])
     assert not result.matched
-    assert result.error.startswith("Invalid IPv4 address")
+    assert result.error.startswith("Invalid IP address")
 
 def test_lookup_route_no_match():
     routes = [make_route("192.168.1.0/24")]

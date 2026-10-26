@@ -128,7 +128,7 @@ def lookup_route(destination_ip: str, routes: list[RoutingEntry]) -> RouteLookup
         except ValueError as e:
             return RouteLookupResult(
                 matched=False,
-                error=f"Invalid IPv4 address: {destination_ip}",
+                error=f"Invalid IP address: {destination_ip}",
             )
 
     # Validate all routes have valid data
@@ -186,6 +186,10 @@ class PacketHop:
     # forward, deliver, drop, loop, error, unresolved_next_hop
     action: str = "forward"
     explanation: str = ""
+    # Structured reason for a failed hop; null when the hop did not fail.
+    # Set by trace_packet_path so the endpoint can expose a stable
+    # failure_code without parsing explanation strings.
+    failure_reason: Optional[str] = None
 
 
 # The most hops a packet may take before the trace gives up.
@@ -256,7 +260,8 @@ def trace_packet_path(
                 current_device="error",
                 destination_ip=destination_ip,
                 action="error",
-                explanation=f"Invalid source IP address: {e}"
+                explanation=f"Invalid source IP address: {e}",
+                failure_reason="invalid_source_ip",
             )]
 
     # Validate the destination address
@@ -273,7 +278,8 @@ def trace_packet_path(
                 current_device="error",
                 destination_ip=destination_ip,
                 action="error",
-                explanation=f"Invalid destination IP address: {e}"
+                explanation=f"Invalid destination IP address: {e}",
+                failure_reason="invalid_destination_ip",
             )]
 
     # A packet does not change address family on its own. Without an
@@ -285,14 +291,15 @@ def trace_packet_path(
             hop_number=0,
             current_device="error",
             destination_ip=destination_ip,
-            action="error",
-            explanation=(
-                f"Cannot trace a packet from an {src_label} source "
-                f"({source_ip}) to an {dst_label} destination "
-                f"({destination_ip}): this model has no address translation, so "
-                f"the two ends must be in the same address family."
-            )
-        )]
+                action="error",
+                explanation=(
+                    f"Cannot trace a packet from an {src_label} source "
+                    f"({source_ip}) to an {dst_label} destination "
+                    f"({destination_ip}): this model has no address translation, so "
+                    f"the two ends must be in the same address family."
+                ),
+                failure_reason="address_family_mismatch",
+            )]
 
     device_map = {**DEFAULT_DEVICE_NAMES, **(device_names or {})}
     router_tables = router_tables or {}
@@ -328,7 +335,8 @@ def trace_packet_path(
                 current_device=current_device_name,
                 destination_ip=str(dst_ip),
                 action="loop",
-                explanation=f"Loop detected: packet returned to {current_device_name} ({current_ip})"
+                explanation=f"Loop detected: packet returned to {current_device_name} ({current_ip})",
+                failure_reason="loop",
             ))
             break
         visited.add(current_ip)
@@ -344,7 +352,8 @@ def trace_packet_path(
                     f"The packet is at {current_device_name} ({current_ip}), but no routing "
                     f"table for that router was given, so its forwarding decision cannot be "
                     f"worked out. The packet was handed over; the journey stops here."
-                )
+                ),
+                failure_reason="unresolved_next_hop",
             ))
             break
 
@@ -362,7 +371,8 @@ def trace_packet_path(
                 explanation=(
                     f"{current_device_name} ({current_ip}) could not make a routing "
                     f"decision: {result.error}"
-                )
+                ),
+                failure_reason="routing_table_error",
             ))
             break
 
@@ -375,7 +385,8 @@ def trace_packet_path(
                 explanation=(
                     f"No route to destination {dst_ip} from {current_device_name} "
                     f"({current_ip}), so the packet has nowhere to go and is dropped."
-                )
+                ),
+                failure_reason="no_route",
             ))
             break
 
@@ -438,14 +449,17 @@ def trace_packet_path(
         current_ip = str(next_hop_ip)
         current_table = router_tables.get(current_ip)
 
-        # Check for max hops (prevent infinite loops)
-        if hop_number > MAX_HOPS:
+        # Check for max hops (prevent infinite loops). The hop just made
+        # counts as a forwarding decision, so once hop_number reaches
+        # MAX_HOPS we stop rather than making another one.
+        if hop_number >= MAX_HOPS:
             hops.append(PacketHop(
                 hop_number=hop_number + 1,
                 current_device="...",
                 destination_ip=str(dst_ip),
                 action="drop",
-                explanation=f"Maximum hop count exceeded ({MAX_HOPS} hops)"
+                explanation=f"Maximum hop count exceeded ({MAX_HOPS} hops)",
+                failure_reason="max_hops_exceeded",
             ))
             break
 
