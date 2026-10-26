@@ -678,31 +678,46 @@ class LabAdapter:
         start_time = time.time()
         timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
-        # Use -v for verbose output including TTL and checksum
-        cmd = ["timeout", str(int(self.capture_timeout)), "tcpdump", "-v", "-i", interface, "-n", "-c", str(count), filter_expr]
-        rc, stdout, stderr = await self._run_in_namespace(namespace, cmd, timeout=self.capture_timeout + 2)
+        # tcpdump writes packet detail lines to stdout, but writes its final
+        # capture statistics ("N packets captured", "N packets received by
+        # filter", "N packets dropped") to stderr. Parse both streams so the
+        # capture count is not always zero when statistics appear in stderr.
+        # Note: we do not wrap tcpdump in `timeout` here because _run_command
+        # already bounds the total execution time (capture_timeout + 2s).
+        # Using both `timeout` and _run_command's timeout creates a race
+        # condition where asyncio.wait_for can time out before tcpdump
+        # finishes writing its statistics to stderr, losing all capture data.
+        cmd = ["tcpdump", "-v", "-i", interface, "-n", "-c", str(count), filter_expr]
+        rc, stdout, stderr = await self._run_in_namespace(
+            namespace, cmd, timeout=self.capture_timeout + 5
+        )
 
         packets_captured = 0
         packets_received = 0
         packets_dropped = 0
 
-        if stdout:
-            for line in stdout.splitlines():
-                if "packets captured" in line:
-                    try:
-                        packets_captured = int(line.split()[0])
-                    except (ValueError, IndexError):
-                        pass
-                elif "packets received by filter" in line:
-                    try:
-                        packets_received = int(line.split()[0])
-                    except (ValueError, IndexError):
-                        pass
-                elif "packets dropped" in line:
-                    try:
-                        packets_dropped = int(line.split()[0])
-                    except (ValueError, IndexError):
-                        pass
+        # tcpdump writes packet detail lines to stdout, but writes its final
+        # capture statistics ("N packets captured", "N packets received by
+        # filter", "N packets dropped") to stderr. Parse both streams so the
+        # capture count is not always zero when statistics appear in stderr.
+        for stream in (stdout, stderr):
+            if stream:
+                for line in stream.splitlines():
+                    if "packets captured" in line:
+                        try:
+                            packets_captured = int(line.split()[0])
+                        except (ValueError, IndexError):
+                            pass
+                    elif "packets received by filter" in line:
+                        try:
+                            packets_received = int(line.split()[0])
+                        except (ValueError, IndexError):
+                            pass
+                    elif "packets dropped" in line:
+                        try:
+                            packets_dropped = int(line.split()[0])
+                        except (ValueError, IndexError):
+                            pass
 
         return PacketCaptureResult(
             interface=interface,
@@ -728,7 +743,9 @@ class LabAdapter:
         start_time = time.time()
         timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
-        # Start capture in background
+        # Start capture in background, then run ping immediately. Both run
+        # in parallel so capture is already initializing by the time ping
+        # sends its first packet; no arbitrary sleep is needed.
         capture_task = asyncio.create_task(
             self.capture_packets(
                 namespace=capture_namespace,
@@ -737,9 +754,6 @@ class LabAdapter:
                 count=capture_count,
             )
         )
-
-        # Small delay to let capture start
-        await asyncio.sleep(0.5)
 
         # Run ping
         ping_result = await self.ping(
@@ -753,7 +767,10 @@ class LabAdapter:
 
         duration_ms = (time.time() - start_time) * 1000
 
-        success = ping_result.success and capture_result.packets_captured > 0
+        # The network path worked if the ping succeeded. Capture is reported
+        # separately via capture_verified; a capture filter mismatch or capture
+        # timeout must not turn a successful ping into a failed operation.
+        success = ping_result.success
 
         return LabOperationResult(
             operation="ping_with_capture",

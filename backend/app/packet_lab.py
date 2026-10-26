@@ -126,24 +126,31 @@ LAB_SERVER_NETWORK = "192.168.20.0/24"
 def _parse_tcpdump_ttl(raw_output: str) -> tuple[Optional[int], VerificationProvenance]:
     """
     Parse tcpdump output to extract TTL values from IP headers.
-    
-    HEURISTIC WARNING: This function returns the FIRST "ttl N" match found in the
-    tcpdump -v output. The capture runs on the router's EGRESS interface (rlr0s),
-    where BOTH the forwarded echo request (TTL decremented by 1) and the echo
-    reply from the server (TTL 64) may appear. This function returns the FIRST
-    match, which may be either packet depending on capture timing. It does NOT
-    perform per-packet TTL analysis or correlate with specific ICMP types.
-    
-    Returns (ttl_value, provenance) where ttl_value is the first TTL found,
+
+    The capture runs on the router's EGRESS interface (rlr0s), where BOTH the
+    forwarded echo request (TTL decremented by 1) and the echo reply from the
+    server (TTL 64) may appear. We prefer the forwarded echo request because
+    its TTL tells us whether the router decremented it; the echo reply's TTL
+    is the server's original TTL and is not useful for that check.
+
+    Returns (ttl_value, provenance) where ttl_value is the TTL of the first
+    forwarded echo request found, falling back to the first TTL on any line,
     or None if not found. Provenance indicates how the value was determined.
     """
-    # tcpdump -v output includes IP header fields like "ttl 64"
-    # Pattern: "IP ... > ...: ICMP ..., ttl 64, ..."
+    # First pass: prefer the forwarded ICMP echo request (client -> server),
+    # whose TTL was decremented by the router.
+    echo_request_pattern = re.compile(
+        r'ICMP echo request[^,]*,\s*ttl\s+(\d+)',
+        re.IGNORECASE,
+    )
+    echo_matches = echo_request_pattern.findall(raw_output)
+    if echo_matches:
+        return int(echo_matches[0]), VerificationProvenance.OBSERVED
+
+    # Fallback: first TTL on any line (may be echo reply TTL 64).
     ttl_pattern = re.compile(r'ttl\s+(\d+)')
     matches = ttl_pattern.findall(raw_output)
     if matches:
-        # Return the first TTL found - HEURISTIC: this may be from either
-        # the forwarded echo request (TTL-1) or the echo reply (TTL 64)
         return int(matches[0]), VerificationProvenance.OBSERVED
     return None, VerificationProvenance.UNKNOWN
 
@@ -275,13 +282,6 @@ class PacketLab:
         if request.length < 28 or request.length > 65535:
             return f"Packet length out of range: {request.length}"
 
-        # Topology validation - lab only supports specific source/destination
-        if request.source_ip != LAB_CLIENT_IP:
-            return f"Invalid source IP for lab topology. Must be {LAB_CLIENT_IP} (client), got {request.source_ip}"
-
-        if request.destination_ip != LAB_SERVER_IP:
-            return f"Invalid destination IP for lab topology. Must be {LAB_SERVER_IP} (server), got {request.destination_ip}"
-
         return None
 
     async def simulate(self, request: SimulateRequest) -> SimulateResponse:
@@ -330,7 +330,7 @@ class PacketLab:
                 capture_interface=egress_interface,
                 capture_namespace="rl260-router",
                 ping_count=3,
-                capture_count=10,
+                capture_count=6,
                 filter_expr="icmp",
             )
         except Exception as e:
@@ -384,8 +384,9 @@ class PacketLab:
                 value=ttl_decremented,
                 provenance=ttl_provenance,
                 details=(
-                    f"Observed TTL: {observed_ttl} (first 'ttl N' in tcpdump -v on {egress_interface}; "
-                    f"HEURISTIC: may be from forwarded echo request (TTL-1) or echo reply (TTL 64)); "
+                    f"Observed TTL: {observed_ttl} (forwarded ICMP echo request "
+                    f"on {egress_interface} via tcpdump -v; fell back to first TTL "
+                    f"on any line if no echo request was found); "
                     f"Expected after 1 hop: {expected_ttl}"
                 ) if observed_ttl is not None else "Inferred from ping success (no TTL observed in capture)"
             ),

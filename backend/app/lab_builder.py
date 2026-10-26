@@ -336,7 +336,7 @@ def probe(src: str, dst_ip: str) -> dict:
             check=False,
         )
     except subprocess.TimeoutExpired:
-        return {"status": "timeout", "provenance": "lab"}
+        return {"status": "timeout", "reason": "The probe command timed out before completing.", "provenance": "lab"}
     except PermissionError:
         return {"status": "permission_denied", "reason": "permission denied executing ip netns exec", "provenance": "lab"}
     except FileNotFoundError:
@@ -361,10 +361,10 @@ def probe(src: str, dst_ip: str) -> dict:
     stdout_lower = result.stdout.lower()
 
     if "permission denied" in stderr_lower or "operation not permitted" in stderr_lower:
-        return {"status": "permission_denied", "rc": result.returncode, "stderr": result.stderr, "provenance": "lab"}
+        return {"status": "permission_denied", "reason": "The probe command did not have sufficient permissions.", "rc": result.returncode, "stderr": result.stderr, "provenance": "lab"}
 
     if "network is unreachable" in stderr_lower or "host unreachable" in stderr_lower:
-        return {"status": "unreachable", "rc": result.returncode, "stderr": result.stderr, "provenance": "lab"}
+        return {"status": "unreachable", "reason": "The target host or network could not be reached.", "rc": result.returncode, "stderr": result.stderr, "provenance": "lab"}
 
     if "name or service not known" in stderr_lower:
         return {"status": "error", "reason": "DNS resolution failed", "provenance": "lab"}
@@ -372,6 +372,7 @@ def probe(src: str, dst_ip: str) -> dict:
     # Default: treat as unreachable (no reply)
     return {
         "status": "unreachable",
+        "reason": "The target host or network could not be reached.",
         "rc": result.returncode,
         "stdout": result.stdout[-500:] if result.stdout else "",
         "stderr": result.stderr[-500:] if result.stderr else "",
