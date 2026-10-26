@@ -1,9 +1,9 @@
 # Kathará vs RouteLens — Packet Lab Analysis
 
-**Investigator:** MAIN AGENT (AGENT 3 did not produce a deliverable; Main Agent wrote this)  
-**Project:** RouteLens Lite × Kathará analysis  
-**Source:** Kathará reference extracted at `reference-repos/Kathara/Kathara-main/`  
-**RouteLens:** `/home/abhaysawant/Desktop/cn_project_2/backend/`  
+**Investigator:** MAIN AGENT (AGENT 3 did not produce a deliverable; Main Agent wrote this)
+**Project:** RouteLens Lite × Kathará analysis
+**Source:** Kathará reference extracted at `reference-repos/Kathara/Kathara-main/`
+**RouteLens:** `/home/abhaysawant/Desktop/cn_project_2/backend/`
 **Constraint:** READ-ONLY — no production files modified, Kathará not installed, Docker not installed, no privileged operations
 
 ---

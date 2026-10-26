@@ -1,7 +1,7 @@
 # RouteLens Lite × Kathará — Integration Roadmap
 
-**Project:** RouteLens Lite × Kathará analysis  
-**Author:** MAIN AGENT (Manager and Integration Lead)  
+**Project:** RouteLens Lite × Kathará analysis
+**Author:** MAIN AGENT (Manager and Integration Lead)
 **Sources:** Six analysis reports in `docs/kathara-analysis/`:
 - `routing-backend.md` (AGENT 1)
 - `frontend-integration.md` (AGENT 2)

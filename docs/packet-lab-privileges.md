@@ -1,8 +1,8 @@
 # RouteLens Lite — Packet Lab Privilege Requirements
 
-**Project:** RouteLens Lite  
-**Document:** Packet Lab privilege requirements and verification status  
-**Source:** `backend/app/lab_adapter.py`, `backend/app/packet_lab.py`, `backend/app/packet_lab_routes.py`  
+**Project:** RouteLens Lite
+**Document:** Packet Lab privilege requirements and verification status
+**Source:** `backend/app/lab_adapter.py`, `backend/app/packet_lab.py`, `backend/app/packet_lab_routes.py`
 **Machine:** Pop!_OS Linux, UID 1000 (non-root), `pkexec`/`sudo` available but require graphical password prompt
 
 ---

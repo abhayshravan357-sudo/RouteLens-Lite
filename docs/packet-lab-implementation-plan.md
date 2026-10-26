@@ -1,9 +1,9 @@
 # Packet Lab Implementation Plan
 
-**Project:** RouteLens Lite  
-**Workstream:** D (Phase 3.2)  
-**Scope:** Prioritized plan for making Packet Lab genuinely usable  
-**Constraint:** Plan only — no implementation, no production file changes  
+**Project:** RouteLens Lite
+**Workstream:** D (Phase 3.2)
+**Scope:** Prioritized plan for making Packet Lab genuinely usable
+**Constraint:** Plan only — no implementation, no production file changes
 **Inputs:** `backend/app/lab_adapter.py`, `backend/app/packet_lab.py`, `backend/app/packet_lab_routes.py`, `docs/packet-lab-privileges.md`, `docs/packetlab-audit-report.md`, `docs/lab-command-audit.md`, `docs/kathara-analysis/packet-lab.md`, frontend `VirtualLabPanel.tsx`, `api/routing.ts`
 
 ---

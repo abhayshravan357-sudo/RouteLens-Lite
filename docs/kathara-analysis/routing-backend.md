@@ -1,9 +1,9 @@
 # Kathará vs RouteLens — Routing / Backend Analysis
 
-**Investigator:** AGENT 1 — Routing / Backend  
-**Project:** RouteLens Lite × Kathará  
-**Source:** Kathará reference extracted at `reference-repos/Kathara/Kathara-main/`  
-**RouteLens:** `/home/abhaysawant/Desktop/cn_project_2/backend/`  
+**Investigator:** AGENT 1 — Routing / Backend
+**Project:** RouteLens Lite × Kathará
+**Source:** Kathará reference extracted at `reference-repos/Kathara/Kathara-main/`
+**RouteLens:** `/home/abhaysawant/Desktop/cn_project_2/backend/`
 **Constraint:** READ-ONLY — no production files modified, Kathará not installed
 
 ---

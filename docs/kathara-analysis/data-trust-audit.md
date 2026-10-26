@@ -1,8 +1,8 @@
 # RouteLens Lite — Data Trust Audit
 
-**Project:** RouteLens Lite × Kathará analysis  
-**Auditor:** MAIN AGENT  
-**Audited:** `/home/abhaysawant/Desktop/cn_project_2/backend/` (all API endpoints) + `/home/abhaysawant/Desktop/cn_project_2/frontend/src/` (frontend consumption)  
+**Project:** RouteLens Lite × Kathará analysis
+**Auditor:** MAIN AGENT
+**Audited:** `/home/abhaysawant/Desktop/cn_project_2/backend/` (all API endpoints) + `/home/abhaysawant/Desktop/cn_project_2/frontend/src/` (frontend consumption)
 **Constraint:** READ-ONLY — no files modified
 
 ---

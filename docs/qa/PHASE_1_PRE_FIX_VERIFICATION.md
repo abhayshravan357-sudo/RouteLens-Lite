@@ -1,9 +1,9 @@
 # Phase 1 Pre-Fix Verification Report
 
-**Project:** RouteLens (cn_project_2)  
-**Report file:** `docs/qa/PHASE_1_PRE_FIX_VERIFICATION.md`  
-**Source audit report:** `docs/qa/ROUTELENS_COMPLETE_QA_REPORT.md`  
-**Status:** Pre-fix verification — no application code modified  
+**Project:** RouteLens (cn_project_2)
+**Report file:** `docs/qa/PHASE_1_PRE_FIX_VERIFICATION.md`
+**Source audit report:** `docs/qa/ROUTELENS_COMPLETE_QA_REPORT.md`
+**Status:** Pre-fix verification — no application code modified
 **Purpose:** Investigate and reconcile 5 discrepancies in the initial QA report before Phase 1 fixes are applied.
 
 Each discrepancy is marked **VERIFIED** (confirmed by reading source code / installed versions) or **ASSUMED** (inference about runtime behavior not directly observed).
@@ -16,8 +16,8 @@ Each discrepancy is marked **VERIFIED** (confirmed by reading source code / inst
 
 The initial QA report states (Section 7 and Section H):
 
-> "93 browser tests pass, 3 skip. The browser suite cannot be re-run locally due to the Node.js version limitation."  
-> "Browser automation (Playwright) | Cannot run — Node 18 installed, Playwright requires Node 20+"  
+> "93 browser tests pass, 3 skip. The browser suite cannot be re-run locally due to the Node.js version limitation."
+> "Browser automation (Playwright) | Cannot run — Node 18 installed, Playwright requires Node 20+"
 > "Playwright browser E2E tests | All 101 browser tests | Playwright requires Node.js 20+; system has Node 18.19.1. Cannot re-run locally. (5 failures were captured from a prior run.)"
 
 This raises the question: if Playwright "could not run" due to Node 18, how did the browser E2E suite produce 93 passed / 5 failed / 3 skipped (101 total)?

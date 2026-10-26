@@ -1,9 +1,9 @@
 # Kathará vs RouteLens — Architecture and Optimization Analysis
 
-**Investigator:** MAIN AGENT (AGENT 5 did not produce a deliverable; Main Agent wrote this)  
-**Project:** RouteLens Lite × Kathará analysis  
-**Source:** Kathará reference extracted at `reference-repos/Kathara/Kathara-main/`  
-**RouteLens:** `/home/abhaysawant/Desktop/cn_project_2/`  
+**Investigator:** MAIN AGENT (AGENT 5 did not produce a deliverable; Main Agent wrote this)
+**Project:** RouteLens Lite × Kathará analysis
+**Source:** Kathará reference extracted at `reference-repos/Kathara/Kathara-main/`
+**RouteLens:** `/home/abhaysawant/Desktop/cn_project_2/`
 **Constraint:** READ-ONLY — no production files modified, Kathará not installed
 
 ---

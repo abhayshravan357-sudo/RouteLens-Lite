@@ -1,8 +1,8 @@
 # Packet Lab Capability Audit
 
-**Project:** RouteLens Lite (Workstream B, Phase 3.2)  
-**Scope:** `~/Desktop/cn_project_2` only  
-**Machine:** Pop!_OS Linux, UID 1000 (non-root), `pkexec`/`sudo` present but require interactive password  
+**Project:** RouteLens Lite (Workstream B, Phase 3.2)
+**Scope:** `~/Desktop/cn_project_2` only
+**Machine:** Pop!_OS Linux, UID 1000 (non-root), `pkexec`/`sudo` present but require interactive password
 **Inspected files:** `backend/app/lab_adapter.py`, `backend/app/packet_lab.py`, `backend/app/packet_lab_routes.py`, `backend/app/main.py`, `backend/app/lab_builder.py`, `backend/app/scenario_routes.py`, `backend/tests/test_packet_lab.py`, `backend/tests/test_packet_lab_integration.py`, `frontend/src/components/VirtualLabPanel.tsx`, `frontend/src/App.tsx`, `docs/packet-lab-privileges.md`
 
 ---
@@ -169,7 +169,7 @@ Three independent, compounding blockers:
 2. **No non-interactive privilege escalation.** Even if namespaces existed, every read/write operation inside them goes through `_run_in_namespace` (`lab_adapter.py:287`), which requires `pkexec` (default) or `sudo -n` (`use_pkexec=False`). On this machine:
    - `pkexec true` → times out (rc=124) waiting for a graphical password prompt.
    - `sudo -n true` → "a password is required" (rc=1).
-   
+
    `_validate_privileges()` (`lab_adapter.py:196-226`) therefore returns `False`, and every namespace operation short-circuits with the permission-denied message at `lab_adapter.py:296-299`. The integration test (`test_packet_lab_integration.py`) confirms the API honestly returns HTTP 503 rather than fabricating results.
 
 3. **The Packet Lab adapter is read-only by design.** `lab_adapter.py` creates nothing, configures nothing, enables no forwarding, and tears nothing down. It assumes an externally provisioned lab. The code that *can* create/configure/teardown (`lab_builder.py`) is gated behind root (`_guard`, `lab_builder.py:153-159`) and is exposed only under `/api/scenarios/{sid}/lab/apply|teardown`, not under the Packet Lab routes (`/api/lab/*`).
