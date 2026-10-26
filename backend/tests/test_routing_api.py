@@ -39,7 +39,7 @@ async def test_lookup_invalid_destination_returns_400():
     assert response.status_code == 400
     data = response.json()
     assert "detail" in data
-    assert "Invalid IPv4 address" in data["detail"]
+    assert "Invalid IP address" in data["detail"]
 
 
 @pytest.mark.asyncio
@@ -51,7 +51,7 @@ async def test_lookup_out_of_bounds_ip_returns_400():
 
     assert response.status_code == 400
     data = response.json()
-    assert "Invalid IPv4 address" in data["detail"]
+    assert "Invalid IP address" in data["detail"]
 
 
 @pytest.mark.asyncio

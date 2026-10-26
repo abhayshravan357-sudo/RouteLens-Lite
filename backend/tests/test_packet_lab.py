@@ -330,6 +330,107 @@ class TestLabAdapter:
             "the summary fell back to the generic message"
         )
 
+    @pytest.mark.asyncio
+    async def test_capture_packets_stats_in_stderr(self):
+        """tcpdump writes capture statistics to stderr, not stdout.
+
+        The parser must read both streams; otherwise packets_captured stays
+        zero and every simulation reports a capture timeout (HTTP 408).
+        """
+        adapter = LabAdapter()
+
+        # tcpdump writes packet detail lines to stdout and final statistics
+        # to stderr.
+        mock_stdout = """16:45:30.123456 IP 192.168.10.2 > 192.168.20.2: ICMP echo request, id 12345, seq 1, length 64
+16:45:30.123456 IP 192.168.20.2 > 192.168.10.2: ICMP echo reply, id 12345, seq 1, length 64
+"""
+        mock_stderr = """tcpdump: listening on rlr0s, link-type EN10MB (Ethernet), capture size 262144 bytes
+6 packets captured
+6 packets received by filter
+0 packets dropped
+"""
+
+        with patch.object(adapter, '_run_in_namespace', new_callable=AsyncMock) as mock_run:
+            mock_run.return_value = (0, mock_stdout, mock_stderr)
+            result = await adapter.capture_packets(
+                namespace="rl260-router",
+                interface="rlr0s",
+                filter_expr="icmp",
+                count=10,
+            )
+
+        assert result.packets_captured == 6
+        assert result.packets_received_by_filter == 6
+        assert result.packets_dropped == 0
+        assert "6 packets captured" in result.raw_output
+        assert "tcpdump: listening on" in result.raw_output
+
+    @pytest.mark.asyncio
+    async def test_capture_packets_stats_in_stdout(self):
+        """Some tcpdump versions may write statistics to stdout instead of stderr.
+
+        The parser must handle both streams.
+        """
+        adapter = LabAdapter()
+
+        mock_stdout = """16:45:30.123456 IP 192.168.10.2 > 192.168.20.2: ICMP echo request, id 12345, seq 1, length 64
+6 packets captured
+6 packets received by filter
+0 packets dropped
+"""
+        mock_stderr = "tcpdump: listening on rlr0s, link-type EN10MB (Ethernet), capture size 262144 bytes\n"
+
+        with patch.object(adapter, '_run_in_namespace', new_callable=AsyncMock) as mock_run:
+            mock_run.return_value = (0, mock_stdout, mock_stderr)
+            result = await adapter.capture_packets(
+                namespace="rl260-router",
+                interface="rlr0s",
+                filter_expr="icmp",
+                count=10,
+            )
+
+        assert result.packets_captured == 6
+        assert result.packets_received_by_filter == 6
+        assert result.packets_dropped == 0
+
+    @pytest.mark.asyncio
+    async def test_capture_packets_empty_output(self):
+        """No output at all should yield zero packets captured."""
+        adapter = LabAdapter()
+
+        with patch.object(adapter, '_run_in_namespace', new_callable=AsyncMock) as mock_run:
+            mock_run.return_value = (0, "", "")
+            result = await adapter.capture_packets(
+                namespace="rl260-router",
+                interface="rlr0s",
+                filter_expr="icmp",
+                count=10,
+            )
+
+        assert result.packets_captured == 0
+        assert result.packets_received_by_filter == 0
+        assert result.packets_dropped == 0
+        assert result.raw_output == ""
+
+    @pytest.mark.asyncio
+    async def test_capture_packets_command_failure(self):
+        """A failing tcpdump command should yield zero packets captured."""
+        adapter = LabAdapter()
+
+        with patch.object(adapter, '_run_in_namespace', new_callable=AsyncMock) as mock_run:
+            mock_run.return_value = (-1, "", "tcpdump: rlr0s: No such device exists")
+            result = await adapter.capture_packets(
+                namespace="rl260-router",
+                interface="rlr0s",
+                filter_expr="icmp",
+                count=10,
+            )
+
+        assert result.packets_captured == 0
+        assert result.packets_received_by_filter == 0
+        assert result.packets_dropped == 0
+        assert "No such device exists" in result.raw_output
+
 
 class TestPacketLab:
     """Tests for the PacketLab class."""
@@ -936,20 +1037,34 @@ class TestLabBuilder:
             mock_run.side_effect = TimeoutExpired("ping", 5)
             result = probe("rl_client", "10.0.0.1")
             assert result["status"] == "timeout"
+            assert isinstance(result.get("reason"), str) and result["reason"]
 
         # Test missing ping binary
         with patch("subprocess.run") as mock_run, patch("app.lab_builder._guard", return_value=None):
             mock_run.side_effect = FileNotFoundError("ping not found")
             result = probe("rl_client", "10.0.0.1")
             assert result["status"] == "missing_binary"
+            assert isinstance(result.get("reason"), str) and result["reason"]
 
-        # Test permission denied
+        # Test permission denied (subprocess exception)
         with patch("subprocess.run") as mock_run, patch("app.lab_builder._guard", return_value=None):
             mock_run.side_effect = PermissionError("permission denied")
             result = probe("rl_client", "10.0.0.1")
             assert result["status"] == "permission_denied"
+            assert isinstance(result.get("reason"), str) and result["reason"]
 
-        # Test unreachable (ping runs but fails)
+        # Test permission denied (stderr match)
+        with patch("subprocess.run") as mock_run, patch("app.lab_builder._guard", return_value=None):
+            mock_result = Mock()
+            mock_result.returncode = 1
+            mock_result.stdout = ""
+            mock_result.stderr = "ping: permission denied"
+            mock_run.return_value = mock_result
+            result = probe("rl_client", "10.0.0.1")
+            assert result["status"] == "permission_denied"
+            assert isinstance(result.get("reason"), str) and result["reason"]
+
+        # Test network unreachable (stderr match)
         with patch("subprocess.run") as mock_run, patch("app.lab_builder._guard", return_value=None):
             mock_result = Mock()
             mock_result.returncode = 1
@@ -958,8 +1073,20 @@ class TestLabBuilder:
             mock_run.return_value = mock_result
             result = probe("rl_client", "10.0.0.1")
             assert result["status"] == "unreachable"
+            assert isinstance(result.get("reason"), str) and result["reason"]
 
-        # Test delivered (success)
+        # Test default unreachable (no matching stderr pattern)
+        with patch("subprocess.run") as mock_run, patch("app.lab_builder._guard", return_value=None):
+            mock_result = Mock()
+            mock_result.returncode = 1
+            mock_result.stdout = ""
+            mock_result.stderr = "100% packet loss"
+            mock_run.return_value = mock_result
+            result = probe("rl_client", "10.0.0.1")
+            assert result["status"] == "unreachable"
+            assert isinstance(result.get("reason"), str) and result["reason"]
+
+        # Test delivered (success): no misleading reason
         with patch("subprocess.run") as mock_run, patch("app.lab_builder._guard", return_value=None):
             mock_result = Mock()
             mock_result.returncode = 0
@@ -968,6 +1095,9 @@ class TestLabBuilder:
             mock_run.return_value = mock_result
             result = probe("rl_client", "10.0.0.1")
             assert result["status"] == "delivered"
+            assert "reason" not in result or not result.get("reason")
+
+
 
 
 class TestPacketLabRoutes:
