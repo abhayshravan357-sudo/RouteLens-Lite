@@ -24,3 +24,9 @@ Thumbs.db
 
 # Local Python virtual environment
 .venv/
+
+# Environment and test artifacts (never commit)
+.env
+.env.local
+.coverage
+.pytest_cache/
