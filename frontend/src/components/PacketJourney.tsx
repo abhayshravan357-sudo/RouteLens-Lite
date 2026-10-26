@@ -18,7 +18,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type {
   LabState,
-  PacketHopResponse,
   PacketJourneyResponse,
   JourneyOutcome,
 } from '../types/routing';
@@ -129,43 +128,25 @@ const OUTCOME_PRESENTATION: Record<
 /**
  * Work out how the journey ended.
  *
- * The backend reports a hop `action` and an `explanation`. The ways a
- * journey can fail are mostly reported as "drop" apart from the loop, so the
- * explanation is consulted to tell them apart. The explanation itself is
- * always shown as well, so the student reads the backend's own words rather
- * than this summary.
+ * The outcome is derived from the backend's `success` flag and the
+ * structured `failure_code`, not from parsing the `explanation` string.
+ * The `explanation` (and `error`) is still shown as human-readable text
+ * alongside, so the student reads the backend's own words.
  *
  * "unresolved_next_hop" is not a failure: the hand-over to the next router
  * worked, and only that router's own table is missing.
  */
-function classifyOutcome(hops: PacketHopResponse[]): JourneyOutcome {
-  if (hops.length === 0) return 'in_progress';
+function classifyOutcome(response: PacketJourneyResponse | null): JourneyOutcome {
+  if (!response || response.hops.length === 0) return 'in_progress';
+  if (response.success) return 'delivered';
 
-  const last = hops[hops.length - 1];
-  const explanation = (last.explanation ?? '').toLowerCase();
-
-  if (last.action === 'deliver') return 'delivered';
-  if (last.action === 'loop') return 'loop';
-  if (last.action === 'unresolved_next_hop') return 'unresolved_next_hop';
-  if (last.action === 'error') return 'invalid_input';
-  if (hops.some((hop) => hop.action === 'loop')) return 'loop';
-  if (hops.some((hop) => hop.action === 'unresolved_next_hop')) {
-    return 'unresolved_next_hop';
+  switch (response.failure_code) {
+    case 'loop': return 'loop';
+    case 'max_hops_exceeded': return 'hop_limit_exceeded';
+    case 'no_route': return 'no_route';
+    case 'unresolved_next_hop': return 'unresolved_next_hop';
+    default: return 'invalid_input';
   }
-
-  if (last.action === 'drop') {
-    if (
-      explanation.includes('hop count') ||
-      explanation.includes('maximum hop') ||
-      explanation.includes('hop limit') ||
-      explanation.includes('ttl')
-    ) {
-      return 'hop_limit_exceeded';
-    }
-    return 'no_route';
-  }
-
-  return 'in_progress';
 }
 
 /** Whether a value looks like an address rather than a device name. */
@@ -227,7 +208,9 @@ export default function PacketJourney({
   const reportedProvenance: string | undefined =
     simulationResponse?.provenance;
 
-  const outcome = useMemo(() => classifyOutcome(hops), [hops]);
+  const outcome = useMemo(() => classifyOutcome(simulationResponse), [
+    simulationResponse,
+  ]);
   const presentation = OUTCOME_PRESENTATION[outcome];
   const stateLabels = kind === 'captured' ? CAPTURED_LABELS : CALCULATED_LABELS;
 

@@ -71,6 +71,7 @@ const DEFAULT_TIMEOUT = 10000;
 const LAB_TIMEOUT = 30000; // Longer timeout for lab operations
 const NETWORK_TIMEOUT = 15000; // Timeout for network collection
 const DIAGNOSTICS_TIMEOUT = 30000; // Longer timeout for diagnostics
+const REPORT_TIMEOUT = 30000; // Report generation can take time
 
 export class ApiError extends Error {
   constructor(
@@ -145,12 +146,12 @@ function formatDetail(detail: unknown, fallback: string): string {
 async function fetchWithTimeout<T>(
   endpoint: string,
   timeoutMs = DEFAULT_TIMEOUT,
-  options: RequestInit & { params?: Record<string, string> } = {}
+  options: RequestInit & { params?: Record<string, string>; responseType?: 'json' | 'text' } = {}
 ): Promise<T> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
-  const { params, ...init } = options;
+  const { params, responseType, ...init } = options;
   let url = `${API_BASE}${endpoint}`;
   if (params) {
     const query = new URLSearchParams(params).toString();
@@ -185,7 +186,9 @@ async function fetchWithTimeout<T>(
       );
     }
 
-    return response.json();
+    const responseType = options.responseType ?? 'json';
+
+    return (responseType === 'text' ? response.text() : response.json()) as Promise<T>;
   } catch (error) {
     clearTimeout(timeoutId);
 
@@ -717,31 +720,24 @@ export async function fetchDiscoveryAudit(): Promise<DiscoveryAuditEntry[]> {
 
 // Report export
 export async function fetchReportJson(): Promise<unknown> {
-  return fetchWithTimeout<unknown>('/api/report?format=json', 30000);
+  return fetchWithTimeout<unknown>('/api/report?format=json', REPORT_TIMEOUT);
 }
 
 export async function fetchReportMarkdown(activeExperiment?: Record<string, unknown> | null): Promise<string> {
-  const url = `${API_BASE}/api/report`;
-  let response: Response;
   if (activeExperiment) {
-    response = await fetch(url, {
+    return fetchWithTimeout<string>('/api/report', REPORT_TIMEOUT, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         format: 'markdown',
         active_experiment: activeExperiment,
       }),
+      responseType: 'text',
     });
-  } else {
-    response = await fetch(`${API_BASE}/api/report?format=markdown`);
   }
-  if (!response.ok) {
-    throw new ApiError(
-      `Could not build the report: ${response.status}`,
-      response.status
-    );
-  }
-  return response.text();
+  return fetchWithTimeout<string>('/api/report?format=markdown', REPORT_TIMEOUT, {
+    responseType: 'text',
+  });
 }
 
 // PCAP Analysis API
