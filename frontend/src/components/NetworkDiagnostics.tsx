@@ -455,7 +455,7 @@ export default function NetworkDiagnostics({ embedded = false }: NetworkDiagnost
               </button>
             </div>
             <div style={{ padding: '20px' }}>
-              <ConnectivityPanel />
+              <ConnectivityPanel initialTab="dns" />
             </div>
           </div>
         )}
@@ -473,7 +473,7 @@ export default function NetworkDiagnostics({ embedded = false }: NetworkDiagnost
               </button>
             </div>
             <div style={{ padding: '20px' }}>
-              <ConnectivityPanel />
+              <ConnectivityPanel initialTab="connectivity" />
             </div>
           </div>
         )}
@@ -502,7 +502,7 @@ export default function NetworkDiagnostics({ embedded = false }: NetworkDiagnost
               </button>
             </div>
             <div style={{ padding: '20px' }}>
-              <ConnectivityPanel />
+              <ConnectivityPanel initialTab="traceroute" />
             </div>
           </div>
         )}

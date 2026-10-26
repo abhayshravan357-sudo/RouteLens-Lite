@@ -37,8 +37,12 @@ interface TracerouteFormState {
   overall_timeout: number;
 }
 
-export default function ConnectivityPanel() {
-  const [activeTab, setActiveTab] = useState<TabType>('dns');
+interface ConnectivityPanelProps {
+  initialTab?: TabType;
+}
+
+export default function ConnectivityPanel({ initialTab = 'dns' }: ConnectivityPanelProps) {
+  const [activeTab, setActiveTab] = useState<TabType>(initialTab);
   
   const [dnsForm, setDnsForm] = useState<DnsFormState>({
     hostname: 'google.com',
