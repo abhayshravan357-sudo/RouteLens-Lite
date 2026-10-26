@@ -417,12 +417,21 @@ async def trace_packet_journey(request: PacketJourneyRequest):
     Returns:
         PacketJourneyResponse with hop-by-hop trace
     """
-    # Validate IPs
-    try:
-        IPv4Address(request.source_ip)
-        IPv4Address(request.destination_ip)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=f"Invalid IP address: {e}")
+    # Validate IPs — accept either address family; the engine itself handles
+    # IPv4 and IPv6, so the endpoint must not reject IPv6 up front.
+    def _validate_ip(value: str, field: str) -> None:
+        try:
+            IPv4Address(value)
+        except ValueError:
+            try:
+                IPv6Address(value)
+            except ValueError as e:
+                raise HTTPException(
+                    status_code=400, detail=f"Invalid IP address for {field}: {e}"
+                )
+
+    _validate_ip(request.source_ip, "source_ip")
+    _validate_ip(request.destination_ip, "destination_ip")
 
     # Trace the packet path through the routing table
     routing_table = get_routing_table()
@@ -453,16 +462,21 @@ async def trace_packet_journey(request: PacketJourneyRequest):
             hop_data.next_hop_ip = hop.next_hop_ip
         if hop.egress_interface:
             hop_data.egress_interface = hop.egress_interface
+        if hop.failure_reason:
+            hop_data.failure_reason = hop.failure_reason
         hops_data.append(hop_data)
 
-    # Determine overall success
+    # Determine overall success and the structured failure code. The
+    # failure_code comes from the terminal hop's failure_reason, never
+    # from parsing its explanation string.
     success = any(h.action == "deliver" for h in hops)
     error = None
+    failure_code = None
     if not success:
-        # Find the reason the journey did not reach the destination.
         for hop in hops:
             if hop.action in ("drop", "loop", "error", "unresolved_next_hop"):
                 error = hop.explanation
+                failure_code = hop.failure_reason
                 break
 
     return PacketJourneyResponse(
@@ -473,6 +487,7 @@ async def trace_packet_journey(request: PacketJourneyRequest):
         hops=hops_data,
         success=success,
         error=error,
+        failure_code=failure_code,
         # The path is calculated from a table. No packet is sent.
         provenance="simulated",
     )

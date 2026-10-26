@@ -66,6 +66,9 @@
           "408": {
             "description": "Capture timeout"
           },
+          "503": {
+            "description": "Lab unavailable"
+          },
           "422": {
             "description": "Validation Error",
             "content": {
@@ -75,9 +78,6 @@
                 }
               }
             }
-          },
-          "503": {
-            "description": "Lab unavailable"
           }
         }
       }
@@ -2116,23 +2116,23 @@
           },
           "timeout": {
             "type": "number",
-            "maximum": 30,
+            "maximum": 30.0,
             "minimum": 0.5,
             "title": "Timeout",
             "description": "Per-attempt timeout in seconds",
-            "default": 5
+            "default": 5.0
           },
           "count": {
             "type": "integer",
-            "maximum": 10,
-            "minimum": 1,
+            "maximum": 10.0,
+            "minimum": 1.0,
             "title": "Count",
             "description": "Number of attempts (for ICMP ping)",
             "default": 3
           },
           "interval": {
             "type": "number",
-            "maximum": 5,
+            "maximum": 5.0,
             "minimum": 0.1,
             "title": "Interval",
             "description": "Interval between attempts in seconds",
@@ -2359,15 +2359,15 @@
           },
           "max_hosts": {
             "type": "integer",
-            "maximum": 1024,
-            "minimum": 1,
+            "maximum": 1024.0,
+            "minimum": 1.0,
             "title": "Max Hosts",
             "description": "Most addresses to probe",
             "default": 256
           },
           "interval": {
             "type": "number",
-            "maximum": 10,
+            "maximum": 10.0,
             "minimum": 0.05,
             "title": "Interval",
             "description": "Seconds to wait between probes",
@@ -2375,11 +2375,11 @@
           },
           "timeout": {
             "type": "number",
-            "maximum": 10,
+            "maximum": 10.0,
             "minimum": 0.1,
             "title": "Timeout",
             "description": "Seconds to wait for a reply",
-            "default": 1
+            "default": 1.0
           },
           "confirmed": {
             "type": "boolean",
@@ -2405,7 +2405,7 @@
           "target"
         ],
         "title": "DiscoveryRequest",
-        "description": "Request to discover hosts on an authorized network.\n\nThe target must be a CIDR network or a single address that the operator\nhas explicitly authorized. The description makes clear this is a network‑\nscoped operation."
+        "description": "Request to discover hosts on an authorized network.\n\nThe target must be a CIDR network or a single address that the operator\nhas explicitly authorized. The description makes clear this is a network\u2011\nscoped operation."
       },
       "DiscoveryResponse": {
         "properties": {
@@ -2439,7 +2439,7 @@
           "duration_seconds": {
             "type": "number",
             "title": "Duration Seconds",
-            "default": 0
+            "default": 0.0
           },
           "cancelled": {
             "type": "boolean",
@@ -2485,11 +2485,11 @@
           },
           "timeout": {
             "type": "number",
-            "maximum": 30,
+            "maximum": 30.0,
             "minimum": 0.5,
             "title": "Timeout",
             "description": "Timeout in seconds",
-            "default": 5
+            "default": 5.0
           },
           "ipv6": {
             "type": "boolean",
@@ -3155,6 +3155,18 @@
             ],
             "title": "Egress Interface",
             "description": "The interface the packet left by"
+          },
+          "failure_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Reason",
+            "description": "Structured reason for a failed hop, when one applies. One of: no_route, max_hops_exceeded, loop, unresolved_next_hop, routing_table_error, invalid_source_ip, invalid_destination_ip, address_family_mismatch. Null when the hop did not fail."
           }
         },
         "type": "object",
@@ -3221,6 +3233,17 @@
             ],
             "title": "Error"
           },
+          "failure_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Code"
+          },
           "provenance": {
             "type": "string",
             "title": "Provenance",
@@ -3236,7 +3259,7 @@
           "success"
         ],
         "title": "PacketJourneyResponse",
-        "description": "Response model for packet journey trace.\n\nThe journey is worked out from a routing table. No packet is sent,\nso the answer is a calculated decision rather than an observation of\ntraffic, and `provenance` says so.\n\nAttributes:\n    source_ip: The address the packet started from\n    destination_ip: The address the packet was heading for\n    hops: Each forwarding decision, in order\n    success: Whether the packet was shown reaching the destination\n    error: Why the journey did not reach the destination, if it did not\n    provenance: How this answer was arrived at"
+        "description": "Response model for packet journey trace.\n\nThe journey is worked out from a routing table. No packet is sent,\nso the answer is a calculated decision rather than an observation of\ntraffic, and `provenance` says so.\n\nAttributes:\n    source_ip: The address the packet started from\n    destination_ip: The address the packet was heading for\n    hops: Each forwarding decision, in order\n    success: Whether the packet was shown reaching the destination\n    error: Why the journey did not reach the destination, if it did not\n    failure_code: Structured failure code, or null on successful delivery\n    provenance: How this journey was arrived at"
       },
       "PacketResponseModel": {
         "properties": {
@@ -3916,14 +3939,14 @@
           },
           "metric": {
             "type": "integer",
-            "minimum": 0,
+            "minimum": 0.0,
             "title": "Metric",
             "description": "Route metric (lower is better)",
             "default": 0
           },
           "admin_distance": {
             "type": "integer",
-            "minimum": 0,
+            "minimum": 0.0,
             "title": "Admin Distance",
             "description": "Administrative distance (lower wins)",
             "default": 0
@@ -4398,16 +4421,16 @@
           },
           "ttl": {
             "type": "integer",
-            "maximum": 255,
-            "minimum": 1,
+            "maximum": 255.0,
+            "minimum": 1.0,
             "title": "Ttl",
             "description": "Time to live (not currently used in packet generation)",
             "default": 64
           },
           "length": {
             "type": "integer",
-            "maximum": 65535,
-            "minimum": 28,
+            "maximum": 65535.0,
+            "minimum": 28.0,
             "title": "Length",
             "description": "Packet length in bytes (not currently used in packet generation)",
             "default": 84
@@ -4812,35 +4835,35 @@
           },
           "max_hops": {
             "type": "integer",
-            "maximum": 64,
-            "minimum": 1,
+            "maximum": 64.0,
+            "minimum": 1.0,
             "title": "Max Hops",
             "description": "Maximum number of hops",
             "default": 30
           },
           "timeout_per_hop": {
             "type": "number",
-            "maximum": 10,
+            "maximum": 10.0,
             "minimum": 0.5,
             "title": "Timeout Per Hop",
             "description": "Timeout per hop in seconds",
-            "default": 2
+            "default": 2.0
           },
           "probes_per_hop": {
             "type": "integer",
-            "maximum": 3,
-            "minimum": 1,
+            "maximum": 3.0,
+            "minimum": 1.0,
             "title": "Probes Per Hop",
             "description": "Number of probes per hop",
             "default": 1
           },
           "overall_timeout": {
             "type": "number",
-            "maximum": 300,
-            "minimum": 5,
+            "maximum": 300.0,
+            "minimum": 5.0,
             "title": "Overall Timeout",
             "description": "Overall timeout in seconds",
-            "default": 60
+            "default": 60.0
           }
         },
         "type": "object",

@@ -1846,6 +1846,11 @@ export interface components {
              * @description The interface the packet left by
              */
             egress_interface?: string | null;
+            /**
+             * Failure Reason
+             * @description Structured reason for a failed hop, when one applies. One of: no_route, max_hops_exceeded, loop, unresolved_next_hop, routing_table_error, invalid_source_ip, invalid_destination_ip, address_family_mismatch. Null when the hop did not fail.
+             */
+            failure_reason?: string | null;
         };
         /**
          * PacketJourneyRequest
@@ -1877,7 +1882,8 @@ export interface components {
          *         hops: Each forwarding decision, in order
          *         success: Whether the packet was shown reaching the destination
          *         error: Why the journey did not reach the destination, if it did not
-         *         provenance: How this answer was arrived at
+         *         failure_code: Structured failure code, or null on successful delivery
+         *         provenance: How this journey was arrived at
          */
         PacketJourneyResponse: {
             /** Source Ip */
@@ -1890,6 +1896,8 @@ export interface components {
             success: boolean;
             /** Error */
             error?: string | null;
+            /** Failure Code */
+            failure_code?: string | null;
             /**
              * Provenance
              * @description How this journey was worked out. 'simulated' because the path is calculated from a routing table; no packet is transmitted.
